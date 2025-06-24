@@ -58,28 +58,37 @@ def save_watchlist():
 
 
 async def send_telegram_message(text, parse_mode="HTML"):
-    async with aiohttp.ClientSession() as session:
-        async with session.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", data={
-            'chat_id': TELEGRAM_CHAT_ID,
-            'text': text,
-            'parse_mode': parse_mode
-        }) as resp:
-            if resp.status == 200:
-                data = await resp.json()
-                print(f"✉️ Отправлено сообщение в Telegram: {text[:50]}...")
-                return data.get("result", {}).get("message_id")
-            else:
-                print(f"❌ Ошибка отправки сообщения в Telegram: HTTP {resp.status}")
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", data={
+                'chat_id': TELEGRAM_CHAT_ID,
+                'text': text,
+                'parse_mode': parse_mode
+            }) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    print(f"✉️ Отправлено сообщение в Telegram: {text[:50]}...")
+                    return data.get("result", {}).get("message_id")
+                else:
+                    print(f"❌ Ошибка отправки сообщения в Telegram: HTTP {resp.status}")
+    except Exception as e:
+        print(f"❌ Исключение при отправке сообщения в Telegram: {e}")
     return None
 
 
 async def delete_message(message_id):
-    async with aiohttp.ClientSession() as session:
-        await session.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteMessage", data={
-            "chat_id": TELEGRAM_CHAT_ID,
-            "message_id": message_id
-        })
-    print(f"🗑 Удалено сообщение Telegram ID {message_id}")
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteMessage", data={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "message_id": message_id
+            }) as resp:
+                if resp.status == 200:
+                    print(f"🗑 Удалено сообщение Telegram ID {message_id}")
+                else:
+                    print(f"❌ Ошибка удаления сообщения: HTTP {resp.status}")
+    except Exception as e:
+        print(f"❌ Исключение при удалении сообщения: {e}")
 
 
 def calculate_natr_and_change(candle):
@@ -99,6 +108,7 @@ async def websocket_handler():
 
     session = aiohttp.ClientSession()
     ws = None
+    subscribed = False
 
     try:
         print("🔗 Подключаемся к WebSocket...")
@@ -111,119 +121,141 @@ async def websocket_handler():
                 await asyncio.sleep(5)
                 continue
 
-            # Подписываемся один раз после подключения и после перезапуска
-            params = []
-            for sym in WATCHLIST:
-                symbol = sym.upper() + "USDT"
-                params.append(f"spot@public.aggre.deals.v3.api.pb@100ms@{symbol}")
-                params.append(f"spot@public.ticker.v3.api.pb@{symbol}")
+            # Подписываемся только если еще не подписаны
+            if not subscribed:
+                params = []
+                for sym in WATCHLIST:
+                    symbol = sym.upper() + "USDT"
+                    params.append(f"spot@public.aggre.deals.v3.api.pb@100ms@{symbol}")
+                    params.append(f"spot@public.ticker.v3.api.pb@{symbol}")
 
-            subscribe_msg = {
-                "method": "SUBSCRIPTION",
-                "params": params,
-                "id": int(time.time())
-            }
-            await ws.send_json(subscribe_msg)
-            print(f"📋 Подписались на монеты: {', '.join(WATCHLIST)}")
-
-            async for msg in ws:
-                if not BOT_RUNNING:
-                    print("🔌 BOT_RUNNING выключен, прерываем WebSocket цикл")
+                subscribe_msg = {
+                    "method": "SUBSCRIPTION",
+                    "params": params,
+                    "id": int(time.time())
+                }
+                
+                if not ws.closed:
+                    await ws.send_json(subscribe_msg)
+                    print(f"📋 Подписались на монеты: {', '.join(WATCHLIST)}")
+                    subscribed = True
+                else:
+                    print("❌ WebSocket закрыт, прерываем цикл")
                     break
 
-                if msg.type == aiohttp.WSMsgType.TEXT:
+            # Обработка сообщений с таймаутом
+            try:
+                msg = await asyncio.wait_for(ws.receive(), timeout=30.0)
+            except asyncio.TimeoutError:
+                print("⏰ Таймаут WebSocket, проверяем соединение")
+                if ws.closed:
+                    print("❌ WebSocket закрыт по таймауту")
+                    break
+                continue
+
+            if not BOT_RUNNING:
+                print("🔌 BOT_RUNNING выключен, прерываем WebSocket цикл")
+                break
+
+            if msg.type == aiohttp.WSMsgType.TEXT:
+                try:
                     data = json.loads(msg.data)
+                except json.JSONDecodeError:
+                    print("❌ Ошибка парсинга JSON")
+                    continue
 
-                    if "dealsList" in data:
-                        symbol = data.get("symbol", "").replace("USDT", "")
-                        if symbol in WATCHLIST:
-                            trades = data["dealsList"]
-                            now_ms = int(time.time() * 1000)
-                            for t in trades:
-                                trade_time = t.get("time", now_ms)
-                                TRADE_TIMESTAMPS[symbol].append(trade_time)
-                            cutoff = now_ms - 60_000
-                            TRADE_TIMESTAMPS[symbol] = [ts for ts in TRADE_TIMESTAMPS[symbol] if ts >= cutoff]
-                            TRADE_COUNTS[symbol] = len(TRADE_TIMESTAMPS[symbol])
+                if "dealsList" in data:
+                    symbol = data.get("symbol", "").replace("USDT", "")
+                    if symbol in WATCHLIST:
+                        trades = data["dealsList"]
+                        now_ms = int(time.time() * 1000)
+                        for t in trades:
+                            trade_time = t.get("time", now_ms)
+                            TRADE_TIMESTAMPS[symbol].append(trade_time)
+                        cutoff = now_ms - 60_000
+                        TRADE_TIMESTAMPS[symbol] = [ts for ts in TRADE_TIMESTAMPS[symbol] if ts >= cutoff]
+                        TRADE_COUNTS[symbol] = len(TRADE_TIMESTAMPS[symbol])
 
-                    elif "ticker" in data:
-                        symbol = data.get("symbol", "").replace("USDT", "")
-                        if symbol in WATCHLIST:
-                            ticker = data["ticker"]
-                            candle = {
-                                "open": float(ticker.get("open", 0)),
-                                "close": float(ticker.get("close", 0)),
-                                "high": float(ticker.get("high", 0)),
-                                "low": float(ticker.get("low", 0)),
-                                "volume": float(ticker.get("volume", 0))
-                            }
-                            CANDLE_DATA[symbol] = candle
+                elif "ticker" in data:
+                    symbol = data.get("symbol", "").replace("USDT", "")
+                    if symbol in WATCHLIST:
+                        ticker = data["ticker"]
+                        candle = {
+                            "open": float(ticker.get("open", 0)),
+                            "close": float(ticker.get("close", 0)),
+                            "high": float(ticker.get("high", 0)),
+                            "low": float(ticker.get("low", 0)),
+                            "volume": float(ticker.get("volume", 0))
+                        }
+                        CANDLE_DATA[symbol] = candle
 
-                            ask = float(ticker.get("ask", 0))
-                            bid = float(ticker.get("bid", 0))
-                            if bid > 0:
-                                spread = (ask - bid) / bid * 100
-                                DEPTH_DATA[symbol] = spread
+                        ask = float(ticker.get("ask", 0))
+                        bid = float(ticker.get("bid", 0))
+                        if bid > 0:
+                            spread = (ask - bid) / bid * 100
+                            DEPTH_DATA[symbol] = spread
 
-                    # Проверяем активность монет
-                    for symbol in WATCHLIST:
-                        candle = CANDLE_DATA.get(symbol)
-                        spread = DEPTH_DATA.get(symbol)
-                        trades = TRADE_COUNTS.get(symbol, 0)
-                        if candle and spread is not None:
-                            natr, change = calculate_natr_and_change(candle)
-                            volume = candle["volume"]
-                            active = symbol in ACTIVE_COINS
-                            if volume >= VOLUME_THRESHOLD and spread >= SPREAD_THRESHOLD and natr >= NATR_THRESHOLD:
-                                if not active:
-                                    print(f"🚨 Монета {symbol} стала активной")
-                                    msg = (
-                                        f"🚨 <b>{symbol}_USDT активен</b>\n"
-                                        f"🔄 Изм: {change:.2f}%  🔁 Сделок: {trades}\n"
-                                        f"📊 Объём: ${volume:,.2f}  NATR: {natr:.2f}%\n"
-                                        f"⇄ Спред: {spread:.2f}%"
-                                    )
-                                    msg_id = await send_telegram_message(msg)
-                                    ACTIVE_COINS[symbol] = {'start': time.time(), 'msg_id': msg_id}
-                            else:
-                                if active:
-                                    duration = time.time() - ACTIVE_COINS[symbol]['start']
-                                    msg_id = ACTIVE_COINS[symbol]['msg_id']
-                                    if msg_id:
-                                        await delete_message(msg_id)
-                                    if duration >= 60:
-                                        minutes = int(duration // 60)
-                                        seconds = int(duration % 60)
-                                        msg = f"✅ <b>{symbol}_USDT</b> — активность завершена\n⏱ Длительность: {minutes} мин {seconds} сек"
-                                        await send_telegram_message(msg)
-                                    print(f"✅ Активность монеты {symbol} завершена (длительность {int(duration)} сек)")
-                                    del ACTIVE_COINS[symbol]
+                # Проверяем активность монет
+                for symbol in WATCHLIST:
+                    candle = CANDLE_DATA.get(symbol)
+                    spread = DEPTH_DATA.get(symbol)
+                    trades = TRADE_COUNTS.get(symbol, 0)
+                    if candle and spread is not None:
+                        natr, change = calculate_natr_and_change(candle)
+                        volume = candle["volume"]
+                        active = symbol in ACTIVE_COINS
+                        if volume >= VOLUME_THRESHOLD and spread >= SPREAD_THRESHOLD and natr >= NATR_THRESHOLD:
+                            if not active:
+                                print(f"🚨 Монета {symbol} стала активной")
+                                msg_text = (
+                                    f"🚨 <b>{symbol}_USDT активен</b>\n"
+                                    f"🔄 Изм: {change:.2f}%  🔁 Сделок: {trades}\n"
+                                    f"📊 Объём: ${volume:,.2f}  NATR: {natr:.2f}%\n"
+                                    f"⇄ Спред: {spread:.2f}%"
+                                )
+                                msg_id = await send_telegram_message(msg_text)
+                                ACTIVE_COINS[symbol] = {'start': time.time(), 'msg_id': msg_id}
+                        else:
+                            if active:
+                                duration = time.time() - ACTIVE_COINS[symbol]['start']
+                                msg_id = ACTIVE_COINS[symbol]['msg_id']
+                                if msg_id:
+                                    await delete_message(msg_id)
+                                if duration >= 60:
+                                    minutes = int(duration // 60)
+                                    seconds = int(duration % 60)
+                                    msg_text = f"✅ <b>{symbol}_USDT</b> — активность завершена\n⏱ Длительность: {minutes} мин {seconds} сек"
+                                    await send_telegram_message(msg_text)
+                                print(f"✅ Активность монеты {symbol} завершена (длительность {int(duration)} сек)")
+                                del ACTIVE_COINS[symbol]
 
-                elif msg.type == aiohttp.WSMsgType.ERROR:
-                    print(f"❌ Ошибка WebSocket: {msg.data}")
-                    break
+            elif msg.type == aiohttp.WSMsgType.ERROR:
+                print(f"❌ Ошибка WebSocket: {msg.data}")
+                break
+            elif msg.type == aiohttp.WSMsgType.CLOSE:
+                print("❌ WebSocket соединение закрыто сервером")
+                break
 
-                # Обработка перезапуска WebSocket при команде
-                if ws_restart_event.is_set():
-                    print("🔄 Сигнал перезапуска WebSocket получен.")
-                    ws_restart_event.clear()
-                    break
-
-            # После выхода из async for — закрываем ws и ждем перед переподключением
-            await ws.close()
-            print("🔌 WebSocket сессия закрыта")
-
-            if BOT_RUNNING:
-                print("⏳ Ждем 5 секунд перед переподключением...")
-                await asyncio.sleep(5)
+            # Обработка перезапуска WebSocket при команде
+            if ws_restart_event.is_set():
+                print("🔄 Сигнал перезапуска WebSocket получен.")
+                ws_restart_event.clear()
+                subscribed = False  # Сбрасываем флаг подписки
+                break
 
     except Exception as e:
         print(f"⚠️ WebSocket исключение: {e}")
 
     finally:
         if ws and not ws.closed:
-            await ws.close()
-        await session.close()
+            try:
+                await ws.close()
+            except Exception:
+                pass
+        try:
+            await session.close()
+        except Exception:
+            pass
         print("🔌 WebSocket сессия полностью закрыта")
 
 
