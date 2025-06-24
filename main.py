@@ -120,25 +120,26 @@ async def websocket_handler():
             
             async with websockets.connect(MEXC_WS_URL) as websocket:
                 # Подписываемся на данные (формат MEXC)
-            subscribe_msg = {
-                "method": "SUBSCRIPTION", 
-                "params": subscriptions
-            }
-            print(f"📤 Отправляем подписку: {json.dumps(subscribe_msg, indent=2)}")
-            await websocket.send(json.dumps(subscribe_msg))
-            
-            # Ждем подтверждение подписки
-            response = await websocket.recv()
-            print(f"📥 Ответ сервера: {response}")
-            
-            try:
-                response_data = json.loads(response)
-                if response_data.get('code') == 0:
-                    print("✅ Успешно подписались на потоки данных")
-                else:
-                    print(f"❌ Ошибка подписки: {response_data}")
-            except json.JSONDecodeError:
-                print(f"❌ Неожиданный формат ответа: {response}")
+                subscribe_msg = {
+                    "method": "SUBSCRIPTION", 
+                    "params": subscriptions
+                }
+                print(f"📤 Отправляем подписку: {json.dumps(subscribe_msg, indent=2)}")
+                await websocket.send(json.dumps(subscribe_msg))
+                
+                # Ждем подтверждение подписки
+                response = await websocket.recv()
+                print(f"📥 Ответ сервера: {response}")
+                
+                try:
+                    response_data = json.loads(response)
+                    if response_data.get('code') == 0:
+                        print("✅ Успешно подписались на потоки данных")
+                    else:
+                        print(f"❌ Ошибка подписки: {response_data}")
+                except json.JSONDecodeError:
+                    print(f"❌ Неожиданный формат ответа: {response}")
+                
                 print(f"✅ Подписались на {len(subscriptions)} потоков данных")
                 
                 message_count = 0
