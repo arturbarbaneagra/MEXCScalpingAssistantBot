@@ -55,13 +55,18 @@ async def delete_message(message_id):
 def calculate_metrics(symbol, kline_data):
     """Рассчитывает метрики на основе данных свечи"""
     try:
+        print(f"📊 Расчет метрик для {symbol}, данные: {kline_data}")
+        
         open_price = float(kline_data.get('o', 0))
         close_price = float(kline_data.get('c', 0))
         high_price = float(kline_data.get('h', 0))
         low_price = float(kline_data.get('l', 0))
         volume = float(kline_data.get('v', 0))
         
+        print(f"🔢 {symbol} OHLCV: O={open_price}, H={high_price}, L={low_price}, C={close_price}, V={volume}")
+        
         if close_price == 0 or open_price == 0:
+            print(f"⚠️ {symbol}: Некорректные цены (close={close_price}, open={open_price})")
             return None
         
         # NATR (Normalized Average True Range)
@@ -70,7 +75,7 @@ def calculate_metrics(symbol, kline_data):
         # Изменение цены
         change = (close_price - open_price) / open_price * 100
         
-        print(f"🔍 {symbol}: V={volume:.2f}, NATR={natr:.2f}%, Change={change:.2f}%")
+        print(f"✅ {symbol}: V={volume:.2f}, NATR={natr:.2f}%, Change={change:.2f}%")
         
         return {
             'symbol': symbol,
@@ -80,7 +85,8 @@ def calculate_metrics(symbol, kline_data):
             'close': close_price
         }
     except Exception as e:
-        print(f"Ошибка расчета метрик для {symbol}: {e}")
+        print(f"❌ Ошибка расчета метрик для {symbol}: {e}")
+        print(f"❌ Данные kline: {kline_data}")
         return None
 
 async def websocket_handler():
@@ -99,8 +105,13 @@ async def websocket_handler():
                 ])
             
             if not subscriptions:
+                print("⚠️ Нет подписок, вотчлист пуст")
                 await asyncio.sleep(5)
                 continue
+            
+            print(f"🔗 Подключаемся к WebSocket: {MEXC_WS_URL}")
+            print(f"📋 Монеты в вотчлисте: {sorted(WATCHLIST)}")
+            print(f"📡 Подготовлены подписки: {subscriptions[:5]}... (всего {len(subscriptions)})")
             
             async with websockets.connect(MEXC_WS_URL) as websocket:
                 # Подписываемся на данные
@@ -108,86 +119,126 @@ async def websocket_handler():
                     "method": "SUBSCRIPTION",
                     "params": subscriptions
                 }
+                print(f"📤 Отправляем подписку: {json.dumps(subscribe_msg, indent=2)}")
                 await websocket.send(json.dumps(subscribe_msg))
-                print(f"📡 Подписались на {len(subscriptions)} потоков данных")
+                print(f"✅ Подписались на {len(subscriptions)} потоков данных")
                 
+                message_count = 0
                 async for message in websocket:
                     if not BOT_RUNNING:
                         break
+                    
+                    message_count += 1
+                    if message_count % 100 == 0:
+                        print(f"📊 Обработано {message_count} сообщений")
                         
                     try:
-                        data = json.loads(message)
-                        await process_websocket_data(data)
-                    except json.JSONDecodeError:
+                        if message.strip():  # Проверяем что сообщение не пустое
+                            data = json.loads(message)
+                            await process_websocket_data(data)
+                        else:
+                            print("⚠️ Получено пустое сообщение")
+                    except json.JSONDecodeError as e:
+                        print(f"❌ Ошибка JSON: {e}, сообщение: {message[:100]}...")
                         continue
                     except Exception as e:
-                        print(f"Ошибка обработки данных: {e}")
+                        print(f"❌ Ошибка обработки данных: {e}")
                         
         except Exception as e:
-            print(f"Ошибка WebSocket: {e}")
+            print(f"❌ Ошибка WebSocket: {e}")
             if BOT_RUNNING:
+                print("🔄 Переподключение через 5 секунд...")
                 await asyncio.sleep(5)
 
 async def process_websocket_data(data):
     """Обрабатывает данные от WebSocket"""
     global COIN_DATA, ACTIVE_COINS
     
+    # Логируем все входящие данные для отладки
+    print(f"🔍 Получены данные: {json.dumps(data, indent=2)}")
+    
     # Проверяем, что это нужный нам тип данных
     if not isinstance(data, dict):
+        print("❌ Данные не являются словарем")
         return
     
-    # Обработка данных kline
+    # Проверяем различные форматы данных от MEXC
+    print(f"📦 Структура данных: {list(data.keys())}")
+    
+    # Обработка данных kline (различные возможные форматы)
+    kline_processed = False
+    
+    # Формат 1: данные в поле 'd'
     if 'd' in data and 's' in data:
+        print("🎯 Обнаружен формат kline с полем 'd'")
         symbol_full = data['s']
-        if not symbol_full.endswith('USDT'):
-            return
-        
-        symbol = symbol_full.replace('USDT', '')
-        
-        if symbol not in WATCHLIST:
-            return
-        
-        kline_data = data['d']
-        if isinstance(kline_data, dict):
-            metrics = calculate_metrics(symbol, kline_data)
-            
-            if metrics:
-                if symbol not in COIN_DATA:
-                    COIN_DATA[symbol] = {}
-                
-                COIN_DATA[symbol].update({
-                    **metrics,
-                    'last_update': time.time()
-                })
-                
-                print(f"📊 Обновлены данные для {symbol}: V={metrics['volume']:.2f}, NATR={metrics['natr']:.2f}%")
+        if symbol_full.endswith('USDT'):
+            symbol = symbol_full.replace('USDT', '')
+            if symbol in WATCHLIST:
+                kline_data = data['d']
+                print(f"📈 Данные kline для {symbol}: {kline_data}")
+                if isinstance(kline_data, dict):
+                    metrics = calculate_metrics(symbol, kline_data)
+                    if metrics:
+                        if symbol not in COIN_DATA:
+                            COIN_DATA[symbol] = {}
+                        COIN_DATA[symbol].update({
+                            **metrics,
+                            'last_update': time.time()
+                        })
+                        print(f"✅ Обновлены данные для {symbol}: V={metrics['volume']:.2f}, NATR={metrics['natr']:.2f}%")
+                        kline_processed = True
+    
+    # Формат 2: прямые данные kline
+    elif 'o' in data and 'c' in data and 'h' in data and 'l' in data and 'v' in data and 's' in data:
+        print("🎯 Обнаружен прямой формат kline")
+        symbol_full = data['s']
+        if symbol_full.endswith('USDT'):
+            symbol = symbol_full.replace('USDT', '')
+            if symbol in WATCHLIST:
+                print(f"📈 Прямые данные kline для {symbol}: {data}")
+                metrics = calculate_metrics(symbol, data)
+                if metrics:
+                    if symbol not in COIN_DATA:
+                        COIN_DATA[symbol] = {}
+                    COIN_DATA[symbol].update({
+                        **metrics,
+                        'last_update': time.time()
+                    })
+                    print(f"✅ Обновлены данные для {symbol}: V={metrics['volume']:.2f}, NATR={metrics['natr']:.2f}%")
+                    kline_processed = True
     
     # Обработка данных bookTicker
-    elif 'c' in data and 's' in data and 'b' in data and 'a' in data:
+    ticker_processed = False
+    
+    # Различные форматы ticker данных
+    if 'b' in data and 'a' in data and 's' in data:
+        print("🎯 Обнаружен формат bookTicker")
         symbol_full = data['s']
-        if not symbol_full.endswith('USDT'):
-            return
-            
-        symbol = symbol_full.replace('USDT', '')
-        
-        if symbol not in WATCHLIST:
-            return
-        
-        try:
-            bid = float(data['b'])
-            ask = float(data['a'])
-            if bid > 0:
-                spread = (ask - bid) / bid * 100
-                
-                if symbol not in COIN_DATA:
-                    COIN_DATA[symbol] = {}
-                
-                COIN_DATA[symbol]['spread'] = spread
-                COIN_DATA[symbol]['last_update'] = time.time()
-                
-                print(f"💰 Обновлен спред для {symbol}: {spread:.3f}%")
-        except (ValueError, ZeroDivisionError) as e:
-            print(f"Ошибка обработки спреда для {symbol}: {e}")
+        if symbol_full.endswith('USDT'):
+            symbol = symbol_full.replace('USDT', '')
+            if symbol in WATCHLIST:
+                try:
+                    bid = float(data['b'])
+                    ask = float(data['a'])
+                    print(f"💰 Ticker данные для {symbol}: bid={bid}, ask={ask}")
+                    if bid > 0:
+                        spread = (ask - bid) / bid * 100
+                        
+                        if symbol not in COIN_DATA:
+                            COIN_DATA[symbol] = {}
+                        
+                        COIN_DATA[symbol]['spread'] = spread
+                        COIN_DATA[symbol]['last_update'] = time.time()
+                        
+                        print(f"✅ Обновлен спред для {symbol}: {spread:.3f}%")
+                        ticker_processed = True
+                except (ValueError, ZeroDivisionError) as e:
+                    print(f"❌ Ошибка обработки спреда для {symbol}: {e}")
+    
+    # Если ничего не обработано, выводим полную информацию
+    if not kline_processed and not ticker_processed:
+        print(f"⚠️ Неизвестный формат данных: {data}")
     
     # Проверяем условия активности для всех монет с обновленными данными
     for symbol in COIN_DATA.keys():
