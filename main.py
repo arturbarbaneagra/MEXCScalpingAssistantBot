@@ -139,7 +139,7 @@ async def websocket_handler():
                     # Небольшая пауза между подписками
                     await asyncio.sleep(0.1)
                 
-                print(f"✅ Отправили {len(subscriptions)} подписок, ожидаем данные..."
+                print(f"✅ Отправили {len(subscriptions)} подписок, ожидаем данные...")
                 
                 message_count = 0
                 last_log_time = time.time()
