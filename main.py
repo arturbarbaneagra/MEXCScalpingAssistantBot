@@ -52,30 +52,36 @@ async def delete_message(message_id):
         "message_id": message_id
     })
 
-def calculate_metrics(symbol, data):
+def calculate_metrics(symbol, kline_data):
     """Рассчитывает метрики на основе данных свечи"""
-    open_price = float(data.get('o', 0))
-    close_price = float(data.get('c', 0))
-    high_price = float(data.get('h', 0))
-    low_price = float(data.get('l', 0))
-    volume = float(data.get('v', 0))
-    
-    if close_price == 0 or open_price == 0:
+    try:
+        open_price = float(kline_data.get('o', 0))
+        close_price = float(kline_data.get('c', 0))
+        high_price = float(kline_data.get('h', 0))
+        low_price = float(kline_data.get('l', 0))
+        volume = float(kline_data.get('v', 0))
+        
+        if close_price == 0 or open_price == 0:
+            return None
+        
+        # NATR (Normalized Average True Range)
+        natr = (high_price - low_price) / close_price * 100
+        
+        # Изменение цены
+        change = (close_price - open_price) / open_price * 100
+        
+        print(f"🔍 {symbol}: V={volume:.2f}, NATR={natr:.2f}%, Change={change:.2f}%")
+        
+        return {
+            'symbol': symbol,
+            'volume': volume,
+            'natr': natr,
+            'change': change,
+            'close': close_price
+        }
+    except Exception as e:
+        print(f"Ошибка расчета метрик для {symbol}: {e}")
         return None
-    
-    # NATR (Normalized Average True Range)
-    natr = (high_price - low_price) / close_price * 100
-    
-    # Изменение цены
-    change = (close_price - open_price) / open_price * 100
-    
-    return {
-        'symbol': symbol,
-        'volume': volume,
-        'natr': natr,
-        'change': change,
-        'close': close_price
-    }
 
 async def websocket_handler():
     """Обработчик WebSocket соединения"""
@@ -120,49 +126,73 @@ async def websocket_handler():
         except Exception as e:
             print(f"Ошибка WebSocket: {e}")
             if BOT_RUNNING:
-                await asyncio.sleep(5)  # Ждем перед переподключением
+                await asyncio.sleep(5)
 
 async def process_websocket_data(data):
     """Обрабатывает данные от WebSocket"""
     global COIN_DATA, ACTIVE_COINS
     
-    if 'c' not in data or 's' not in data:
+    # Проверяем, что это нужный нам тип данных
+    if not isinstance(data, dict):
         return
     
-    symbol_full = data['s']
-    if not symbol_full.endswith('USDT'):
-        return
-    
-    symbol = symbol_full.replace('USDT', '')
-    
-    if symbol not in WATCHLIST:
-        return
-    
-    # Обновляем данные свечей
-    if 'k' in data:
-        kline_data = data['k']
-        metrics = calculate_metrics(symbol, kline_data)
+    # Обработка данных kline
+    if 'd' in data and 's' in data:
+        symbol_full = data['s']
+        if not symbol_full.endswith('USDT'):
+            return
         
-        if metrics:
-            COIN_DATA[symbol] = {
-                **metrics,
-                'last_update': time.time(),
-                'spread': COIN_DATA.get(symbol, {}).get('spread', 0)
-            }
+        symbol = symbol_full.replace('USDT', '')
+        
+        if symbol not in WATCHLIST:
+            return
+        
+        kline_data = data['d']
+        if isinstance(kline_data, dict):
+            metrics = calculate_metrics(symbol, kline_data)
+            
+            if metrics:
+                if symbol not in COIN_DATA:
+                    COIN_DATA[symbol] = {}
+                
+                COIN_DATA[symbol].update({
+                    **metrics,
+                    'last_update': time.time()
+                })
+                
+                print(f"📊 Обновлены данные для {symbol}: V={metrics['volume']:.2f}, NATR={metrics['natr']:.2f}%")
     
-    # Обновляем данные спреда
-    elif 'b' in data and 'a' in data:  # bookTicker данные
-        bid = float(data['b'])
-        ask = float(data['a'])
-        if bid > 0:
-            spread = (ask - bid) / bid * 100
-            if symbol in COIN_DATA:
+    # Обработка данных bookTicker
+    elif 'c' in data and 's' in data and 'b' in data and 'a' in data:
+        symbol_full = data['s']
+        if not symbol_full.endswith('USDT'):
+            return
+            
+        symbol = symbol_full.replace('USDT', '')
+        
+        if symbol not in WATCHLIST:
+            return
+        
+        try:
+            bid = float(data['b'])
+            ask = float(data['a'])
+            if bid > 0:
+                spread = (ask - bid) / bid * 100
+                
+                if symbol not in COIN_DATA:
+                    COIN_DATA[symbol] = {}
+                
                 COIN_DATA[symbol]['spread'] = spread
-            else:
-                COIN_DATA[symbol] = {'spread': spread, 'last_update': time.time()}
+                COIN_DATA[symbol]['last_update'] = time.time()
+                
+                print(f"💰 Обновлен спред для {symbol}: {spread:.3f}%")
+        except (ValueError, ZeroDivisionError) as e:
+            print(f"Ошибка обработки спреда для {symbol}: {e}")
     
-    # Проверяем условия активности
-    await check_coin_activity(symbol)
+    # Проверяем условия активности для всех монет с обновленными данными
+    for symbol in COIN_DATA.keys():
+        if symbol in WATCHLIST:
+            await check_coin_activity(symbol)
 
 async def check_coin_activity(symbol):
     """Проверяет активность монеты и отправляет уведомления"""
@@ -181,11 +211,17 @@ async def check_coin_activity(symbol):
     natr = data.get('natr', 0)
     change = data.get('change', 0)
     
+    # Проверяем наличие всех необходимых данных
+    if volume == 0 or spread == 0 or natr == 0:
+        return
+    
     is_active = (volume >= VOLUME_THRESHOLD and 
                  spread >= SPREAD_THRESHOLD and 
                  natr >= NATR_THRESHOLD)
     
     currently_active = symbol in ACTIVE_COINS
+    
+    print(f"🔍 Проверка {symbol}: V={volume:.2f} (>{VOLUME_THRESHOLD}), S={spread:.3f}% (>{SPREAD_THRESHOLD}), NATR={natr:.2f}% (>{NATR_THRESHOLD}) = {'АКТИВЕН' if is_active else 'НЕ АКТИВЕН'}")
     
     if is_active and not currently_active:
         # Монета стала активной
@@ -197,6 +233,7 @@ async def check_coin_activity(symbol):
         )
         msg_id = await send_telegram_message(msg)
         ACTIVE_COINS[symbol] = {'start': now, 'msg_id': msg_id}
+        print(f"🚨 {symbol} стал активным!")
         
     elif not is_active and currently_active:
         # Монета стала неактивной
@@ -213,6 +250,7 @@ async def check_coin_activity(symbol):
             await send_telegram_message(msg)
         
         del ACTIVE_COINS[symbol]
+        print(f"✅ {symbol} стал неактивным")
 
 async def cleanup_old_data():
     """Очищает устаревшие данные"""
@@ -248,16 +286,17 @@ def start_bot_loop():
 MENU_KEYBOARD = ReplyKeyboardMarkup([
     ["Запустить бота", "Выключить бота"],
     ["Добавить монету", "Исключить монету"],
-    ["Показать список монет", "Статус активных монет"]
+    ["Показать список монет", "Статус активных монет"],
+    ["Показать данные монет", "Установить пороги"]
 ], resize_keyboard=True)
 
-ADDING, REMOVING = range(2)
+ADDING, REMOVING, SETTING_THRESHOLDS = range(3)
 
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Выберите действие:", reply_markup=MENU_KEYBOARD)
 
 async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    global BOT_RUNNING
+    global BOT_RUNNING, VOLUME_THRESHOLD, SPREAD_THRESHOLD, NATR_THRESHOLD
     t = update.message.text
     
     if t == "Запустить бота":
@@ -297,6 +336,29 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             text = "💤 Нет активных монет"
         await update.message.reply_text(text, reply_markup=MENU_KEYBOARD)
         
+    elif t == "Показать данные монет":
+        if COIN_DATA:
+            lines = []
+            for symbol, data in list(COIN_DATA.items())[:10]:  # Показываем первые 10
+                volume = data.get('volume', 0)
+                spread = data.get('spread', 0)
+                natr = data.get('natr', 0)
+                change = data.get('change', 0)
+                lines.append(f"📊 {symbol}: V={volume:.0f}, S={spread:.3f}%, NATR={natr:.2f}%, Δ={change:.2f}%")
+            text = "📈 Данные монет:\n" + "\n".join(lines)
+        else:
+            text = "📭 Нет данных о монетах"
+        await update.message.reply_text(text, reply_markup=MENU_KEYBOARD)
+        
+    elif t == "Установить пороги":
+        text = (f"📊 Текущие пороги:\n"
+                f"• Объём: {VOLUME_THRESHOLD}\n"
+                f"• Спред: {SPREAD_THRESHOLD}%\n"
+                f"• NATR: {NATR_THRESHOLD}%\n\n"
+                f"Введите новые значения через пробел:\nобъём спред natr")
+        await update.message.reply_text(text)
+        return SETTING_THRESHOLDS
+        
     else:
         await update.message.reply_text("Выберите из меню:", reply_markup=MENU_KEYBOARD)
     
@@ -304,7 +366,6 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def add_coin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     coin = update.message.text.upper().strip().replace("_USDT", "")
-    # Простая проверка валидности символа
     if len(coin) >= 2 and coin.isalnum():
         WATCHLIST.add(coin)
         save_watchlist()
@@ -318,7 +379,6 @@ async def remove_coin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if coin in WATCHLIST:
         WATCHLIST.remove(coin)
         save_watchlist()
-        # Удаляем из активных монет и данных
         if coin in ACTIVE_COINS:
             del ACTIVE_COINS[coin]
         if coin in COIN_DATA:
@@ -326,6 +386,26 @@ async def remove_coin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"🗑️ {coin} удалена из отслеживания.", reply_markup=MENU_KEYBOARD)
     else:
         await update.message.reply_text(f"❌ {coin} не найдена в списке.", reply_markup=MENU_KEYBOARD)
+    return ConversationHandler.END
+
+async def set_thresholds(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    global VOLUME_THRESHOLD, SPREAD_THRESHOLD, NATR_THRESHOLD
+    try:
+        parts = update.message.text.strip().split()
+        if len(parts) == 3:
+            VOLUME_THRESHOLD = float(parts[0])
+            SPREAD_THRESHOLD = float(parts[1])
+            NATR_THRESHOLD = float(parts[2])
+            text = (f"✅ Пороги обновлены:\n"
+                    f"• Объём: {VOLUME_THRESHOLD}\n"
+                    f"• Спред: {SPREAD_THRESHOLD}%\n"
+                    f"• NATR: {NATR_THRESHOLD}%")
+        else:
+            text = "❌ Введите 3 числа через пробел"
+    except ValueError:
+        text = "❌ Некорректные числа"
+    
+    await update.message.reply_text(text, reply_markup=MENU_KEYBOARD)
     return ConversationHandler.END
 
 # ————————————
@@ -336,7 +416,8 @@ if __name__ == '__main__':
         entry_points=[MessageHandler(filters.TEXT & ~filters.COMMAND, button_handler)],
         states={
             ADDING: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_coin)],
-            REMOVING: [MessageHandler(filters.TEXT & ~filters.COMMAND, remove_coin)]
+            REMOVING: [MessageHandler(filters.TEXT & ~filters.COMMAND, remove_coin)],
+            SETTING_THRESHOLDS: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_thresholds)]
         },
         fallbacks=[],
         per_message=False
