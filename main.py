@@ -204,7 +204,13 @@ async def process_websocket_data(data):
     # Обработка данных kline (свечи)
     if 'kline' in channel and 'd' in data:
         print(f"📈 Получены данные kline для {symbol}")
-        kline_data = data['d']
+        
+        # Извлекаем данные из поля 'k' (MEXC формат)
+        if 'k' in data['d']:
+            kline_data = data['d']['k']
+            print(f"🔍 Извлечены kline данные из 'k': {kline_data}")
+        else:
+            kline_data = data['d']
         
         # Ожидаемые поля для kline данных
         if all(field in kline_data for field in ['o', 'h', 'l', 'c', 'v']):
