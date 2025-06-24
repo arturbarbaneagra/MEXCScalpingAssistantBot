@@ -95,19 +95,20 @@ async def websocket_handler():
     
     while BOT_RUNNING:
         try:
-            # Подготавливаем подписки для монет из вотчлиста (формат MEXC)
+            # Подготавливаем подписки для монет из вотчлиста (правильный формат MEXC)
             subscriptions = []
             for coin in WATCHLIST:
                 symbol = coin + "USDT"
+                # Правильный формат для MEXC WebSocket API
                 subscriptions.extend([
                     f"spot@public.kline.v3.api@{symbol}@Min1",
                     f"spot@public.bookTicker.v3.api@{symbol}"
                 ])
             
             # Ограничиваем количество подписок (MEXC может иметь лимиты)
-            if len(subscriptions) > 40:
-                subscriptions = subscriptions[:40]
-                print(f"⚠️ Ограничили количество подписок до 40")
+            if len(subscriptions) > 20:  # Уменьшим лимит
+                subscriptions = subscriptions[:20]
+                print(f"⚠️ Ограничили количество подписок до 20")
             
             if not subscriptions:
                 print("⚠️ Нет подписок, вотчлист пуст")
@@ -116,31 +117,29 @@ async def websocket_handler():
             
             print(f"🔗 Подключаемся к WebSocket: {MEXC_WS_URL}")
             print(f"📋 Монеты в вотчлисте: {sorted(WATCHLIST)}")
-            print(f"📡 Подготовлены подписки: {subscriptions[:5]}... (всего {len(subscriptions)})")
+            print(f"📡 Подготовлены подписки: {subscriptions[:3]}... (всего {len(subscriptions)})")
             
             async with websockets.connect(MEXC_WS_URL) as websocket:
-                # Подписываемся на данные (формат MEXC)
-                subscribe_msg = {
-                    "method": "SUBSCRIPTION", 
-                    "params": subscriptions
-                }
-                print(f"📤 Отправляем подписку: {json.dumps(subscribe_msg, indent=2)}")
-                await websocket.send(json.dumps(subscribe_msg))
+                # Отправляем подписки по одной (может быть проблема с batch подпиской)
+                for subscription in subscriptions:
+                    subscribe_msg = {
+                        "method": "SUBSCRIPTION", 
+                        "params": [subscription]
+                    }
+                    print(f"📤 Отправляем подписку: {subscription}")
+                    await websocket.send(json.dumps(subscribe_msg))
+                    
+                    # Ждем ответ на каждую подписку
+                    try:
+                        response = await asyncio.wait_for(websocket.recv(), timeout=2.0)
+                        print(f"📥 Ответ на {subscription}: {response}")
+                    except asyncio.TimeoutError:
+                        print(f"⏰ Таймаут ответа на {subscription}")
+                    
+                    # Небольшая пауза между подписками
+                    await asyncio.sleep(0.1)
                 
-                # Ждем подтверждение подписки
-                response = await websocket.recv()
-                print(f"📥 Ответ сервера: {response}")
-                
-                try:
-                    response_data = json.loads(response)
-                    if response_data.get('code') == 0:
-                        print("✅ Успешно подписались на потоки данных")
-                    else:
-                        print(f"❌ Ошибка подписки: {response_data}")
-                except json.JSONDecodeError:
-                    print(f"❌ Неожиданный формат ответа: {response}")
-                
-                print(f"✅ Подписались на {len(subscriptions)} потоков данных")
+                print(f"✅ Отправили {len(subscriptions)} подписок, ожидаем данные..."
                 
                 message_count = 0
                 last_log_time = time.time()
