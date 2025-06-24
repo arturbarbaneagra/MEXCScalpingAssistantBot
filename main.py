@@ -95,7 +95,7 @@ async def websocket_handler():
     
     while BOT_RUNNING:
         try:
-            # Подготавливаем подписки для монет из вотчлиста
+            # Подготавливаем подписки для монет из вотчлиста (формат MEXC)
             subscriptions = []
             for coin in WATCHLIST:
                 symbol = coin + "USDT"
@@ -103,6 +103,11 @@ async def websocket_handler():
                     f"spot@public.kline.v3.api@{symbol}@Min1",
                     f"spot@public.bookTicker.v3.api@{symbol}"
                 ])
+            
+            # Ограничиваем количество подписок (MEXC может иметь лимиты)
+            if len(subscriptions) > 40:
+                subscriptions = subscriptions[:40]
+                print(f"⚠️ Ограничили количество подписок до 40")
             
             if not subscriptions:
                 print("⚠️ Нет подписок, вотчлист пуст")
@@ -114,27 +119,51 @@ async def websocket_handler():
             print(f"📡 Подготовлены подписки: {subscriptions[:5]}... (всего {len(subscriptions)})")
             
             async with websockets.connect(MEXC_WS_URL) as websocket:
-                # Подписываемся на данные
-                subscribe_msg = {
-                    "method": "SUBSCRIPTION",
-                    "params": subscriptions
-                }
-                print(f"📤 Отправляем подписку: {json.dumps(subscribe_msg, indent=2)}")
-                await websocket.send(json.dumps(subscribe_msg))
+                # Подписываемся на данные (формат MEXC)
+            subscribe_msg = {
+                "method": "SUBSCRIPTION", 
+                "params": subscriptions
+            }
+            print(f"📤 Отправляем подписку: {json.dumps(subscribe_msg, indent=2)}")
+            await websocket.send(json.dumps(subscribe_msg))
+            
+            # Ждем подтверждение подписки
+            response = await websocket.recv()
+            print(f"📥 Ответ сервера: {response}")
+            
+            try:
+                response_data = json.loads(response)
+                if response_data.get('code') == 0:
+                    print("✅ Успешно подписались на потоки данных")
+                else:
+                    print(f"❌ Ошибка подписки: {response_data}")
+            except json.JSONDecodeError:
+                print(f"❌ Неожиданный формат ответа: {response}")
                 print(f"✅ Подписались на {len(subscriptions)} потоков данных")
                 
                 message_count = 0
+                last_log_time = time.time()
+                
                 async for message in websocket:
                     if not BOT_RUNNING:
                         break
                     
                     message_count += 1
-                    if message_count % 100 == 0:
-                        print(f"📊 Обработано {message_count} сообщений")
+                    current_time = time.time()
+                    
+                    # Логируем каждые 30 секунд
+                    if current_time - last_log_time > 30:
+                        print(f"📊 Обработано {message_count} сообщений, активных монет: {len(ACTIVE_COINS)}")
+                        last_log_time = current_time
                         
                     try:
                         if message.strip():  # Проверяем что сообщение не пустое
                             data = json.loads(message)
+                            
+                            # Логируем первые несколько сообщений для отладки
+                            if message_count <= 5:
+                                print(f"🔍 Сообщение #{message_count}: {json.dumps(data, indent=2)[:200]}...")
+                            
                             await process_websocket_data(data)
                         else:
                             print("⚠️ Получено пустое сообщение")
