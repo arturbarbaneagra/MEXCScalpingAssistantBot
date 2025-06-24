@@ -183,96 +183,79 @@ async def process_websocket_data(data):
     """Обрабатывает данные от WebSocket"""
     global COIN_DATA, ACTIVE_COINS
     
-    # Логируем все входящие данные для отладки
-    print(f"🔍 Получены данные: {json.dumps(data, indent=2)}")
-    
     # Проверяем, что это нужный нам тип данных
     if not isinstance(data, dict):
         print("❌ Данные не являются словарем")
         return
     
-    # Проверяем различные форматы данных от MEXC
-    print(f"📦 Структура данных: {list(data.keys())}")
+    # Определяем тип сообщения по полю 'c' (channel)
+    channel = data.get('c', '')
+    symbol_full = data.get('s', '')
     
-    # Обработка данных kline (различные возможные форматы)
-    kline_processed = False
+    if not symbol_full.endswith('USDT'):
+        return
+        
+    symbol = symbol_full.replace('USDT', '')
+    if symbol not in WATCHLIST:
+        return
     
-    # Формат 1: данные в поле 'd'
-    if 'd' in data and 's' in data:
-        print("🎯 Обнаружен формат kline с полем 'd'")
-        symbol_full = data['s']
-        if symbol_full.endswith('USDT'):
-            symbol = symbol_full.replace('USDT', '')
-            if symbol in WATCHLIST:
-                kline_data = data['d']
-                print(f"📈 Данные kline для {symbol}: {kline_data}")
-                if isinstance(kline_data, dict):
-                    metrics = calculate_metrics(symbol, kline_data)
-                    if metrics:
-                        if symbol not in COIN_DATA:
-                            COIN_DATA[symbol] = {}
-                        COIN_DATA[symbol].update({
-                            **metrics,
-                            'last_update': time.time()
-                        })
-                        print(f"✅ Обновлены данные для {symbol}: V={metrics['volume']:.2f}, NATR={metrics['natr']:.2f}%")
-                        kline_processed = True
+    print(f"📦 Канал: {channel}, Символ: {symbol}")
     
-    # Формат 2: прямые данные kline
-    elif 'o' in data and 'c' in data and 'h' in data and 'l' in data and 'v' in data and 's' in data:
-        print("🎯 Обнаружен прямой формат kline")
-        symbol_full = data['s']
-        if symbol_full.endswith('USDT'):
-            symbol = symbol_full.replace('USDT', '')
-            if symbol in WATCHLIST:
-                print(f"📈 Прямые данные kline для {symbol}: {data}")
-                metrics = calculate_metrics(symbol, data)
-                if metrics:
+    # Обработка данных kline (свечи)
+    if 'kline' in channel and 'd' in data:
+        print(f"📈 Получены данные kline для {symbol}")
+        kline_data = data['d']
+        
+        # Ожидаемые поля для kline данных
+        if all(field in kline_data for field in ['o', 'h', 'l', 'c', 'v']):
+            metrics = calculate_metrics(symbol, kline_data)
+            if metrics:
+                if symbol not in COIN_DATA:
+                    COIN_DATA[symbol] = {}
+                COIN_DATA[symbol].update({
+                    **metrics,
+                    'last_update': time.time()
+                })
+                print(f"✅ Обновлены kline данные для {symbol}: V={metrics['volume']:.2f}, NATR={metrics['natr']:.2f}%")
+        else:
+            print(f"⚠️ Неполные kline данные для {symbol}: {kline_data}")
+    
+    # Обработка данных bookTicker (лучшие цены)
+    elif 'bookTicker' in channel and 'd' in data:
+        print(f"💰 Получены данные bookTicker для {symbol}")
+        ticker_data = data['d']
+        
+        # Проверяем наличие bid и ask цен
+        if 'b' in ticker_data and 'a' in ticker_data:
+            try:
+                bid = float(ticker_data['b'])
+                ask = float(ticker_data['a'])
+                
+                print(f"💰 {symbol}: bid={bid}, ask={ask}")
+                
+                if bid > 0:
+                    spread = (ask - bid) / bid * 100
+                    
                     if symbol not in COIN_DATA:
                         COIN_DATA[symbol] = {}
-                    COIN_DATA[symbol].update({
-                        **metrics,
-                        'last_update': time.time()
-                    })
-                    print(f"✅ Обновлены данные для {symbol}: V={metrics['volume']:.2f}, NATR={metrics['natr']:.2f}%")
-                    kline_processed = True
+                    
+                    COIN_DATA[symbol]['spread'] = spread
+                    COIN_DATA[symbol]['last_update'] = time.time()
+                    
+                    print(f"✅ Обновлен спред для {symbol}: {spread:.3f}%")
+                    
+            except (ValueError, ZeroDivisionError) as e:
+                print(f"❌ Ошибка обработки спреда для {symbol}: {e}")
+        else:
+            print(f"⚠️ Неполные ticker данные для {symbol}: {ticker_data}")
     
-    # Обработка данных bookTicker
-    ticker_processed = False
+    else:
+        # Логируем только первые несколько неизвестных сообщений
+        print(f"⚠️ Неизвестный тип сообщения: канал={channel}, данные={data}")
     
-    # Различные форматы ticker данных
-    if 'b' in data and 'a' in data and 's' in data:
-        print("🎯 Обнаружен формат bookTicker")
-        symbol_full = data['s']
-        if symbol_full.endswith('USDT'):
-            symbol = symbol_full.replace('USDT', '')
-            if symbol in WATCHLIST:
-                try:
-                    bid = float(data['b'])
-                    ask = float(data['a'])
-                    print(f"💰 Ticker данные для {symbol}: bid={bid}, ask={ask}")
-                    if bid > 0:
-                        spread = (ask - bid) / bid * 100
-                        
-                        if symbol not in COIN_DATA:
-                            COIN_DATA[symbol] = {}
-                        
-                        COIN_DATA[symbol]['spread'] = spread
-                        COIN_DATA[symbol]['last_update'] = time.time()
-                        
-                        print(f"✅ Обновлен спред для {symbol}: {spread:.3f}%")
-                        ticker_processed = True
-                except (ValueError, ZeroDivisionError) as e:
-                    print(f"❌ Ошибка обработки спреда для {symbol}: {e}")
-    
-    # Если ничего не обработано, выводим полную информацию
-    if not kline_processed and not ticker_processed:
-        print(f"⚠️ Неизвестный формат данных: {data}")
-    
-    # Проверяем условия активности для всех монет с обновленными данными
-    for symbol in COIN_DATA.keys():
-        if symbol in WATCHLIST:
-            await check_coin_activity(symbol)
+    # Проверяем условия активности для обновленного символа
+    if symbol in COIN_DATA:
+        await check_coin_activity(symbol)
 
 async def check_coin_activity(symbol):
     """Проверяет активность монеты и отправляет уведомления"""
