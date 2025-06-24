@@ -4,4 +4,10 @@ version = "0.1.0"
 description = ""
 authors = ["Your Name <you@example.com>"]
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "aiohttp>=3.12.13",
+    "nest-asyncio>=1.6.0",
+    "requests>=2.32.4",
+    "telegram>=0.0.1",
+    "websockets>=15.0.1",
+]
