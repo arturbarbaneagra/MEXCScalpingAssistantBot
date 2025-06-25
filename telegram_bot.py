@@ -749,8 +749,7 @@ class TradingTelegramBot:
                 await asyncio.sleep(2)
                 return
             else:
-                bot_logger.error(f"Ошибка Telegram бота: {error}",```python
- exc_info=True)
+                bot_logger.error(f"Ошибка Telegram бота: {error}", exc_info=True)
 
         self.app = builder.build()
         self.app.add_error_handler(error_handler)

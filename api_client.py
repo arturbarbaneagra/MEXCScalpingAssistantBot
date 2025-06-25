@@ -75,7 +75,7 @@ class MexcApiClient:
         return None
 
     def get_candle(self, symbol: str, interval: str = '1m') -> Optional[Dict]:
-        """Получает данные свечи"""
+        """Получает данные свечи согласно документации MEXC"""
         symbol = symbol if symbol.endswith("USDT") else symbol + "USDT"
         params = {
             'symbol': symbol,
@@ -89,23 +89,32 @@ class MexcApiClient:
 
         try:
             candle = data[0]
+            # Структура согласно MEXC API документации:
+            # [Open time, Open, High, Low, Close, Volume, Close time, Quote asset volume]
+            if len(candle) < 8:
+                bot_logger.warning(f"Некорректная структура свечи для {symbol}: {len(candle)} полей")
+                return None
+                
             return {
-                'open': float(candle[1]),
-                'high': float(candle[2]),
-                'low': float(candle[3]),
-                'close': float(candle[4]),
-                'volume': float(candle[5]),
-                'timestamp': int(candle[0])
+                'open_time': int(candle[0]),      # Index 0: Open time
+                'open': float(candle[1]),         # Index 1: Open
+                'high': float(candle[2]),         # Index 2: High
+                'low': float(candle[3]),          # Index 3: Low  
+                'close': float(candle[4]),        # Index 4: Close
+                'volume': float(candle[5]),       # Index 5: Volume
+                'close_time': int(candle[6]),     # Index 6: Close time
+                'quote_volume': float(candle[7]), # Index 7: Quote asset volume
+                'timestamp': int(candle[0])       # Для обратной совместимости
             }
         except (IndexError, ValueError, TypeError) as e:
             bot_logger.error(f"Ошибка парсинга свечи для {symbol}: {e}")
             return None
 
     def get_ticker(self, symbol: str) -> Optional[Dict]:
-        """Получает тикер монеты с 1-минутными данными"""
+        """Получает тикер монеты с 1-минутными данными согласно MEXC API"""
         symbol = symbol if symbol.endswith("USDT") else symbol + "USDT"
         
-        # Получаем последние 3 завершенные 1-минутные свечи для надежности
+        # Получаем последние 3 завершенные 1-минутные свечи согласно документации MEXC
         candle_params = {
             'symbol': symbol,
             'interval': '1m',
@@ -117,10 +126,6 @@ class MexcApiClient:
             bot_logger.warning(f"Недостаточно 1-минутных данных для {symbol}")
             return None
 
-        # Отладочная информация для первого запроса
-        if len(candle_data) > 0 and isinstance(candle_data[0], list):
-            bot_logger.debug(f"Структура свечи для {symbol}: {len(candle_data[0])} полей")
-
         try:
             # Сортируем по времени (самая новая свеча - последняя)
             candle_data.sort(key=lambda x: int(x[0]))
@@ -129,24 +134,26 @@ class MexcApiClient:
             previous_candle = candle_data[-2]  # Предыдущая минута
             current_candle = candle_data[-1]   # Последняя завершенная минута
             
-            # MEXC API возвращает массив из 8 элементов для 1m klines
+            # MEXC API структура: [Open time, Open, High, Low, Close, Volume, Close time, Quote asset volume]
             if not isinstance(current_candle, list) or len(current_candle) < 8:
-                bot_logger.warning(f"Некорректная структура свечи для {symbol}: {len(current_candle) if isinstance(current_candle, list) else 'not list'}")
+                bot_logger.warning(f"Некорректная структура свечи для {symbol}: ожидается 8 полей, получено {len(current_candle) if isinstance(current_candle, list) else 'не массив'}")
                 return None
 
-            # Данные текущей свечи - правильная структура MEXC API
-            current_close = float(current_candle[4])     # Цена закрытия
-            current_volume = float(current_candle[5])    # Base volume
+            # Согласно документации MEXC:
+            # Index 0: Open time
+            # Index 1: Open  
+            # Index 2: High
+            # Index 3: Low
+            # Index 4: Close
+            # Index 5: Volume
+            # Index 6: Close time
+            # Index 7: Quote asset volume
             
-            # MEXC API возвращает дробные числа в поле count, приводим к int
-            current_count = 0
-            try:
-                if len(current_candle) > 7:
-                    current_count = int(float(current_candle[7]))  # Сначала float, потом int
-            except (ValueError, TypeError):
-                current_count = 0
+            current_close = float(current_candle[4])     # Close price
+            current_volume = float(current_candle[5])    # Volume
+            quote_volume = float(current_candle[7])      # Quote asset volume (для расчета количества сделок)
             
-            # Данные предыдущей свечи для расчета изменения  
+            # Данные предыдущей свечи для расчета изменения
             previous_close = float(previous_candle[4])
 
             # Рассчитываем изменение цены за последнюю минуту
@@ -159,14 +166,17 @@ class MexcApiClient:
             bid_price = float(ticker_data['bidPrice']) if ticker_data and ticker_data.get('bidPrice') else current_close
             ask_price = float(ticker_data['askPrice']) if ticker_data and ticker_data.get('askPrice') else current_close
 
-            # Логируем для отладки
-            bot_logger.debug(f"{symbol}: price={current_close:.6f}, 1m_change={price_change:+.2f}%, volume=${current_volume:,.0f}, trades={current_count}")
+            # Получаем количество сделок из 24hr ticker
+            count_data = self._make_request('ticker/24hr', {'symbol': symbol})
+            trade_count = int(count_data.get('count', 0)) if count_data else 0
+
+            bot_logger.debug(f"{symbol}: price={current_close:.6f}, 1m_change={price_change:+.2f}%, volume=${current_volume:,.0f}, quote_vol=${quote_volume:,.0f}")
 
             return {
                 'price': current_close,
                 'change': price_change,  # 1-минутное изменение
-                'volume': current_volume,
-                'count': current_count,
+                'volume': current_volume * current_close,  # Объем в USDT
+                'count': trade_count,  # Количество сделок за 24ч (для скальпинга)
                 'bid': bid_price,
                 'ask': ask_price
             }
