@@ -127,34 +127,38 @@ class MexcApiClient:
             return None
 
         try:
-            # Сортируем по времени (самая новая свеча - последняя)
-            candle_data.sort(key=lambda x: int(x[0]))
-
-            # Берем две последние завершенные свечи
-            previous_candle = candle_data[-2]  # Предыдущая минута
-            current_candle = candle_data[-1]   # Последняя завершенная минута
-
-            # MEXC API структура: [Open time, Open, High, Low, Close, Volume, Close time, Quote asset volume]
-            if not isinstance(current_candle, list) or len(current_candle) < 8:
-                bot_logger.warning(f"Некорректная структура свечи для {symbol}: ожидается 8 полей, получено {len(current_candle) if isinstance(current_candle, list) else 'не массив'}")
+            # Проверяем каждую свечу на корректность данных
+            valid_candles = []
+            for candle in candle_data:
+                if (isinstance(candle, list) and len(candle) >= 8 and 
+                    all(item is not None for item in candle[:8])):
+                    valid_candles.append(candle)
+            
+            if len(valid_candles) < 2:
+                bot_logger.warning(f"Недостаточно валидных свечей для {symbol}")
                 return None
 
-            # Согласно документации MEXC:
-            # Index 0: Open time
-            # Index 1: Open  
-            # Index 2: High
-            # Index 3: Low
-            # Index 4: Close
-            # Index 5: Volume
-            # Index 6: Close time
-            # Index 7: Quote asset volume
+            # Сортируем по времени (самая новая свеча - последняя)
+            valid_candles.sort(key=lambda x: int(x[0]) if x[0] is not None else 0)
 
-            current_close = float(current_candle[4])     # Close price
-            current_volume = float(current_candle[5])    # Volume
-            quote_volume = float(current_candle[7])      # Quote asset volume (для расчета количества сделок)
+            # Берем две последние завершенные свечи
+            previous_candle = valid_candles[-2]  # Предыдущая минута
+            current_candle = valid_candles[-1]   # Последняя завершенная минута
 
-            # Данные предыдущей свечи для расчета изменения
-            previous_close = float(previous_candle[4])
+            # Проверяем структуру данных
+            if not isinstance(current_candle, list) or len(current_candle) < 8:
+                bot_logger.warning(f"Некорректная структура свечи для {symbol}")
+                return None
+
+            # Безопасное извлечение данных с проверкой на None
+            current_close = float(current_candle[4]) if current_candle[4] is not None else 0.0
+            current_volume = float(current_candle[5]) if current_candle[5] is not None else 0.0
+            quote_volume = float(current_candle[7]) if current_candle[7] is not None else 0.0
+            previous_close = float(previous_candle[4]) if previous_candle[4] is not None else 0.0
+
+            if current_close == 0.0:
+                bot_logger.warning(f"Нулевая цена для {symbol}")
+                return None
 
             # Рассчитываем изменение цены за последнюю минуту
             price_change = ((current_close - previous_close) / previous_close * 100) if previous_close > 0 else 0.0
@@ -163,14 +167,28 @@ class MexcApiClient:
             ticker_params = {'symbol': symbol}
             ticker_data = self._make_request('ticker/bookTicker', ticker_params)
 
-            bid_price = float(ticker_data['bidPrice']) if ticker_data and ticker_data.get('bidPrice') else current_close
-            ask_price = float(ticker_data['askPrice']) if ticker_data and ticker_data.get('askPrice') else current_close
+            bid_price = current_close
+            ask_price = current_close
+            
+            if ticker_data and isinstance(ticker_data, dict):
+                try:
+                    if ticker_data.get('bidPrice'):
+                        bid_price = float(ticker_data['bidPrice'])
+                    if ticker_data.get('askPrice'):
+                        ask_price = float(ticker_data['askPrice'])
+                except (ValueError, TypeError):
+                    pass  # Используем current_close как fallback
 
             # Получаем количество сделок из 24hr ticker
+            trade_count = 0
             count_data = self._make_request('ticker/24hr', {'symbol': symbol})
-            trade_count = int(count_data.get('count', 0)) if count_data else 0
+            if count_data and isinstance(count_data, dict) and count_data.get('count'):
+                try:
+                    trade_count = int(count_data['count'])
+                except (ValueError, TypeError):
+                    trade_count = 0
 
-            bot_logger.debug(f"{symbol}: price={current_close:.6f}, 1m_change={price_change:+.2f}%, volume=${current_volume:,.0f}, quote_vol=${quote_volume:,.0f}")
+            bot_logger.debug(f"{symbol}: price={current_close:.6f}, 1m_change={price_change:+.2f}%, volume=${current_volume:,.0f}")
 
             return {
                 'price': current_close,

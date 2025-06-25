@@ -94,15 +94,28 @@ class TradingTelegramBot:
     async def delete_message(self, message_id: int) -> bool:
         """Удаляет сообщение"""
         try:
-            if self.app and self.app.bot and message_id and isinstance(message_id, int) and message_id > 0:
-                await self.app.bot.delete_message(chat_id=self.chat_id, message_id=message_id)
-                bot_logger.debug(f"Сообщение {message_id} успешно удалено")
+            if (self.app and self.app.bot and message_id and 
+                isinstance(message_id, int) and message_id > 0):
+                
+                # Проверяем, что бот инициализирован
+                if hasattr(self.app.bot, '_bot') and self.app.bot._bot:
+                    await self.app.bot.delete_message(chat_id=self.chat_id, message_id=message_id)
+                    bot_logger.debug(f"Сообщение {message_id} успешно удалено")
+                else:
+                    bot_logger.warning(f"Бот не инициализирован для удаления сообщения {message_id}")
             else:
                 bot_logger.warning(f"Невозможно удалить сообщение {message_id}: некорректные параметры")
         except Exception as e:
-            # Игнорируем обычные ошибки удаления (сообщение уже удалено, слишком старое и т.д.)
-            if "message to delete not found" in str(e).lower() or "message can't be deleted" in str(e).lower():
-                bot_logger.debug(f"Сообщение {message_id} уже недоступно для удаления")
+            error_message = str(e).lower()
+            # Игнорируем обычные ошибки удаления
+            if any(phrase in error_message for phrase in [
+                "message to delete not found",
+                "message can't be deleted", 
+                "message is too old",
+                "httprequest is not initialized",
+                "runtime error"
+            ]):
+                bot_logger.debug(f"Сообщение {message_id} недоступно для удаления: {e}")
             else:
                 bot_logger.error(f"Ошибка удаления сообщения {message_id}: {e}")
 
@@ -116,21 +129,26 @@ class TradingTelegramBot:
         if self.bot_mode:
             bot_logger.info(f"🛑 Остановка режима: {self.bot_mode}")
 
-            # Удаляем сообщение мониторинга если оно есть
-            if self.monitoring_message_id and self.app:
-                try:
-                    await self.app.bot.delete_message(
-                        chat_id=self.chat_id,
-                        message_id=self.monitoring_message_id
-                    )
-                    self.monitoring_message_id = None
-                    bot_logger.info("📝 Сообщение мониторинга удалено")
-                except Exception as e:
-                    bot_logger.error(f"Ошибка удаления сообщения мониторинга: {e}")
-
+            # Сначала останавливаем циклы
             self.bot_running = False
+            
+            # Даем время циклам завершиться
+            await asyncio.sleep(0.5)
+
+            # Удаляем сообщение мониторинга если оно есть
+            if self.monitoring_message_id:
+                await self.delete_message(self.monitoring_message_id)
+                self.monitoring_message_id = None
+                bot_logger.info("📝 Сообщение мониторинга удалено")
+
+            # Удаляем активные уведомления
+            if self.active_coins:
+                for symbol, coin_data in list(self.active_coins.items()):
+                    if coin_data.get('msg_id'):
+                        await self.delete_message(coin_data['msg_id'])
+                self.active_coins.clear()
+
             self.bot_mode = None
-            self.active_coins.clear()
 
             # Сохраняем состояние
             bot_state_manager.set_last_mode(None)
