@@ -5,82 +5,87 @@ from datetime import datetime
 from logging.handlers import RotatingFileHandler
 
 class TradingBotLogger:
-    def __init__(self, log_dir="logs"):
-        self.log_dir = log_dir
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
-        
-        # Основной логгер
+    def __init__(self, log_file: str = "trading_bot.log", max_size: int = 10*1024*1024, backup_count: int = 5):
+        self.log_file = log_file
         self.logger = logging.getLogger('TradingBot')
         self.logger.setLevel(logging.INFO)
         
-        # Логгер для ошибок
-        self.error_logger = logging.getLogger('TradingBot.Errors')
-        self.error_logger.setLevel(logging.ERROR)
-        
-        # Логгер для API запросов
-        self.api_logger = logging.getLogger('TradingBot.API')
-        self.api_logger.setLevel(logging.INFO)
-        
-        self._setup_handlers()
+        # Предотвращаем дублирование handlers
+        if not self.logger.handlers:
+            self._setup_handlers(max_size, backup_count)
     
-    def _setup_handlers(self):
+    def _setup_handlers(self, max_size: int, backup_count: int):
+        """Настраивает обработчики логов"""
         formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
         )
         
-        # Общий лог файл (ротация по размеру)
-        general_handler = RotatingFileHandler(
-            os.path.join(self.log_dir, 'bot.log'),
-            maxBytes=10*1024*1024,  # 10MB
-            backupCount=5
-        )
-        general_handler.setFormatter(formatter)
-        self.logger.addHandler(general_handler)
+        # Файловый обработчик с ротацией
+        try:
+            file_handler = RotatingFileHandler(
+                self.log_file,
+                maxBytes=max_size,
+                backupCount=backup_count,
+                encoding='utf-8'
+            )
+            file_handler.setLevel(logging.INFO)
+            file_handler.setFormatter(formatter)
+            self.logger.addHandler(file_handler)
+        except Exception as e:
+            print(f"Ошибка создания файлового логгера: {e}")
         
-        # Файл ошибок
-        error_handler = RotatingFileHandler(
-            os.path.join(self.log_dir, 'errors.log'),
-            maxBytes=5*1024*1024,  # 5MB
-            backupCount=3
-        )
-        error_handler.setFormatter(formatter)
-        self.error_logger.addHandler(error_handler)
-        
-        # API логи
-        api_handler = RotatingFileHandler(
-            os.path.join(self.log_dir, 'api.log'),
-            maxBytes=10*1024*1024,  # 10MB
-            backupCount=3
-        )
-        api_handler.setFormatter(formatter)
-        self.api_logger.addHandler(api_handler)
-        
-        # Консольный вывод
+        # Консольный обработчик
         console_handler = logging.StreamHandler()
-        console_handler.setFormatter(formatter)
         console_handler.setLevel(logging.INFO)
+        console_handler.setFormatter(formatter)
         self.logger.addHandler(console_handler)
     
-    def info(self, message):
+    def info(self, message: str):
+        """Логирует информационное сообщение"""
         self.logger.info(message)
     
-    def error(self, message, exc_info=None):
-        self.logger.error(message, exc_info=exc_info)
-        self.error_logger.error(message, exc_info=exc_info)
-    
-    def warning(self, message):
+    def warning(self, message: str):
+        """Логирует предупреждение"""
         self.logger.warning(message)
     
-    def api_request(self, method, url, response_code, response_time=None):
-        msg = f"{method} {url} - {response_code}"
-        if response_time:
-            msg += f" ({response_time:.2f}s)"
-        self.api_logger.info(msg)
+    def error(self, message: str, exc_info: bool = False):
+        """Логирует ошибку"""
+        self.logger.error(message, exc_info=exc_info)
     
-    def trade_activity(self, symbol, activity_type, data):
-        msg = f"{symbol} - {activity_type}: {data}"
-        self.logger.info(msg)
+    def debug(self, message: str):
+        """Логирует отладочное сообщение"""
+        self.logger.debug(message)
+    
+    def critical(self, message: str):
+        """Логирует критическую ошибку"""
+        self.logger.critical(message)
+    
+    def api_request(self, method: str, url: str, status_code: int, response_time: float):
+        """Логирует API запрос"""
+        self.logger.info(f"API {method} {url} - {status_code} ({response_time:.3f}s)")
+    
+    def trade_activity(self, symbol: str, action: str, details: str = ""):
+        """Логирует торговую активность"""
+        timestamp = datetime.now().strftime('%H:%M:%S')
+        message = f"[{timestamp}] {symbol} {action}"
+        if details:
+            message += f" - {details}"
+        self.logger.info(message)
+    
+    def bot_action(self, action: str, details: str = ""):
+        """Логирует действия бота"""
+        message = f"BOT: {action}"
+        if details:
+            message += f" - {details}"
+        self.logger.info(message)
+    
+    def performance_metric(self, metric_name: str, value: float, unit: str = ""):
+        """Логирует метрики производительности"""
+        message = f"METRIC: {metric_name} = {value}"
+        if unit:
+            message += f" {unit}"
+        self.logger.info(message)
 
 # Глобальный экземпляр логгера
 bot_logger = TradingBotLogger()

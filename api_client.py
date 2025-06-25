@@ -1,48 +1,54 @@
 
-import requests
 import time
-from typing import Optional, Dict, Any, List
+import requests
+from typing import Optional, Dict
 from logger import bot_logger
 from config import config_manager
-import asyncio
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class MexcApiClient:
     def __init__(self):
         self.base_url = "https://api.mexc.com/api/v3"
         self.session = requests.Session()
         self.session.headers.update({
-            'User-Agent': 'TradingBot/1.0'
+            'User-Agent': 'TradingBot/2.0',
+            'Content-Type': 'application/json'
         })
         self.last_request_time = 0
         self.request_count = 0
         self.rate_limit_window = 1.0  # 1 секунда
-        
+    
     def _rate_limit(self):
-        """Ограничение частоты запросов"""
+        """Ограничение скорости API запросов"""
         current_time = time.time()
-        if current_time - self.last_request_time < self.rate_limit_window:
-            if self.request_count >= config_manager.get('MAX_API_REQUESTS_PER_SECOND'):
-                sleep_time = self.rate_limit_window - (current_time - self.last_request_time)
-                time.sleep(sleep_time)
-                self.request_count = 0
-                self.last_request_time = time.time()
-        else:
+        
+        # Сброс счетчика каждую секунду
+        if current_time - self.last_request_time >= self.rate_limit_window:
             self.request_count = 0
             self.last_request_time = current_time
         
+        # Ограничиваем количество запросов в секунду
+        max_requests = config_manager.get('MAX_API_REQUESTS_PER_SECOND')
+        if self.request_count >= max_requests:
+            sleep_time = self.rate_limit_window - (current_time - self.last_request_time)
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+                self.request_count = 0
+                self.last_request_time = time.time()
+        
         self.request_count += 1
     
-    def _make_request(self, endpoint: str, params: Dict = None) -> Optional[Dict]:
-        """Базовый метод для выполнения запросов с повторными попытками"""
-        self._rate_limit()
+    def _make_request(self, endpoint: str, params: Dict = None, timeout: int = None) -> Optional[Dict]:
+        """Выполняет HTTP запрос с повторными попытками"""
+        if timeout is None:
+            timeout = config_manager.get('API_TIMEOUT')
         
-        url = f"{self.base_url}/{endpoint}"
         max_retries = config_manager.get('MAX_RETRIES')
-        timeout = config_manager.get('API_TIMEOUT')
+        url = f"{self.base_url}/{endpoint}"
         
         for attempt in range(max_retries):
             try:
+                self._rate_limit()
+                
                 start_time = time.time()
                 response = self.session.get(url, params=params, timeout=timeout)
                 response_time = time.time() - start_time
@@ -79,121 +85,108 @@ class MexcApiClient:
         }
         
         data = self._make_request('klines', params)
-        if not data or not isinstance(data, list) or not data:
+        if not data or not isinstance(data, list) or len(data) == 0:
             return None
         
         try:
             candle = data[0]
             return {
-                'symbol': symbol,
                 'open': float(candle[1]),
                 'high': float(candle[2]),
                 'low': float(candle[3]),
                 'close': float(candle[4]),
-                'volume': float(candle[7]),
+                'volume': float(candle[5]),
                 'timestamp': int(candle[0])
             }
-        except (IndexError, ValueError) as e:
-            bot_logger.error(f"Error parsing candle data for {symbol}: {e}")
+        except (IndexError, ValueError, TypeError) as e:
+            bot_logger.error(f"Ошибка парсинга свечи для {symbol}: {e}")
             return None
     
-    def get_depth(self, symbol: str) -> Optional[float]:
-        """Получает спред"""
+    def get_ticker(self, symbol: str) -> Optional[Dict]:
+        """Получает тикер монеты"""
         symbol = symbol if symbol.endswith("USDT") else symbol + "USDT"
-        params = {'symbol': symbol, 'limit': 1}
+        params = {'symbol': symbol}
         
-        data = self._make_request('depth', params)
+        data = self._make_request('ticker/24hr', params)
         if not data:
             return None
         
         try:
-            bids = data.get('bids', [])
-            asks = data.get('asks', [])
-            
-            if not bids or not asks:
-                return None
-            
-            bid_price = float(bids[0][0])
-            ask_price = float(asks[0][0])
-            
-            if bid_price <= 0:
-                return None
-            
-            spread = (ask_price - bid_price) / bid_price * 100
-            return spread
-            
-        except (IndexError, ValueError, ZeroDivisionError) as e:
-            bot_logger.error(f"Error calculating spread for {symbol}: {e}")
+            return {
+                'price': float(data['lastPrice']),
+                'change': float(data['priceChangePercent']),
+                'volume': float(data['quoteVolume']),
+                'trades': int(data['count']),
+                'bid': float(data['bidPrice']),
+                'ask': float(data['askPrice'])
+            }
+        except (KeyError, ValueError, TypeError) as e:
+            bot_logger.error(f"Ошибка парсинга тикера для {symbol}: {e}")
             return None
-    
-    def get_trade_count(self, symbol: str) -> int:
-        """Получает количество сделок за последнюю минуту"""
-        symbol = symbol if symbol.endswith("USDT") else symbol + "USDT"
-        params = {'symbol': symbol, 'limit': 1000}
-        
-        data = self._make_request('trades', params)
-        if not data:
-            return 0
-        
-        try:
-            one_minute_ago = int(time.time() * 1000) - 60_000
-            recent_trades = [t for t in data if t.get('time', 0) >= one_minute_ago]
-            return len(recent_trades)
-        except Exception as e:
-            bot_logger.error(f"Error counting trades for {symbol}: {e}")
-            return 0
     
     def get_coin_data(self, symbol: str) -> Optional[Dict]:
-        """Получает полные данные по монете"""
+        """Получает полные данные монеты"""
         try:
-            # Добавляем задержку между запросами
-            time.sleep(config_manager.get('COIN_DATA_DELAY'))
-            
-            candle = self.get_candle(symbol)
-            if not candle:
+            # Получаем данные тикера и свечи параллельно
+            ticker_data = self.get_ticker(symbol)
+            if not ticker_data:
                 return None
             
-            spread = self.get_depth(symbol)
-            if spread is None:
-                spread = 0.0
+            candle_data = self.get_candle(symbol)
+            if not candle_data:
+                # Если свеча недоступна, используем данные из тикера
+                candle_data = {
+                    'high': ticker_data['price'],
+                    'low': ticker_data['price'],
+                    'close': ticker_data['price']
+                }
             
-            trades = self.get_trade_count(symbol)
+            # Рассчитываем метрики
+            volume = ticker_data['volume']
+            spread = self._calculate_spread(ticker_data['bid'], ticker_data['ask'])
+            natr = self._calculate_natr(candle_data['high'], candle_data['low'], candle_data['close'])
             
-            # Вычисляем NATR
-            natr = 0.0
-            if candle['close'] > 0:
-                natr = (candle['high'] - candle['low']) / candle['close'] * 100
+            # Проверяем критерии активности
+            volume_threshold = config_manager.get('VOLUME_THRESHOLD')
+            spread_threshold = config_manager.get('SPREAD_THRESHOLD')
+            natr_threshold = config_manager.get('NATR_THRESHOLD')
             
-            # Вычисляем изменение цены
-            change = 0.0
-            if candle['open'] > 0:
-                change = (candle['close'] - candle['open']) / candle['open'] * 100
-            
-            # Определяем активность
             is_active = (
-                candle['volume'] >= config_manager.get('VOLUME_THRESHOLD') and
-                spread >= config_manager.get('SPREAD_THRESHOLD') and
-                natr >= config_manager.get('NATR_THRESHOLD')
+                volume >= volume_threshold and
+                spread >= spread_threshold and
+                natr >= natr_threshold
             )
             
             result = {
-                'symbol': symbol.replace('USDT', ''),
-                'volume': candle['volume'],
+                'symbol': symbol,
+                'price': ticker_data['price'],
+                'change': ticker_data['change'],
+                'volume': volume,
+                'trades': ticker_data['trades'],
                 'spread': spread,
                 'natr': natr,
-                'change': change,
-                'trades': trades,
-                'price': candle['close'],
                 'active': is_active,
-                'timestamp': candle['timestamp']
+                'timestamp': time.time()
             }
             
-            bot_logger.info(f"Data for {symbol}: Active={is_active}, Volume=${candle['volume']:,.2f}")
             return result
             
         except Exception as e:
-            bot_logger.error(f"Error getting coin data for {symbol}: {e}", exc_info=True)
+            bot_logger.error(f"Ошибка получения данных для {symbol}: {e}")
             return None
+    
+    def _calculate_spread(self, bid: float, ask: float) -> float:
+        """Рассчитывает спред в процентах"""
+        if bid <= 0 or ask <= 0:
+            return 0.0
+        return ((ask - bid) / bid) * 100
+    
+    def _calculate_natr(self, high: float, low: float, close: float) -> float:
+        """Рассчитывает нормализованный ATR"""
+        if close <= 0:
+            return 0.0
+        true_range = high - low
+        return (true_range / close) * 100
 
 # Глобальный экземпляр API клиента
 api_client = MexcApiClient()

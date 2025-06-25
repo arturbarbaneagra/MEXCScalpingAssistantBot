@@ -12,24 +12,24 @@ class WatchlistManager:
     
     def load(self) -> None:
         """Загружает список из файла"""
+        if not os.path.exists(self.filename):
+            bot_logger.info("Файл списка не найден, создается новый")
+            self.save()
+            return
+        
         try:
-            if os.path.exists(self.filename):
-                with open(self.filename, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    # Нормализуем символы (убираем _USDT, приводим к верхнему регистру)
-                    self.watchlist = set(
-                        coin.upper().replace("_USDT", "").replace("USDT", "") 
-                        for coin in data if isinstance(coin, str) and coin.strip()
-                    )
-                    bot_logger.info(f"Загружен список из {len(self.watchlist)} монет")
-            else:
-                self.watchlist = set()
-                self.save()
-                bot_logger.info("Создан новый пустой список отслеживания")
+            with open(self.filename, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    self.watchlist = set(data)
+                else:
+                    bot_logger.warning("Неверный формат файла списка")
+                    self.watchlist = set()
+            
+            bot_logger.info(f"Загружен список из {len(self.watchlist)} монет")
         except (json.JSONDecodeError, IOError) as e:
             bot_logger.error(f"Ошибка загрузки списка: {e}")
             self.watchlist = set()
-            self.save()
     
     def save(self) -> None:
         """Сохраняет список в файл"""
@@ -72,15 +72,15 @@ class WatchlistManager:
         """Возвращает все монеты"""
         return self.watchlist.copy()
     
+    def size(self) -> int:
+        """Возвращает размер списка"""
+        return len(self.watchlist)
+    
     def clear(self) -> None:
         """Очищает список"""
         self.watchlist.clear()
         self.save()
         bot_logger.info("Список очищен")
-    
-    def size(self) -> int:
-        """Возвращает размер списка"""
-        return len(self.watchlist)
 
 # Глобальный экземпляр менеджера списка
 watchlist_manager = WatchlistManager()
