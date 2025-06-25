@@ -109,19 +109,22 @@ class TradingTelegramBot:
         if self.bot_running:
             bot_logger.info(f"Остановка режима: {self.bot_mode}")
             
-            # Сначала удаляем сообщения, потом останавливаем
+            # Останавливаем сначала, чтобы прекратить обновления
+            self.bot_running = False
+            await asyncio.sleep(0.5)  # Даем время циклам завершиться
+            
+            # Затем удаляем сообщения
             if self.bot_mode == 'monitoring' and self.monitoring_message_id:
+                bot_logger.info(f"Удаляем сообщение мониторинга: {self.monitoring_message_id}")
                 await self.delete_message(self.monitoring_message_id)
                 self.monitoring_message_id = None
             elif self.bot_mode == 'notification':
-                # Удаляем все активные сообщения
-                for coin_data in self.active_coins.values():
+                # Удаляем все активные сообщения уведомлений
+                for symbol, coin_data in list(self.active_coins.items()):
                     if coin_data.get('msg_id'):
+                        bot_logger.info(f"Удаляем сообщение уведомления для {symbol}: {coin_data['msg_id']}")
                         await self.delete_message(coin_data['msg_id'])
                 self.active_coins.clear()
-            
-            self.bot_running = False
-            await asyncio.sleep(1)  # Уменьшаем задержку
             
             # Сохраняем состояние остановки
             bot_state_manager.set_last_mode(None)
@@ -284,8 +287,9 @@ class TradingTelegramBot:
             
             await asyncio.sleep(config_manager.get('MONITORING_UPDATE_INTERVAL'))
         
-        # Удаляем сообщение при остановке
+        # Очищаем при остановке режима мониторинга
         if self.monitoring_message_id:
+            bot_logger.info(f"Режим мониторинга завершен, удаляем сообщение: {self.monitoring_message_id}")
             await self.delete_message(self.monitoring_message_id)
             self.monitoring_message_id = None
     
@@ -457,6 +461,12 @@ class TradingTelegramBot:
         # Останавливаем текущий режим (включая удаление сообщений)
         await self._stop_current_mode()
         
+        # Дополнительно очищаем сообщение мониторинга, если оно есть
+        if self.monitoring_message_id:
+            bot_logger.info(f"Принудительная очистка сообщения мониторинга: {self.monitoring_message_id}")
+            await self.delete_message(self.monitoring_message_id)
+            self.monitoring_message_id = None
+        
         # Запускаем новый режим
         self.bot_mode = 'notification'
         self.bot_running = True
@@ -481,6 +491,14 @@ class TradingTelegramBot:
         
         # Останавливаем текущий режим (включая удаление сообщений)
         await self._stop_current_mode()
+        
+        # Дополнительно очищаем активные уведомления, если они есть
+        if self.active_coins:
+            for symbol, coin_data in list(self.active_coins.items()):
+                if coin_data.get('msg_id'):
+                    bot_logger.info(f"Принудительная очистка уведомления для {symbol}: {coin_data['msg_id']}")
+                    await self.delete_message(coin_data['msg_id'])
+            self.active_coins.clear()
         
         # Запускаем новый режим
         self.bot_mode = 'monitoring'
