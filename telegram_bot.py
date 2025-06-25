@@ -460,6 +460,8 @@ class TradingTelegramBot:
                 await self._handle_show_list(update)
             elif text == "⚙ Настройки":
                 await self._handle_settings(update)
+            elif text == "🔄 Сброс":
+                await self._handle_reset_settings(update)
             elif text == "ℹ Статус":
                 await self._handle_status(update)
             elif text == "🔙 Назад":
@@ -643,6 +645,28 @@ class TradingTelegramBot:
 
         await update.message.reply_text(
             "\n".join(status_parts),
+            reply_markup=self.main_keyboard,
+            parse_mode=ParseMode.HTML
+        )
+
+    async def _handle_reset_settings(self, update: Update):
+        """Сброс настроек к значениям по умолчанию"""
+        await self._stop_current_mode()
+        
+        # Сбрасываем к значениям по умолчанию
+        config_manager.set('VOLUME_THRESHOLD', 1000)
+        config_manager.set('SPREAD_THRESHOLD', 0.1)
+        config_manager.set('NATR_THRESHOLD', 0.5)
+        
+        reset_message = (
+            "🔄 <b>Настройки сброшены к значениям по умолчанию:</b>\n\n"
+            f"📊 Минимальный объём: <code>$1,000</code>\n"
+            f"⇄ Минимальный спред: <code>0.1%</code>\n"
+            f"📈 Минимальный NATR: <code>0.5%</code>"
+        )
+        
+        await update.message.reply_text(
+            reset_message,
             reply_markup=self.main_keyboard,
             parse_mode=ParseMode.HTML
         )
