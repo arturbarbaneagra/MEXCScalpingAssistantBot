@@ -132,13 +132,13 @@ class MexcApiClient:
             # Получаем данные из последней 1-минутной свечи
             candle = candle_data[0]
 
-            # Проверяем что свеча содержит достаточно данных
-            if not isinstance(candle, list) or len(candle) < 9:
+            # Проверяем что свеча содержит достаточно данных (минимум 8 элементов)
+            if not isinstance(candle, list) or len(candle) < 8:
                 bot_logger.warning(f"Некорректная структура свечи для {symbol}: {candle}")
                 return None
 
             # Используем данные из тикера для изменения цены (24ч) и цены
-            # А из свечи берем объем и количество сделок за 1 минуту
+            # А из свечи берем объем за 1 минуту
             current_open = float(candle[1])
             current_close = float(candle[4])
 
@@ -148,8 +148,8 @@ class MexcApiClient:
             return {
                 'price': float(ticker_data['lastPrice']),  # Актуальная цена
                 'change': price_change,  # Изменение за 1 минуту (open vs close)
-                'volume': float(candle[7]),  # quoteVolume за 1 минуту в USDT
-                'count': int(candle[8]),  # Количество сделок за 1 минуту
+                'volume': float(candle[7]) if len(candle) > 7 else 0.0,  # quoteVolume за 1 минуту в USDT
+                'count': int(ticker_data.get('count', 0)),  # Количество сделок из тикера (24ч)
                 'bid': float(ticker_data['bidPrice']) if ticker_data.get('bidPrice') is not None else 0.0,
                 'ask': float(ticker_data['askPrice']) if ticker_data.get('askPrice') is not None else 0.0
             }
