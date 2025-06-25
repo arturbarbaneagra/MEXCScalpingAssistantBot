@@ -94,12 +94,17 @@ class TradingTelegramBot:
     async def delete_message(self, message_id: int):
         """Удаляет сообщение"""
         try:
-            if self.app and self.app.bot:
+            if self.app and self.app.bot and message_id and isinstance(message_id, int) and message_id > 0:
                 await self.app.bot.delete_message(chat_id=self.chat_id, message_id=message_id)
+                bot_logger.debug(f"Сообщение {message_id} успешно удалено")
             else:
-                bot_logger.warning(f"Нет подключения к боту для удаления сообщения {message_id}")
+                bot_logger.warning(f"Невозможно удалить сообщение {message_id}: некорректные параметры")
         except Exception as e:
-            bot_logger.error(f"Ошибка удаления сообщения {message_id}: {e}")
+            # Игнорируем обычные ошибки удаления (сообщение уже удалено, слишком старое и т.д.)
+            if "message to delete not found" in str(e).lower() or "message can't be deleted" in str(e).lower():
+                bot_logger.debug(f"Сообщение {message_id} уже недоступно для удаления")
+            else:
+                bot_logger.error(f"Ошибка удаления сообщения {message_id}: {e}")
 
     def _chunks(self, lst: List, size: int):
         """Разбивает список на чанки"""

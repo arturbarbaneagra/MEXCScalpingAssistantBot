@@ -129,25 +129,15 @@ class MexcApiClient:
             previous_candle = candle_data[-2]  # Предыдущая минута
             current_candle = candle_data[-1]   # Последняя завершенная минута
             
-            # Проверяем структуру данных - MEXC API возвращает массив из 11 элементов
-            if not isinstance(current_candle, list) or len(current_candle) < 11:
+            # MEXC API возвращает массив из 8 элементов для 1m klines
+            if not isinstance(current_candle, list) or len(current_candle) < 8:
                 bot_logger.warning(f"Некорректная структура свечи для {symbol}: {len(current_candle) if isinstance(current_candle, list) else 'not list'}")
                 return None
 
-            # Данные текущей свечи с fallback для разных форматов
+            # Данные текущей свечи - правильная структура MEXC API
             current_close = float(current_candle[4])     # Цена закрытия
-            
-            # Volume может быть в разных индексах в зависимости от формата ответа
-            if len(current_candle) >= 8:
-                current_volume = float(current_candle[7])    # Quote volume в USDT
-            else:
-                current_volume = float(current_candle[5])    # Base volume fallback
-                
-            # Count может быть в разных позициях
-            if len(current_candle) >= 9:
-                current_count = int(current_candle[8])       # Количество сделок
-            else:
-                current_count = 0  # Fallback если нет данных
+            current_volume = float(current_candle[5])    # Base volume
+            current_count = int(current_candle[7]) if len(current_candle) > 7 else 0  # Количество сделок
             
             # Данные предыдущей свечи для расчета изменения  
             previous_close = float(previous_candle[4])

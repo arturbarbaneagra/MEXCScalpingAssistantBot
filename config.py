@@ -77,3 +77,52 @@ class ConfigManager:
 
 # Глобальный экземпляр менеджера конфигурации
 config_manager = ConfigManager()
+import json
+import os
+from typing import Any, Dict
+from logger import bot_logger
+
+class ConfigManager:
+    def __init__(self, config_file: str = "config.json"):
+        self.config_file = config_file
+        self.config: Dict[str, Any] = {}
+        self.load_config()
+    
+    def load_config(self):
+        """Загружает конфигурацию из файла"""
+        try:
+            if os.path.exists(self.config_file):
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    self.config = json.load(f)
+                bot_logger.info(f"Загружена конфигурация из {self.config_file}")
+            else:
+                bot_logger.warning(f"Файл конфигурации {self.config_file} не найден")
+                self.config = {}
+        except Exception as e:
+            bot_logger.error(f"Ошибка загрузки конфигурации: {e}")
+            self.config = {}
+    
+    def get(self, key: str, default: Any = None) -> Any:
+        """Получает значение конфигурации"""
+        return self.config.get(key, default)
+    
+    def set(self, key: str, value: Any):
+        """Устанавливает значение конфигурации"""
+        self.config[key] = value
+        self.save_config()
+    
+    def save_config(self):
+        """Сохраняет конфигурацию в файл"""
+        try:
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(self.config, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            bot_logger.error(f"Ошибка сохранения конфигурации: {e}")
+    
+    def update(self, updates: Dict[str, Any]):
+        """Обновляет несколько значений конфигурации"""
+        self.config.update(updates)
+        self.save_config()
+
+# Глобальный экземпляр менеджера конфигурации
+config_manager = ConfigManager()

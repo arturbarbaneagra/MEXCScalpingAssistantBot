@@ -1,7 +1,8 @@
 
 import json
 import os
-from typing import Optional, Dict
+from typing import Dict, Optional
+from datetime import datetime
 from logger import bot_logger
 
 class BotStateManager:
@@ -38,6 +39,7 @@ class BotStateManager:
         state = self.load_state()
         state['last_mode'] = mode
         state['auto_start'] = mode is not None
+        state['last_active_time'] = datetime.now().isoformat() if mode else None
         self.save_state(state)
     
     def get_last_mode(self) -> Optional[str]:
@@ -46,16 +48,14 @@ class BotStateManager:
         return state.get('last_mode')
     
     def should_auto_start(self) -> bool:
-        """Проверяет, нужно ли автоматически запускать бот"""
+        """Проверяет, нужно ли автоматически запускать бота"""
         state = self.load_state()
         return state.get('auto_start', False)
     
-    def clear_auto_start(self):
-        """Отключает автозапуск"""
+    def get_last_active_time(self) -> Optional[str]:
+        """Возвращает время последней активности"""
         state = self.load_state()
-        state['auto_start'] = False
-        state['last_mode'] = None
-        self.save_state(state)
+        return state.get('last_active_time')
 
-# Глобальный экземпляр
+# Глобальный экземпляр менеджера состояния
 bot_state_manager = BotStateManager()
