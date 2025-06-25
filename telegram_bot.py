@@ -693,7 +693,24 @@ class TradingTelegramBot:
     
     def setup_application(self):
         """Настраивает Telegram приложение"""
-        self.app = Application.builder().token(self.token).build()
+        from telegram.error import Conflict
+        
+        # Создаем приложение с обработкой ошибок
+        builder = Application.builder()
+        builder.token(self.token)
+        
+        # Добавляем обработку конфликтов
+        async def error_handler(update, context):
+            if isinstance(context.error, Conflict):
+                bot_logger.warning("Конфликт Telegram API - возможно запущен другой экземпляр бота")
+                # Пытаемся переподключиться через некоторое время
+                await asyncio.sleep(5)
+                return
+            else:
+                bot_logger.error(f"Ошибка обновления: {context.error}")
+        
+        self.app = builder.build()
+        self.app.add_error_handler(error_handler)
         
         # Создаем ConversationHandler
         conv_handler = ConversationHandler(
