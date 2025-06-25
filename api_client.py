@@ -126,12 +126,12 @@ class MexcApiClient:
         try:
             # Получаем данные из последней 1-минутной свечи
             candle = candle_data[0]
-            
+
             # Используем данные из тикера для изменения цены (24ч) и цены
             # А из свечи берем объем и количество сделок за 1 минуту
             current_open = float(candle[1])
             current_close = float(candle[4])
-            
+
             # Рассчитываем изменение за последнюю минуту
             price_change = ((current_close - current_open) / current_open * 100) if current_open > 0 else 0.0
 
