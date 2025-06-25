@@ -8,7 +8,7 @@ class TradingBotLogger:
     def __init__(self, log_file: str = "trading_bot.log", max_size: int = 10*1024*1024, backup_count: int = 5):
         self.log_file = log_file
         self.logger = logging.getLogger('TradingBot')
-        self.logger.setLevel(logging.INFO)
+        self.logger.setLevel(logging.DEBUG)
         
         # Предотвращаем дублирование handlers
         if not self.logger.handlers:

@@ -117,6 +117,10 @@ class MexcApiClient:
             bot_logger.warning(f"Недостаточно 1-минутных данных для {symbol}")
             return None
 
+        # Отладочная информация для первого запроса
+        if len(candle_data) > 0 and isinstance(candle_data[0], list):
+            bot_logger.debug(f"Структура свечи для {symbol}: {len(candle_data[0])} полей")
+
         try:
             # Сортируем по времени (самая новая свеча - последняя)
             candle_data.sort(key=lambda x: int(x[0]))
@@ -125,18 +129,32 @@ class MexcApiClient:
             previous_candle = candle_data[-2]  # Предыдущая минута
             current_candle = candle_data[-1]   # Последняя завершенная минута
             
-            # Проверяем структуру данных - в MEXC API свечи имеют 12 полей
-            if not isinstance(current_candle, list) or len(current_candle) < 9:
-                bot_logger.warning(f"Некорректная структура свечи для {symbol}")
+            # Проверяем структуру данных - MEXC API возвращает массив из 11 элементов
+            if not isinstance(current_candle, list) or len(current_candle) < 11:
+                bot_logger.warning(f"Некорректная структура свечи для {symbol}: {len(current_candle) if isinstance(current_candle, list) else 'not list'}")
                 return None
 
-            # Данные текущей свечи (индексы для MEXC API)
+            # Данные текущей свечи с fallback для разных форматов
             current_close = float(current_candle[4])     # Цена закрытия
-            current_volume = float(current_candle[7])    # Quote volume в USDT
-            current_count = int(current_candle[8])       # Количество сделок
             
-            # Данные предыдущей свечи для расчета изменения
+            # Volume может быть в разных индексах в зависимости от формата ответа
+            if len(current_candle) >= 8:
+                current_volume = float(current_candle[7])    # Quote volume в USDT
+            else:
+                current_volume = float(current_candle[5])    # Base volume fallback
+                
+            # Count может быть в разных позициях
+            if len(current_candle) >= 9:
+                current_count = int(current_candle[8])       # Количество сделок
+            else:
+                current_count = 0  # Fallback если нет данных
+            
+            # Данные предыдущей свечи для расчета изменения  
             previous_close = float(previous_candle[4])
+            
+            # Логируем структуру для отладки (только для первых запросов)
+            if symbol.endswith('USDT') and len(symbol) <= 8:  # Ограничиваем логи
+                bot_logger.debug(f"Свеча {symbol}: {len(current_candle)} полей, volume_index_7={current_candle[7] if len(current_candle) > 7 else 'N/A'}")
 
             # Рассчитываем изменение цены за последнюю минуту
             price_change = ((current_close - previous_close) / previous_close * 100) if previous_close > 0 else 0.0
