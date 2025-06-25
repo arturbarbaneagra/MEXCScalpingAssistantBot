@@ -1,4 +1,3 @@
-
 import asyncio
 import time
 import threading
@@ -17,23 +16,23 @@ class TradingTelegramBot:
     def __init__(self):
         self.token = os.getenv('TELEGRAM_TOKEN')
         self.chat_id = os.getenv('TELEGRAM_CHAT_ID')
-        
+
         if not self.token or not self.chat_id:
             raise ValueError("TELEGRAM_TOKEN и TELEGRAM_CHAT_ID должны быть установлены в переменных окружения")
-        
+
         self.app = None
         self.bot_running = False
         self.bot_mode = None
         self.active_coins: Dict[str, Dict] = {}
         self.monitoring_message_id = None
         self.last_message_time = 0
-        
+
         # Состояния ConversationHandler
         self.ADDING_COIN, self.REMOVING_COIN = range(2)
         self.SETTING_VOLUME, self.SETTING_SPREAD, self.SETTING_NATR = range(2, 5)
-        
+
         self._setup_keyboards()
-    
+
     def _setup_keyboards(self):
         """Настраивает клавиатуры"""
         self.main_keyboard = ReplyKeyboardMarkup([
@@ -42,31 +41,31 @@ class TradingTelegramBot:
             ["📋 Список", "⚙ Настройки"],
             ["🛑 Стоп", "ℹ Статус"]
         ], resize_keyboard=True, one_time_keyboard=False)
-        
+
         self.settings_keyboard = ReplyKeyboardMarkup([
             ["📊 Объём", "⇄ Спред"],
             ["📈 NATR", "🔄 Сброс"],
             ["🔙 Назад"]
         ], resize_keyboard=True)
-        
+
         self.back_keyboard = ReplyKeyboardMarkup([
             ["🔙 Назад"]
         ], resize_keyboard=True)
-    
+
     async def _rate_limit_message(self):
         """Ограничение частоты отправки сообщений"""
         current_time = time.time()
         min_interval = config_manager.get('MESSAGE_RATE_LIMIT')
-        
+
         if current_time - self.last_message_time < min_interval:
             await asyncio.sleep(min_interval - (current_time - self.last_message_time))
-        
+
         self.last_message_time = time.time()
-    
+
     async def send_message(self, text: str, reply_markup=None, parse_mode=ParseMode.HTML) -> Optional[int]:
         """Отправляет сообщение с ограничением частоты"""
         await self._rate_limit_message()
-        
+
         try:
             message = await self.app.bot.send_message(
                 chat_id=self.chat_id,
@@ -78,7 +77,7 @@ class TradingTelegramBot:
         except Exception as e:
             bot_logger.error(f"Ошибка отправки сообщения: {e}")
             return None
-    
+
     async def edit_message(self, message_id: int, text: str, reply_markup=None):
         """Редактирует сообщение"""
         try:
@@ -91,28 +90,28 @@ class TradingTelegramBot:
             )
         except Exception as e:
             bot_logger.error(f"Ошибка редактирования сообщения: {e}")
-    
+
     async def delete_message(self, message_id: int):
         """Удаляет сообщение"""
         try:
             await self.app.bot.delete_message(chat_id=self.chat_id, message_id=message_id)
         except Exception as e:
             bot_logger.error(f"Ошибка удаления сообщения: {e}")
-    
+
     def _chunks(self, lst: List, size: int):
         """Разбивает список на чанки"""
         for i in range(0, len(lst), size):
             yield lst[i:i + size]
-    
+
     async def _stop_current_mode(self):
         """Останавливает текущий режим"""
         if self.bot_running:
             bot_logger.info(f"Остановка режима: {self.bot_mode}")
-            
+
             # Останавливаем сначала, чтобы прекратить обновления
             self.bot_running = False
             await asyncio.sleep(0.5)  # Даем время циклам завершиться
-            
+
             # Затем удаляем сообщения
             if self.bot_mode == 'monitoring' and self.monitoring_message_id:
                 bot_logger.info(f"Удаляем сообщение мониторинга: {self.monitoring_message_id}")
@@ -125,25 +124,25 @@ class TradingTelegramBot:
                         bot_logger.info(f"Удаляем сообщение уведомления для {symbol}: {coin_data['msg_id']}")
                         await self.delete_message(coin_data['msg_id'])
                 self.active_coins.clear()
-            
+
             # Сохраняем состояние остановки
             bot_state_manager.set_last_mode(None)
-    
+
     async def _notification_mode_loop(self):
         """Цикл режима уведомлений"""
         bot_logger.info("Запущен режим уведомлений")
-        
+
         while self.bot_running and self.bot_mode == 'notification':
             watchlist = watchlist_manager.get_all()
             if not watchlist:
                 await asyncio.sleep(config_manager.get('CHECK_FULL_CYCLE_INTERVAL'))
                 continue
-            
+
             batch_size = config_manager.get('CHECK_BATCH_SIZE')
             for batch in self._chunks(list(watchlist), batch_size):
                 if not self.bot_running or self.bot_mode != 'notification':
                     break
-                
+
                 # Получаем данные параллельно
                 tasks = []
                 for symbol in batch:
@@ -151,7 +150,7 @@ class TradingTelegramBot:
                         asyncio.to_thread(api_client.get_coin_data, symbol)
                     )
                     tasks.append((symbol, task))
-                
+
                 for symbol, task in tasks:
                     try:
                         data = await task
@@ -159,22 +158,26 @@ class TradingTelegramBot:
                             await self._process_coin_notification(symbol, data)
                     except Exception as e:
                         bot_logger.error(f"Ошибка обработки {symbol}: {e}")
-                
+
                 await asyncio.sleep(config_manager.get('CHECK_BATCH_INTERVAL'))
-            
-            await asyncio.sleep(config_manager.get('CHECK_FULL_CYCLE_INTERVAL'))
-    
+
+            try:
+                await asyncio.sleep(config_manager.get('CHECK_FULL_CYCLE_INTERVAL'))
+            except Exception as e:
+                bot_logger.error(f"Ошибка в цикле уведомлений: {e}")
+                await asyncio.sleep(5)  # Пауза при ошибке
+
     async def _process_coin_notification(self, symbol: str, data: Dict):
         """Обрабатывает уведомление для монеты"""
         now = time.time()
         is_currently_active = symbol in self.active_coins
-        
+
         if data['active']:
             if not is_currently_active:
                 # Новая активная монета
                 message = self._format_coin_message(data, "🚨 АКТИВНОСТЬ")
                 msg_id = await self.send_message(message)
-                
+
                 if msg_id:
                     self.active_coins[symbol] = {
                         'start_time': now,
@@ -187,25 +190,25 @@ class TradingTelegramBot:
                 # Обновляем существующую активную монету
                 self.active_coins[symbol]['last_active'] = now
                 self.active_coins[symbol]['data'] = data
-                
+
                 message = self._format_coin_message(data, "🚨 АКТИВНОСТЬ")
                 await self.edit_message(self.active_coins[symbol]['msg_id'], message)
-                
+
         elif is_currently_active:
             # Проверяем таймаут неактивности
             inactive_time = now - self.active_coins[symbol]['last_active']
             if inactive_time > config_manager.get('INACTIVITY_TIMEOUT'):
                 await self._end_coin_activity(symbol, now)
-    
+
     async def _end_coin_activity(self, symbol: str, end_time: float):
         """Завершает активность монеты"""
         coin_info = self.active_coins[symbol]
         duration = end_time - coin_info['start_time']
-        
+
         # Удаляем сообщение об активности
         if coin_info['msg_id']:
             await self.delete_message(coin_info['msg_id'])
-        
+
         # Отправляем сообщение о завершении (если активность была достаточно долгой)
         if duration >= 60:
             minutes = int(duration // 60)
@@ -216,9 +219,9 @@ class TradingTelegramBot:
             )
             await self.send_message(end_message)
             bot_logger.trade_activity(symbol, "ENDED", f"Duration: {minutes}m {seconds}s")
-        
+
         del self.active_coins[symbol]
-    
+
     def _format_coin_message(self, data: Dict, status: str) -> str:
         """Форматирует сообщение о монете"""
         return (
@@ -230,15 +233,15 @@ class TradingTelegramBot:
             f"⇄ Спред: {data['spread']:.2f}%\n"
             f"🔁 1м сделок: {data['trades']}"
         )
-    
+
     async def _monitoring_mode_loop(self):
         """Цикл режима мониторинга"""
         bot_logger.info("Запущен режим мониторинга")
-        
+
         # Отправляем начальное сообщение
         initial_text = "🔄 <b>Инициализация мониторинга...</b>"
         self.monitoring_message_id = await self.send_message(initial_text)
-        
+
         while self.bot_running and self.bot_mode == 'monitoring':
             watchlist = watchlist_manager.get_all()
             if not watchlist:
@@ -247,23 +250,23 @@ class TradingTelegramBot:
                     await self.edit_message(self.monitoring_message_id, no_coins_text)
                 await asyncio.sleep(config_manager.get('MONITORING_UPDATE_INTERVAL'))
                 continue
-            
+
             results = []
             failed_coins = []
-            
+
             # Получаем данные по всем монетам
             batch_size = config_manager.get('CHECK_BATCH_SIZE')
             for batch in self._chunks(sorted(watchlist), batch_size):
                 if not self.bot_running or self.bot_mode != 'monitoring':
                     break
-                
+
                 batch_tasks = []
                 for symbol in batch:
                     task = asyncio.create_task(
                         asyncio.to_thread(api_client.get_coin_data, symbol)
                     )
                     batch_tasks.append((symbol, task))
-                
+
                 for symbol, task in batch_tasks:
                     try:
                         data = await task
@@ -274,9 +277,9 @@ class TradingTelegramBot:
                     except Exception as e:
                         bot_logger.error(f"Ошибка получения данных для {symbol}: {e}")
                         failed_coins.append(symbol)
-                
+
                 await asyncio.sleep(config_manager.get('CHECK_BATCH_INTERVAL'))
-            
+
             # Формируем отчет
             if results:
                 report = self._format_monitoring_report(results, failed_coins)
@@ -284,35 +287,35 @@ class TradingTelegramBot:
                     await self.edit_message(self.monitoring_message_id, report)
                 else:
                     self.monitoring_message_id = await self.send_message(report)
-            
+
             await asyncio.sleep(config_manager.get('MONITORING_UPDATE_INTERVAL'))
-        
+
         # Очищаем при остановке режима мониторинга
         if self.monitoring_message_id:
             bot_logger.info(f"Режим мониторинга завершен, удаляем сообщение: {self.monitoring_message_id}")
             await self.delete_message(self.monitoring_message_id)
             self.monitoring_message_id = None
-    
+
     def _format_monitoring_report(self, results: List[Dict], failed_coins: List[str]) -> str:
         """Форматирует отчет мониторинга"""
         # Сортируем по объему
         results.sort(key=lambda x: x['volume'], reverse=True)
-        
+
         parts = ["<b>📊 Скальпинг мониторинг (1м данные)</b>\n"]
-        
+
         # Информация о фильтрах
         vol_thresh = config_manager.get('VOLUME_THRESHOLD')
         spread_thresh = config_manager.get('SPREAD_THRESHOLD')
         natr_thresh = config_manager.get('NATR_THRESHOLD')
-        
+
         parts.append(
             f"<i>1м фильтры: Объём ≥${vol_thresh:,}, "
             f"Спред ≥{spread_thresh}%, NATR ≥{natr_thresh}%</i>\n"
         )
-        
+
         if failed_coins:
             parts.append(f"⚠ <i>Ошибки: {', '.join(failed_coins[:5])}</i>\n")
-        
+
         # Показываем активные монеты
         active_coins = [r for r in results if r['active']]
         if active_coins:
@@ -324,7 +327,7 @@ class TradingTelegramBot:
                     f"S:{coin['spread']:.2f}% | N:{coin['natr']:.2f}%"
                 )
             parts.append("")
-        
+
         # Показываем неактивные монеты (топ по объему)
         inactive_coins = [r for r in results if not r['active']]
         if inactive_coins:
@@ -334,39 +337,39 @@ class TradingTelegramBot:
                     f"• <b>{coin['symbol']}</b> "
                     f"${coin['volume']:,.0f} | {coin['change']:+.1f}%"
                 )
-        
+
         # Добавляем статистику
         parts.append(f"\n📈 Активных: {len(active_coins)}/{len(results)}")
-        
+
         report = "\n".join(parts)
-        
+
         # Обрезаем, если слишком длинное
         if len(report) > 4000:
             report = report[:4000] + "\n... <i>(отчет обрезан)</i>"
-        
+
         return report
-    
+
     def start_monitoring_loop(self):
         """Запускает цикл мониторинга в отдельном потоке"""
         def run_loop():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            
+
             if self.bot_mode == 'notification':
                 loop.run_until_complete(self._notification_mode_loop())
             elif self.bot_mode == 'monitoring':
                 loop.run_until_complete(self._monitoring_mode_loop())
-        
+
         thread = threading.Thread(target=run_loop, daemon=True)
         thread.start()
         return thread
-    
+
     # Telegram Handlers
     async def start_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик команды /start"""
         # Проверяем, нужно ли восстановить последний режим
         last_mode = bot_state_manager.get_last_mode()
-        
+
         welcome_text = (
             "🤖 <b>Добро пожаловать в торговый бот!</b>\n\n"
             "📊 <b>Режимы работы:</b>\n"
@@ -378,44 +381,44 @@ class TradingTelegramBot:
             "• 📋 Показать список монет\n"
             "• ⚙ Настройки фильтров\n\n"
         )
-        
+
         # Автовосстановление последнего режима
         if last_mode and not self.bot_running:
             if last_mode == 'notification':
                 welcome_text += "🔄 <b>Восстанавливаю режим уведомлений...</b>\n\n"
                 await update.message.reply_text(welcome_text + "Выберите действие:", reply_markup=self.main_keyboard, parse_mode=ParseMode.HTML)
-                
+
                 self.bot_mode = 'notification'
                 self.bot_running = True
                 self.start_monitoring_loop()
-                
+
                 await self.send_message(
                     "✅ <b>Режим уведомлений восстановлен</b>\n"
                     "Вы будете получать уведомления об активных монетах."
                 )
                 return
-                
+
             elif last_mode == 'monitoring':
                 welcome_text += "🔄 <b>Восстанавливаю режим мониторинга...</b>\n\n"
                 await update.message.reply_text(welcome_text + "Выберите действие:", reply_markup=self.main_keyboard, parse_mode=ParseMode.HTML)
-                
+
                 self.bot_mode = 'monitoring'
                 self.bot_running = True
                 self.start_monitoring_loop()
-                
+
                 await self.send_message(
                     "✅ <b>Режим мониторинга восстановлен</b>\n"
                     "Сводка будет обновляться автоматически."
                 )
                 return
-        
+
         welcome_text += "Выберите действие:"
         await update.message.reply_text(welcome_text, reply_markup=self.main_keyboard, parse_mode=ParseMode.HTML)
-    
+
     async def button_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Основной обработчик кнопок"""
         text = update.message.text
-        
+
         try:
             if text == "🔔 Уведомления":
                 await self._handle_notification_mode(update)
@@ -446,9 +449,9 @@ class TradingTelegramBot:
                 "❌ Произошла ошибка. Попробуйте еще раз.",
                 reply_markup=self.main_keyboard
             )
-        
+
         return ConversationHandler.END
-    
+
     async def _handle_notification_mode(self, update: Update):
         """Обработка режима уведомлений"""
         if self.bot_running and self.bot_mode == 'notification':
@@ -457,29 +460,29 @@ class TradingTelegramBot:
                 reply_markup=self.main_keyboard
             )
             return
-        
+
         # Останавливаем текущий режим (включая удаление сообщений)
         await self._stop_current_mode()
-        
+
         # Дополнительно очищаем сообщение мониторинга, если оно есть
         if self.monitoring_message_id:
             bot_logger.info(f"Принудительная очистка сообщения мониторинга: {self.monitoring_message_id}")
             await self.delete_message(self.monitoring_message_id)
             self.monitoring_message_id = None
-        
+
         # Запускаем новый режим
         self.bot_mode = 'notification'
         self.bot_running = True
         bot_state_manager.set_last_mode('notification')
         self.start_monitoring_loop()
-        
+
         await update.message.reply_text(
             "✅ <b>Режим уведомлений активирован</b>\n"
             "Вы будете получать уведомления об активных монетах.",
             reply_markup=self.main_keyboard,
             parse_mode=ParseMode.HTML
         )
-    
+
     async def _handle_monitoring_mode(self, update: Update):
         """Обработка режима мониторинга"""
         if self.bot_running and self.bot_mode == 'monitoring':
@@ -488,10 +491,10 @@ class TradingTelegramBot:
                 reply_markup=self.main_keyboard
             )
             return
-        
+
         # Останавливаем текущий режим (включая удаление сообщений)
         await self._stop_current_mode()
-        
+
         # Дополнительно очищаем активные уведомления, если они есть
         if self.active_coins:
             for symbol, coin_data in list(self.active_coins.items()):
@@ -499,20 +502,20 @@ class TradingTelegramBot:
                     bot_logger.info(f"Принудительная очистка уведомления для {symbol}: {coin_data['msg_id']}")
                     await self.delete_message(coin_data['msg_id'])
             self.active_coins.clear()
-        
+
         # Запускаем новый режим
         self.bot_mode = 'monitoring'
         self.bot_running = True
         bot_state_manager.set_last_mode('monitoring')
         self.start_monitoring_loop()
-        
+
         await update.message.reply_text(
             "✅ <b>Режим мониторинга активирован</b>\n"
             "Сводка будет обновляться автоматически.",
             reply_markup=self.main_keyboard,
             parse_mode=ParseMode.HTML
         )
-    
+
     async def _handle_stop(self, update: Update):
         """Обработка остановки бота"""
         await self._stop_current_mode()
@@ -521,7 +524,7 @@ class TradingTelegramBot:
             reply_markup=self.main_keyboard,
             parse_mode=ParseMode.HTML
         )
-    
+
     async def _handle_add_coin_start(self, update: Update):
         """Начало добавления монеты"""
         await self._stop_current_mode()
@@ -532,22 +535,22 @@ class TradingTelegramBot:
             parse_mode=ParseMode.HTML
         )
         return self.ADDING_COIN
-    
+
     async def _handle_remove_coin_start(self, update: Update):
         """Начало удаления монеты"""
         await self._stop_current_mode()
-        
+
         if watchlist_manager.size() == 0:
             await update.message.reply_text(
                 "❌ Список отслеживания пуст.",
                 reply_markup=self.main_keyboard
             )
             return ConversationHandler.END
-        
+
         coins_list = ", ".join(sorted(watchlist_manager.get_all())[:10])
         if watchlist_manager.size() > 10:
             coins_list += "..."
-        
+
         await update.message.reply_text(
             f"➖ <b>Удаление монеты</b>\n\n"
             f"Текущий список: {coins_list}\n\n"
@@ -556,29 +559,29 @@ class TradingTelegramBot:
             parse_mode=ParseMode.HTML
         )
         return self.REMOVING_COIN
-    
+
     async def _handle_show_list(self, update: Update):
         """Показ списка монет"""
         await self._stop_current_mode()
-        
+
         coins = watchlist_manager.get_all()
         if not coins:
             text = "📋 <b>Список отслеживания пуст</b>"
         else:
             sorted_coins = sorted(coins)
             text = f"📋 <b>Список отслеживания ({len(coins)} монет):</b>\n\n"
-            
+
             # Разбиваем на строки по 5 монет
             for i in range(0, len(sorted_coins), 5):
                 batch = sorted_coins[i:i+5]
                 text += " • ".join(batch) + "\n"
-        
+
         await update.message.reply_text(text, reply_markup=self.main_keyboard, parse_mode=ParseMode.HTML)
-    
+
     async def _handle_settings(self, update: Update):
         """Обработка настроек"""
         await self._stop_current_mode()
-        
+
         current_settings = (
             "⚙ <b>Текущие настройки фильтров:</b>\n\n"
             f"📊 Минимальный объём: <code>${config_manager.get('VOLUME_THRESHOLD'):,}</code>\n"
@@ -586,64 +589,64 @@ class TradingTelegramBot:
             f"📈 Минимальный NATR: <code>{config_manager.get('NATR_THRESHOLD')}%</code>\n\n"
             "Выберите параметр для изменения:"
         )
-        
+
         await update.message.reply_text(
             current_settings,
             reply_markup=self.settings_keyboard,
             parse_mode=ParseMode.HTML
         )
-    
+
     async def _handle_status(self, update: Update):
         """Показ статуса бота"""
         status_parts = ["ℹ <b>Статус бота:</b>\n"]
-        
+
         if self.bot_running:
             status_parts.append(f"🟢 Работает в режиме: <b>{self.bot_mode}</b>")
             if self.bot_mode == 'notification':
                 status_parts.append(f"📊 Активных монет: <b>{len(self.active_coins)}</b>")
         else:
             status_parts.append("🔴 Остановлен")
-        
+
         status_parts.append(f"📋 Монет в списке: <b>{watchlist_manager.size()}</b>")
-        
+
         # Показываем текущие фильтры
         status_parts.append("\n⚙ <b>Фильтры:</b>")
         status_parts.append(f"• Объём: ${config_manager.get('VOLUME_THRESHOLD'):,}")
         status_parts.append(f"• Спред: {config_manager.get('SPREAD_THRESHOLD')}%")
         status_parts.append(f"• NATR: {config_manager.get('NATR_THRESHOLD')}%")
-        
+
         await update.message.reply_text(
             "\n".join(status_parts),
             reply_markup=self.main_keyboard,
             parse_mode=ParseMode.HTML
         )
-    
+
     async def _handle_back(self, update: Update):
         """Возврат в главное меню"""
         await update.message.reply_text(
             "🏠 Главное меню:",
             reply_markup=self.main_keyboard
         )
-    
+
     # Handlers для ConversationHandler
     async def add_coin_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик добавления монеты"""
         text = update.message.text.strip()
-        
+
         if text == "🔙 Назад":
             await self._handle_back(update)
             return ConversationHandler.END
-        
+
         # Нормализуем символ
         symbol = text.upper().replace("_USDT", "").replace("USDT", "")
-        
+
         if not symbol or len(symbol) < 2:
             await update.message.reply_text(
                 "❌ Некорректный символ. Попробуйте еще раз:",
                 reply_markup=self.back_keyboard
             )
             return self.ADDING_COIN
-        
+
         # Проверяем, есть ли уже в списке
         if watchlist_manager.contains(symbol):
             await update.message.reply_text(
@@ -652,13 +655,13 @@ class TradingTelegramBot:
                 parse_mode=ParseMode.HTML
             )
             return ConversationHandler.END
-        
+
         # Проверяем доступность монеты
         await update.message.reply_text("🔄 Проверяю доступность монеты...")
-        
+
         try:
             coin_data = await asyncio.to_thread(api_client.get_coin_data, symbol)
-            
+
             if coin_data:
                 watchlist_manager.add(symbol)
                 await update.message.reply_text(
@@ -681,19 +684,19 @@ class TradingTelegramBot:
                 reply_markup=self.main_keyboard,
                 parse_mode=ParseMode.HTML
             )
-        
+
         return ConversationHandler.END
-    
+
     async def remove_coin_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик удаления монеты"""
         text = update.message.text.strip()
-        
+
         if text == "🔙 Назад":
             await self._handle_back(update)
             return ConversationHandler.END
-        
+
         symbol = text.upper().replace("_USDT", "").replace("USDT", "")
-        
+
         if watchlist_manager.remove(symbol):
             await update.message.reply_text(
                 f"✅ <b>{symbol}</b> удалена из списка отслеживания.",
@@ -706,17 +709,17 @@ class TradingTelegramBot:
                 reply_markup=self.main_keyboard,
                 parse_mode=ParseMode.HTML
             )
-        
+
         return ConversationHandler.END
-    
+
     def setup_application(self):
         """Настраивает Telegram приложение"""
         from telegram.error import Conflict
-        
+
         # Создаем приложение с обработкой ошибок
         builder = Application.builder()
         builder.token(self.token)
-        
+
         # Добавляем обработку конфликтов
         async def error_handler(update, context):
             if isinstance(context.error, Conflict):
@@ -726,10 +729,10 @@ class TradingTelegramBot:
                 return
             else:
                 bot_logger.error(f"Ошибка обновления: {context.error}")
-        
+
         self.app = builder.build()
         self.app.add_error_handler(error_handler)
-        
+
         # Создаем ConversationHandler
         conv_handler = ConversationHandler(
             entry_points=[
@@ -749,11 +752,11 @@ class TradingTelegramBot:
             ],
             per_message=False
         )
-        
+
         # Добавляем handlers
         self.app.add_handler(CommandHandler("start", self.start_handler))
         self.app.add_handler(conv_handler)
-        
+
         return self.app
 
 # Глобальный экземпляр бота
