@@ -43,19 +43,14 @@ class BotStateManager:
         self.save_state(state)
     
     def get_last_mode(self) -> Optional[str]:
-        """Возвращает последний режим работы"""
+        """Получает последний режим работы"""
         state = self.load_state()
         return state.get('last_mode')
     
-    def should_auto_start(self) -> bool:
-        """Проверяет, нужно ли автоматически запускать бота"""
+    def get_auto_start(self) -> bool:
+        """Проверяет, нужно ли автоматически запускать бот"""
         state = self.load_state()
         return state.get('auto_start', False)
-    
-    def get_last_active_time(self) -> Optional[str]:
-        """Возвращает время последней активности"""
-        state = self.load_state()
-        return state.get('last_active_time')
 
 # Глобальный экземпляр менеджера состояния
 bot_state_manager = BotStateManager()

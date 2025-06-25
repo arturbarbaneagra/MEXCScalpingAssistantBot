@@ -1,3 +1,4 @@
+
 import asyncio
 import time
 import threading
@@ -467,6 +468,12 @@ class TradingTelegramBot:
                 await self._handle_show_list(update)
             elif text == "⚙ Настройки":
                 await self._handle_settings(update)
+            elif text == "📊 Объём":
+                return await self._handle_volume_setting_start(update)
+            elif text == "⇄ Спред":
+                return await self._handle_spread_setting_start(update)
+            elif text == "📈 NATR":
+                return await self._handle_natr_setting_start(update)
             elif text == "🔄 Сброс":
                 await self._handle_reset_settings(update)
             elif text == "ℹ Статус":
@@ -600,6 +607,45 @@ class TradingTelegramBot:
             parse_mode=ParseMode.HTML
         )
         return self.REMOVING_COIN
+
+    async def _handle_volume_setting_start(self, update: Update):
+        """Начало настройки объёма"""
+        await self._stop_current_mode()
+        current_value = config_manager.get('VOLUME_THRESHOLD')
+        await update.message.reply_text(
+            f"📊 <b>Настройка минимального объёма</b>\n\n"
+            f"Текущее значение: <code>${current_value:,}</code>\n\n"
+            f"Введите новое значение в долларах (например: 1500):",
+            reply_markup=self.back_keyboard,
+            parse_mode=ParseMode.HTML
+        )
+        return self.SETTING_VOLUME
+
+    async def _handle_spread_setting_start(self, update: Update):
+        """Начало настройки спреда"""
+        await self._stop_current_mode()
+        current_value = config_manager.get('SPREAD_THRESHOLD')
+        await update.message.reply_text(
+            f"⇄ <b>Настройка минимального спреда</b>\n\n"
+            f"Текущее значение: <code>{current_value}%</code>\n\n"
+            f"Введите новое значение в процентах (например: 0.2):",
+            reply_markup=self.back_keyboard,
+            parse_mode=ParseMode.HTML
+        )
+        return self.SETTING_SPREAD
+
+    async def _handle_natr_setting_start(self, update: Update):
+        """Начало настройки NATR"""
+        await self._stop_current_mode()
+        current_value = config_manager.get('NATR_THRESHOLD')
+        await update.message.reply_text(
+            f"📈 <b>Настройка минимального NATR</b>\n\n"
+            f"Текущее значение: <code>{current_value}%</code>\n\n"
+            f"Введите новое значение в процентах (например: 0.8):",
+            reply_markup=self.back_keyboard,
+            parse_mode=ParseMode.HTML
+        )
+        return self.SETTING_NATR
 
     async def _handle_show_list(self, update: Update):
         """Показ списка монет"""
@@ -775,6 +821,102 @@ class TradingTelegramBot:
 
         return ConversationHandler.END
 
+    async def volume_setting_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик настройки объёма"""
+        text = update.message.text.strip()
+
+        if text == "🔙 Назад":
+            await self._handle_settings(update)
+            return ConversationHandler.END
+
+        try:
+            value = int(text)
+            if value < 100:
+                await update.message.reply_text(
+                    "❌ Объём должен быть не менее $100. Попробуйте еще раз:",
+                    reply_markup=self.back_keyboard
+                )
+                return self.SETTING_VOLUME
+
+            config_manager.set('VOLUME_THRESHOLD', value)
+            await update.message.reply_text(
+                f"✅ <b>Минимальный объём установлен:</b> ${value:,}",
+                reply_markup=self.main_keyboard,
+                parse_mode=ParseMode.HTML
+            )
+        except ValueError:
+            await update.message.reply_text(
+                "❌ Введите числовое значение. Попробуйте еще раз:",
+                reply_markup=self.back_keyboard
+            )
+            return self.SETTING_VOLUME
+
+        return ConversationHandler.END
+
+    async def spread_setting_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик настройки спреда"""
+        text = update.message.text.strip()
+
+        if text == "🔙 Назад":
+            await self._handle_settings(update)
+            return ConversationHandler.END
+
+        try:
+            value = float(text)
+            if value < 0 or value > 10:
+                await update.message.reply_text(
+                    "❌ Спред должен быть от 0 до 10%. Попробуйте еще раз:",
+                    reply_markup=self.back_keyboard
+                )
+                return self.SETTING_SPREAD
+
+            config_manager.set('SPREAD_THRESHOLD', value)
+            await update.message.reply_text(
+                f"✅ <b>Минимальный спред установлен:</b> {value}%",
+                reply_markup=self.main_keyboard,
+                parse_mode=ParseMode.HTML
+            )
+        except ValueError:
+            await update.message.reply_text(
+                "❌ Введите числовое значение. Попробуйте еще раз:",
+                reply_markup=self.back_keyboard
+            )
+            return self.SETTING_SPREAD
+
+        return ConversationHandler.END
+
+    async def natr_setting_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик настройки NATR"""
+        text = update.message.text.strip()
+
+        if text == "🔙 Назад":
+            await self._handle_settings(update)
+            return ConversationHandler.END
+
+        try:
+            value = float(text)
+            if value < 0 or value > 20:
+                await update.message.reply_text(
+                    "❌ NATR должен быть от 0 до 20%. Попробуйте еще раз:",
+                    reply_markup=self.back_keyboard
+                )
+                return self.SETTING_NATR
+
+            config_manager.set('NATR_THRESHOLD', value)
+            await update.message.reply_text(
+                f"✅ <b>Минимальный NATR установлен:</b> {value}%",
+                reply_markup=self.main_keyboard,
+                parse_mode=ParseMode.HTML
+            )
+        except ValueError:
+            await update.message.reply_text(
+                "❌ Введите числовое значение. Попробуйте еще раз:",
+                reply_markup=self.back_keyboard
+            )
+            return self.SETTING_NATR
+
+        return ConversationHandler.END
+
     def setup_application(self):
         """Настраивает Telegram приложение"""
         from telegram.error import Conflict, NetworkError, TimedOut
@@ -816,6 +958,15 @@ class TradingTelegramBot:
                 ],
                 self.REMOVING_COIN: [
                     MessageHandler(filters.TEXT & ~filters.COMMAND, self.remove_coin_handler)
+                ],
+                self.SETTING_VOLUME: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.volume_setting_handler)
+                ],
+                self.SETTING_SPREAD: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.spread_setting_handler)
+                ],
+                self.SETTING_NATR: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.natr_setting_handler)
                 ]
             },
             fallbacks=[
