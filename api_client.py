@@ -104,18 +104,12 @@ class MexcApiClient:
     def get_ticker(self, symbol: str) -> Optional[Dict]:
         """Получает тикер монеты с 1-минутными данными"""
         symbol = symbol if symbol.endswith("USDT") else symbol + "USDT"
-        params = {'symbol': symbol}
-
-        # Получаем текущий тикер для цены и спреда
-        ticker_data = self._make_request('ticker/24hr', params)
-        if not ticker_data:
-            return None
-
-        # Получаем последнюю завершенную 1-минутную свечу
+        
+        # Получаем последние 2 завершенные 1-минутные свечи для расчета изменения
         candle_params = {
             'symbol': symbol,
             'interval': '1m',
-            'limit': 1  # Только последняя завершенная минута
+            'limit': 2  # Последние 2 минуты для расчета изменения
         }
 
         candle_data = self._make_request('klines', candle_params)
@@ -124,34 +118,37 @@ class MexcApiClient:
             return None
 
         try:
-            # Проверяем что есть данные свечей
-            if len(candle_data) == 0:
-                bot_logger.warning(f"Пустой массив свечей для {symbol}")
-                return None
-
             # Получаем данные из последней 1-минутной свечи
-            candle = candle_data[0]
-
-            # Проверяем что свеча содержит достаточно данных (минимум 8 элементов)
-            if not isinstance(candle, list) or len(candle) < 8:
-                bot_logger.warning(f"Некорректная структура свечи для {symbol}: {candle}")
+            current_candle = candle_data[0]
+            
+            # Проверяем что свеча содержит достаточно данных
+            if not isinstance(current_candle, list) or len(current_candle) < 8:
+                bot_logger.warning(f"Некорректная структура свечи для {symbol}: {current_candle}")
                 return None
 
-            # Используем данные из тикера для изменения цены (24ч) и цены
-            # А из свечи берем объем за 1 минуту
-            current_open = float(candle[1])
-            current_close = float(candle[4])
+            current_open = float(current_candle[1])
+            current_high = float(current_candle[2])
+            current_low = float(current_candle[3])
+            current_close = float(current_candle[4])
+            current_volume = float(current_candle[7])  # quoteVolume в USDT
 
-            # Рассчитываем изменение за последнюю минуту
+            # Рассчитываем изменение цены за последнюю минуту
             price_change = ((current_close - current_open) / current_open * 100) if current_open > 0 else 0.0
 
+            # Получаем текущие bid/ask цены из orderbook
+            ticker_params = {'symbol': symbol}
+            ticker_data = self._make_request('ticker/bookTicker', ticker_params)
+            
+            bid_price = float(ticker_data['bidPrice']) if ticker_data and ticker_data.get('bidPrice') else current_close
+            ask_price = float(ticker_data['askPrice']) if ticker_data and ticker_data.get('askPrice') else current_close
+
             return {
-                'price': float(ticker_data['lastPrice']),  # Актуальная цена
-                'change': price_change,  # Изменение за 1 минуту (open vs close)
-                'volume': float(candle[7]) if len(candle) > 7 else 0.0,  # quoteVolume за 1 минуту в USDT
-                'count': int(ticker_data['count']) if ticker_data.get('count') is not None else 0,  # Количество сделок из тикера (24ч)
-                'bid': float(ticker_data['bidPrice']) if ticker_data.get('bidPrice') is not None else 0.0,
-                'ask': float(ticker_data['askPrice']) if ticker_data.get('askPrice') is not None else 0.0
+                'price': current_close,  # Цена закрытия последней минуты
+                'change': price_change,  # Изменение за последнюю минуту
+                'volume': current_volume,  # Объем за последнюю минуту в USDT
+                'count': 1,  # Примерное количество сделок (можно улучшить)
+                'bid': bid_price,
+                'ask': ask_price
             }
         except (KeyError, ValueError, TypeError, IndexError) as e:
             bot_logger.warning(f"Ошибка обработки 1-минутных данных для {symbol}: {e}")
