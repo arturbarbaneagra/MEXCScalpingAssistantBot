@@ -149,7 +149,7 @@ class MexcApiClient:
                 'price': float(ticker_data['lastPrice']),  # Актуальная цена
                 'change': price_change,  # Изменение за 1 минуту (open vs close)
                 'volume': float(candle[7]) if len(candle) > 7 else 0.0,  # quoteVolume за 1 минуту в USDT
-                'count': int(ticker_data.get('count', 0)),  # Количество сделок из тикера (24ч)
+                'count': int(ticker_data['count']) if ticker_data.get('count') is not None else 0,  # Количество сделок из тикера (24ч)
                 'bid': float(ticker_data['bidPrice']) if ticker_data.get('bidPrice') is not None else 0.0,
                 'ask': float(ticker_data['askPrice']) if ticker_data.get('askPrice') is not None else 0.0
             }
