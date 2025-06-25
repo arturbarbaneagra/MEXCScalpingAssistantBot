@@ -93,18 +93,18 @@ class TradingTelegramBot:
 
     async def delete_message(self, message_id: int) -> bool:
         """Удаляет сообщение"""
+        if not message_id or not isinstance(message_id, int) or message_id <= 0:
+            bot_logger.debug(f"Некорректный ID сообщения: {message_id}")
+            return False
+            
+        if not self.app or not self.app.bot:
+            bot_logger.debug(f"Приложение или бот не инициализированы для удаления сообщения {message_id}")
+            return False
+
         try:
-            if (self.app and self.app.bot and message_id and 
-                isinstance(message_id, int) and message_id > 0):
-                
-                # Проверяем, что бот инициализирован
-                if hasattr(self.app.bot, '_bot') and self.app.bot._bot:
-                    await self.app.bot.delete_message(chat_id=self.chat_id, message_id=message_id)
-                    bot_logger.debug(f"Сообщение {message_id} успешно удалено")
-                else:
-                    bot_logger.warning(f"Бот не инициализирован для удаления сообщения {message_id}")
-            else:
-                bot_logger.warning(f"Невозможно удалить сообщение {message_id}: некорректные параметры")
+            await self.app.bot.delete_message(chat_id=self.chat_id, message_id=message_id)
+            bot_logger.debug(f"Сообщение {message_id} успешно удалено")
+            return True
         except Exception as e:
             error_message = str(e).lower()
             # Игнорируем обычные ошибки удаления
@@ -112,12 +112,13 @@ class TradingTelegramBot:
                 "message to delete not found",
                 "message can't be deleted", 
                 "message is too old",
-                "httprequest is not initialized",
-                "runtime error"
+                "bad request",
+                "not found"
             ]):
                 bot_logger.debug(f"Сообщение {message_id} недоступно для удаления: {e}")
             else:
                 bot_logger.error(f"Ошибка удаления сообщения {message_id}: {e}")
+            return False
 
     def _chunks(self, lst: List, size: int):
         """Разбивает список на чанки"""
@@ -137,15 +138,21 @@ class TradingTelegramBot:
 
             # Удаляем сообщение мониторинга если оно есть
             if self.monitoring_message_id:
-                await self.delete_message(self.monitoring_message_id)
+                success = await self.delete_message(self.monitoring_message_id)
+                if success:
+                    bot_logger.info("📝 Сообщение мониторинга удалено")
                 self.monitoring_message_id = None
-                bot_logger.info("📝 Сообщение мониторинга удалено")
 
             # Удаляем активные уведомления
             if self.active_coins:
+                deleted_count = 0
                 for symbol, coin_data in list(self.active_coins.items()):
                     if coin_data.get('msg_id'):
-                        await self.delete_message(coin_data['msg_id'])
+                        success = await self.delete_message(coin_data['msg_id'])
+                        if success:
+                            deleted_count += 1
+                if deleted_count > 0:
+                    bot_logger.info(f"🗑 Удалено {deleted_count} уведомлений")
                 self.active_coins.clear()
 
             self.bot_mode = None
@@ -492,6 +499,9 @@ class TradingTelegramBot:
         # Останавливаем текущий режим (включая удаление сообщений)
         await self._stop_current_mode()
 
+        # Небольшая задержка для стабилизации
+        await asyncio.sleep(0.3)
+
         # Дополнительно очищаем сообщение мониторинга, если оно есть
         if self.monitoring_message_id:
             bot_logger.info(f"Принудительная очистка сообщения мониторинга: {self.monitoring_message_id}")
@@ -522,6 +532,9 @@ class TradingTelegramBot:
 
         # Останавливаем текущий режим (включая удаление сообщений)
         await self._stop_current_mode()
+
+        # Небольшая задержка для стабилизации
+        await asyncio.sleep(0.3)
 
         # Дополнительно очищаем активные уведомления, если они есть
         if self.active_coins:
