@@ -119,13 +119,23 @@ class MexcApiClient:
         }
 
         candle_data = self._make_request('klines', candle_params)
-        if not candle_data or len(candle_data) == 0:
+        if not candle_data or not isinstance(candle_data, list) or len(candle_data) == 0:
             bot_logger.warning(f"Нет 1-минутных данных для {symbol}")
             return None
 
         try:
+            # Проверяем что есть данные свечей
+            if len(candle_data) == 0:
+                bot_logger.warning(f"Пустой массив свечей для {symbol}")
+                return None
+
             # Получаем данные из последней 1-минутной свечи
             candle = candle_data[0]
+
+            # Проверяем что свеча содержит достаточно данных
+            if not isinstance(candle, list) or len(candle) < 9:
+                bot_logger.warning(f"Некорректная структура свечи для {symbol}")
+                return None
 
             # Используем данные из тикера для изменения цены (24ч) и цены
             # А из свечи берем объем и количество сделок за 1 минуту
