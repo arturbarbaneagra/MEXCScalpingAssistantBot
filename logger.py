@@ -63,8 +63,12 @@ class TradingBotLogger:
         self.logger.critical(message)
     
     def api_request(self, method: str, url: str, status_code: int, response_time: float):
-        """Логирует API запрос"""
-        self.logger.info(f"API {method} {url} - {status_code} ({response_time:.3f}s)")
+        """Логирует API запрос (безопасно, без токенов)"""
+        # Удаляем возможные токены из URL для безопасности
+        safe_url = url.split('?')[0] if '?' in url else url
+        if 'api.mexc.com' in safe_url:
+            safe_url = safe_url.replace('https://api.mexc.com', 'MEXC_API')
+        self.logger.info(f"API {method} {safe_url} - {status_code} ({response_time:.3f}s)")
     
     def trade_activity(self, symbol: str, action: str, details: str = ""):
         """Логирует торговую активность"""

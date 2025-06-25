@@ -94,7 +94,7 @@ class MexcApiClient:
             if len(candle) < 8:
                 bot_logger.warning(f"Некорректная структура свечи для {symbol}: {len(candle)} полей")
                 return None
-                
+
             return {
                 'open_time': int(candle[0]),      # Index 0: Open time
                 'open': float(candle[1]),         # Index 1: Open
@@ -113,7 +113,7 @@ class MexcApiClient:
     def get_ticker(self, symbol: str) -> Optional[Dict]:
         """Получает тикер монеты с 1-минутными данными согласно MEXC API"""
         symbol = symbol if symbol.endswith("USDT") else symbol + "USDT"
-        
+
         # Получаем последние 3 завершенные 1-минутные свечи согласно документации MEXC
         candle_params = {
             'symbol': symbol,
@@ -129,11 +129,11 @@ class MexcApiClient:
         try:
             # Сортируем по времени (самая новая свеча - последняя)
             candle_data.sort(key=lambda x: int(x[0]))
-            
+
             # Берем две последние завершенные свечи
             previous_candle = candle_data[-2]  # Предыдущая минута
             current_candle = candle_data[-1]   # Последняя завершенная минута
-            
+
             # MEXC API структура: [Open time, Open, High, Low, Close, Volume, Close time, Quote asset volume]
             if not isinstance(current_candle, list) or len(current_candle) < 8:
                 bot_logger.warning(f"Некорректная структура свечи для {symbol}: ожидается 8 полей, получено {len(current_candle) if isinstance(current_candle, list) else 'не массив'}")
@@ -148,11 +148,11 @@ class MexcApiClient:
             # Index 5: Volume
             # Index 6: Close time
             # Index 7: Quote asset volume
-            
+
             current_close = float(current_candle[4])     # Close price
             current_volume = float(current_candle[5])    # Volume
             quote_volume = float(current_candle[7])      # Quote asset volume (для расчета количества сделок)
-            
+
             # Данные предыдущей свечи для расчета изменения
             previous_close = float(previous_candle[4])
 
@@ -162,7 +162,7 @@ class MexcApiClient:
             # Получаем текущие bid/ask цены из orderbook
             ticker_params = {'symbol': symbol}
             ticker_data = self._make_request('ticker/bookTicker', ticker_params)
-            
+
             bid_price = float(ticker_data['bidPrice']) if ticker_data and ticker_data.get('bidPrice') else current_close
             ask_price = float(ticker_data['askPrice']) if ticker_data and ticker_data.get('askPrice') else current_close
 
@@ -247,6 +247,120 @@ class MexcApiClient:
             return 0.0
         true_range = high - low
         return (true_range / close) * 100
+
+    def get_klines(self, symbol: str, interval: str = "1m", limit: int = 100) -> Optional[Dict]:
+        """Получает данные свечей для символа (1-минутные данные для скальпинга)"""
+        try:
+            endpoint = "/api/v3/klines"
+            params = {
+                'symbol': symbol,
+                'interval': interval,
+                'limit': limit
+            }
+
+            url = f"{self.base_url}{endpoint}"
+            start_time = time.time()
+
+            response = requests.get(
+                url,
+                params=params,
+                timeout=config_manager.get('API_TIMEOUT', 15)
+            )
+
+            response_time = time.time() - start_time
+
+            # Безопасное логирование без чувствительных данных
+            safe_url = url.split('?')[0]  # Убираем параметры из URL
+            bot_logger.api_request("GET", safe_url, response.status_code, response_time)
+
+            if response.status_code == 200:
+                data = response.json()
+                if data:
+                    # Форматируем данные свечи согласно документации MEXC
+                    klines = []
+                    for item in data:
+                        kline = {
+                            'open_time': item[0],           # Index 0: Open time
+                            'open': float(item[1]),         # Index 1: Open
+                            'high': float(item[2]),         # Index 2: High
+                            'low': float(item[3]),          # Index 3: Low
+                            'close': float(item[4]),        # Index 4: Close
+                            'volume': float(item[5]),       # Index 5: Volume
+                            'close_time': item[6],          # Index 6: Close time
+                            'quote_volume': float(item[7])  # Index 7: Quote asset volume
+                        }
+                        klines.append(kline)
+
+                    return {'klines': klines}
+
+            return None
+
+        except Exception as e:
+            bot_logger.error(f"Ошибка получения klines для {symbol}: {e}")
+            return None
+
+    def get_ticker_24hr(self, symbol: str = None) -> Optional[Dict]:
+        """Получает статистику за 24 часа (используется для получения базовой информации)"""
+        try:
+            endpoint = "/api/v3/ticker/24hr"
+            params = {}
+            if symbol:
+                params['symbol'] = symbol
+
+            url = f"{self.base_url}{endpoint}"
+            start_time = time.time()
+
+            response = requests.get(
+                url,
+                params=params,
+                timeout=config_manager.get('API_TIMEOUT', 15)
+            )
+
+            response_time = time.time() - start_time
+
+            # Безопасное логирование
+            safe_url = url.split('?')[0]
+            bot_logger.api_request("GET", safe_url, response.status_code, response_time)
+
+            if response.status_code == 200:
+                return response.json()
+
+            return None
+
+        except Exception as e:
+            bot_logger.error(f"Ошибка получения ticker 24hr: {e}")
+            return None
+
+    def get_current_price(self, symbol: str) -> Optional[float]:
+        """Получает текущую цену для символа"""
+        try:
+            endpoint = "/api/v3/ticker/price"
+            params = {'symbol': symbol}
+
+            url = f"{self.base_url}{endpoint}"
+            start_time = time.time()
+
+            response = requests.get(
+                url,
+                params=params,
+                timeout=config_manager.get('API_TIMEOUT', 15)
+            )
+
+            response_time = time.time() - start_time
+
+            # Безопасное логирование
+            safe_url = url.split('?')[0]
+            bot_logger.api_request("GET", safe_url, response.status_code, response_time)
+
+            if response.status_code == 200:
+                data = response.json()
+                return float(data.get('price', 0))
+
+            return None
+
+        except Exception as e:
+            bot_logger.error(f"Ошибка получения цены для {symbol}: {e}")
+            return None
 
 # Глобальный экземпляр API клиента
 api_client = MexcApiClient()

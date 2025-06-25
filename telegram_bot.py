@@ -112,31 +112,27 @@ class TradingTelegramBot:
             yield lst[i:i + size]
 
     async def _stop_current_mode(self):
-        """Останавливает текущий режим работы"""
-        if self.bot_running:
-            bot_logger.info(f"Остановка режима: {self.bot_mode}")
+        """Останавливает текущий режим работы бота"""
+        if self.bot_mode:
+            bot_logger.info(f"🛑 Остановка режима: {self.bot_mode}")
 
-            # Останавливаем сначала, чтобы прекратить обновления
-            self.bot_running = False
-            await asyncio.sleep(1.0)  # Увеличиваем время для корректного завершения
-
-            # Затем удаляем сообщения
-            try:
-                if self.bot_mode == 'monitoring' and self.monitoring_message_id:
-                    bot_logger.info(f"Удаляем сообщение мониторинга: {self.monitoring_message_id}")
-                    await self.delete_message(self.monitoring_message_id)
+            # Удаляем сообщение мониторинга если оно есть
+            if self.monitoring_message_id and self.app:
+                try:
+                    await self.app.bot.delete_message(
+                        chat_id=self.chat_id,
+                        message_id=self.monitoring_message_id
+                    )
                     self.monitoring_message_id = None
-                elif self.bot_mode == 'notification':
-                    # Удаляем все активные сообщения уведомлений
-                    for symbol, coin_data in list(self.active_coins.items()):
-                        if coin_data.get('msg_id'):
-                            bot_logger.info(f"Удаляем сообщение уведомления для {symbol}: {coin_data['msg_id']}")
-                            await self.delete_message(coin_data['msg_id'])
-                    self.active_coins.clear()
-            except Exception as e:
-                bot_logger.error(f"Ошибка при очистке сообщений: {e}")
+                    bot_logger.info("📝 Сообщение мониторинга удалено")
+                except Exception as e:
+                    bot_logger.error(f"Ошибка удаления сообщения мониторинга: {e}")
 
-            # Сохраняем состояние остановки
+            self.bot_running = False
+            self.bot_mode = None
+            self.active_coins.clear()
+
+            # Сохраняем состояние
             bot_state_manager.set_last_mode(None)
 
     async def _notification_mode_loop(self):

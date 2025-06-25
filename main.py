@@ -14,14 +14,15 @@ from dotenv import load_dotenv
 # Загружаем переменные окружения из .env файла в самом начале
 load_dotenv()
 
+# Импортируем логгер до использования
+from logger import bot_logger
+
 # Проверяем, что переменные загружены (без вывода значений)
 bot_logger.info("Проверка переменных окружения...")
 if not os.getenv('TELEGRAM_TOKEN'):
     print("❌ TELEGRAM_TOKEN не найден")
 if not os.getenv('TELEGRAM_CHAT_ID'):
     print("❌ TELEGRAM_CHAT_ID не найден")
-
-from logger import bot_logger
 from config import config_manager
 from telegram_bot import telegram_bot
 from watchlist_manager import watchlist_manager
