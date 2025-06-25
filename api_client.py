@@ -1,4 +1,3 @@
-
 import time
 import requests
 from typing import Optional, Dict
@@ -16,16 +15,16 @@ class MexcApiClient:
         self.last_request_time = 0
         self.request_count = 0
         self.rate_limit_window = 1.0  # 1 секунда
-    
+
     def _rate_limit(self):
         """Ограничение скорости API запросов"""
         current_time = time.time()
-        
+
         # Сброс счетчика каждую секунду
         if current_time - self.last_request_time >= self.rate_limit_window:
             self.request_count = 0
             self.last_request_time = current_time
-        
+
         # Ограничиваем количество запросов в секунду
         max_requests = config_manager.get('MAX_API_REQUESTS_PER_SECOND')
         if self.request_count >= max_requests:
@@ -34,27 +33,27 @@ class MexcApiClient:
                 time.sleep(sleep_time)
                 self.request_count = 0
                 self.last_request_time = time.time()
-        
+
         self.request_count += 1
-    
+
     def _make_request(self, endpoint: str, params: Dict = None, timeout: int = None) -> Optional[Dict]:
         """Выполняет HTTP запрос с повторными попытками"""
         if timeout is None:
             timeout = config_manager.get('API_TIMEOUT')
-        
+
         max_retries = config_manager.get('MAX_RETRIES')
         url = f"{self.base_url}/{endpoint}"
-        
+
         for attempt in range(max_retries):
             try:
                 self._rate_limit()
-                
+
                 start_time = time.time()
                 response = self.session.get(url, params=params, timeout=timeout)
                 response_time = time.time() - start_time
-                
+
                 bot_logger.api_request('GET', url, response.status_code, response_time)
-                
+
                 if response.status_code == 200:
                     return response.json()
                 elif response.status_code == 429:  # Rate limit
@@ -66,15 +65,15 @@ class MexcApiClient:
                     bot_logger.error(f"API error {response.status_code}: {response.text}")
                     if attempt == max_retries - 1:
                         return None
-                    
+
             except requests.exceptions.RequestException as e:
                 bot_logger.error(f"Request exception on attempt {attempt + 1}: {e}")
                 if attempt == max_retries - 1:
                     return None
                 time.sleep(2 ** attempt)
-        
+
         return None
-    
+
     def get_candle(self, symbol: str, interval: str = '1m') -> Optional[Dict]:
         """Получает данные свечи"""
         symbol = symbol if symbol.endswith("USDT") else symbol + "USDT"
@@ -83,11 +82,11 @@ class MexcApiClient:
             'interval': interval,
             'limit': 1
         }
-        
+
         data = self._make_request('klines', params)
         if not data or not isinstance(data, list) or len(data) == 0:
             return None
-        
+
         try:
             candle = data[0]
             return {
@@ -101,29 +100,30 @@ class MexcApiClient:
         except (IndexError, ValueError, TypeError) as e:
             bot_logger.error(f"Ошибка парсинга свечи для {symbol}: {e}")
             return None
-    
+
     def get_ticker(self, symbol: str) -> Optional[Dict]:
         """Получает тикер монеты"""
         symbol = symbol if symbol.endswith("USDT") else symbol + "USDT"
         params = {'symbol': symbol}
-        
+
         data = self._make_request('ticker/24hr', params)
         if not data:
             return None
-        
+
         try:
             return {
                 'price': float(data['lastPrice']),
                 'change': float(data['priceChangePercent']),
                 'volume': float(data['quoteVolume']),
-                'trades': int(data['count']),
-                'bid': float(data['bidPrice']),
-                'ask': float(data['askPrice'])
+                'count': int(data['count']) if data.get('count') is not None else 0,
+                'bid': float(data['bidPrice']) if data.get('bidPrice') is not None else 0.0,
+                'ask': float(data['askPrice']) if data.get('askPrice') is not None else 0.0
             }
         except (KeyError, ValueError, TypeError) as e:
             bot_logger.error(f"Ошибка парсинга тикера для {symbol}: {e}")
+            bot_logger.debug(f"Данные тикера: {data}")
             return None
-    
+
     def get_coin_data(self, symbol: str) -> Optional[Dict]:
         """Получает полные данные монеты"""
         try:
@@ -131,7 +131,7 @@ class MexcApiClient:
             ticker_data = self.get_ticker(symbol)
             if not ticker_data:
                 return None
-            
+
             candle_data = self.get_candle(symbol)
             if not candle_data:
                 # Если свеча недоступна, используем данные из тикера
@@ -140,23 +140,23 @@ class MexcApiClient:
                     'low': ticker_data['price'],
                     'close': ticker_data['price']
                 }
-            
+
             # Рассчитываем метрики
             volume = ticker_data['volume']
             spread = self._calculate_spread(ticker_data['bid'], ticker_data['ask'])
             natr = self._calculate_natr(candle_data['high'], candle_data['low'], candle_data['close'])
-            
+
             # Проверяем критерии активности
             volume_threshold = config_manager.get('VOLUME_THRESHOLD')
             spread_threshold = config_manager.get('SPREAD_THRESHOLD')
             natr_threshold = config_manager.get('NATR_THRESHOLD')
-            
+
             is_active = (
                 volume >= volume_threshold and
                 spread >= spread_threshold and
                 natr >= natr_threshold
             )
-            
+
             result = {
                 'symbol': symbol,
                 'price': ticker_data['price'],
@@ -168,19 +168,19 @@ class MexcApiClient:
                 'active': is_active,
                 'timestamp': time.time()
             }
-            
+
             return result
-            
+
         except Exception as e:
             bot_logger.error(f"Ошибка получения данных для {symbol}: {e}")
             return None
-    
+
     def _calculate_spread(self, bid: float, ask: float) -> float:
         """Рассчитывает спред в процентах"""
         if bid <= 0 or ask <= 0:
             return 0.0
         return ((ask - bid) / bid) * 100
-    
+
     def _calculate_natr(self, high: float, low: float, close: float) -> float:
         """Рассчитывает нормализованный ATR"""
         if close <= 0:
