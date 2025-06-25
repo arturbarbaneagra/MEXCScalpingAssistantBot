@@ -108,9 +108,8 @@ class TradingTelegramBot:
         """Останавливает текущий режим"""
         if self.bot_running:
             bot_logger.info(f"Остановка режима: {self.bot_mode}")
-            self.bot_running = False
-            await asyncio.sleep(2)
             
+            # Сначала удаляем сообщения, потом останавливаем
             if self.bot_mode == 'monitoring' and self.monitoring_message_id:
                 await self.delete_message(self.monitoring_message_id)
                 self.monitoring_message_id = None
@@ -120,6 +119,9 @@ class TradingTelegramBot:
                     if coin_data.get('msg_id'):
                         await self.delete_message(coin_data['msg_id'])
                 self.active_coins.clear()
+            
+            self.bot_running = False
+            await asyncio.sleep(1)  # Уменьшаем задержку
             
             # Сохраняем состояние остановки
             bot_state_manager.set_last_mode(None)
@@ -452,7 +454,10 @@ class TradingTelegramBot:
             )
             return
         
+        # Останавливаем текущий режим (включая удаление сообщений)
         await self._stop_current_mode()
+        
+        # Запускаем новый режим
         self.bot_mode = 'notification'
         self.bot_running = True
         bot_state_manager.set_last_mode('notification')
@@ -474,7 +479,10 @@ class TradingTelegramBot:
             )
             return
         
+        # Останавливаем текущий режим (включая удаление сообщений)
         await self._stop_current_mode()
+        
+        # Запускаем новый режим
         self.bot_mode = 'monitoring'
         self.bot_running = True
         bot_state_manager.set_last_mode('monitoring')

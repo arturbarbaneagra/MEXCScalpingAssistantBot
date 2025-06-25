@@ -114,7 +114,7 @@ class MexcApiClient:
             return {
                 'price': float(data['lastPrice']),
                 'change': float(data['priceChangePercent']),
-                'volume': float(data['quoteVolume']),
+                'volume': float(data['quoteVolume']),  # Используем quoteVolume для оборота в USDT
                 'count': int(data['count']) if data.get('count') is not None else 0,
                 'bid': float(data['bidPrice']) if data.get('bidPrice') is not None else 0.0,
                 'ask': float(data['askPrice']) if data.get('askPrice') is not None else 0.0
