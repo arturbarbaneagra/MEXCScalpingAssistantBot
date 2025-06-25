@@ -6,15 +6,21 @@
 
 import os
 import sys
+import os
 from flask import Flask
 from threading import Thread
 from dotenv import load_dotenv
+
+# Загружаем переменные окружения из .env файла в самом начале
+load_dotenv()
+
+# Проверяем, что переменные загружены
+print(f"DEBUG: TELEGRAM_TOKEN = {os.getenv('TELEGRAM_TOKEN')[:10]}..." if os.getenv('TELEGRAM_TOKEN') else "DEBUG: TELEGRAM_TOKEN не найден")
+print(f"DEBUG: TELEGRAM_CHAT_ID = {os.getenv('TELEGRAM_CHAT_ID')}")
+
 from logger import bot_logger
 from config import config_manager
 from telegram_bot import telegram_bot
-
-# Загружаем переменные окружения из .env файла
-load_dotenv()
 
 # Flask приложение для keep-alive
 app = Flask(__name__)
