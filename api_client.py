@@ -102,26 +102,58 @@ class MexcApiClient:
             return None
 
     def get_ticker(self, symbol: str) -> Optional[Dict]:
-        """Получает тикер монеты"""
+        """Получает тикер монеты с 1-минутными данными"""
         symbol = symbol if symbol.endswith("USDT") else symbol + "USDT"
         params = {'symbol': symbol}
 
-        data = self._make_request('ticker/24hr', params)
-        if not data:
+        # Получаем текущий тикер для цены и спреда
+        ticker_data = self._make_request('ticker/24hr', params)
+        if not ticker_data:
             return None
 
+        # Получаем 1-минутную свечу для объема и изменения цены
+        candle_params = {
+            'symbol': symbol,
+            'interval': '1m',
+            'limit': 2  # Текущая и предыдущая минута для расчета изменения
+        }
+        
+        candle_data = self._make_request('klines', candle_params)
+        if not candle_data or len(candle_data) < 2:
+            # Fallback к 24ч данным если 1м недоступны
+            try:
+                return {
+                    'price': float(ticker_data['lastPrice']),
+                    'change': float(ticker_data['priceChangePercent']),
+                    'volume': float(ticker_data['quoteVolume']),
+                    'count': int(ticker_data['count']) if ticker_data.get('count') is not None else 0,
+                    'bid': float(ticker_data['bidPrice']) if ticker_data.get('bidPrice') is not None else 0.0,
+                    'ask': float(ticker_data['askPrice']) if ticker_data.get('askPrice') is not None else 0.0
+                }
+            except (KeyError, ValueError, TypeError):
+                return None
+
         try:
+            # Текущая и предыдущая 1-минутная свеча
+            current_candle = candle_data[0]  # Последняя завершенная минута
+            prev_candle = candle_data[1] if len(candle_data) > 1 else current_candle
+            
+            current_close = float(current_candle[4])
+            prev_close = float(prev_candle[4])
+            
+            # Рассчитываем изменение за последнюю минуту
+            price_change = ((current_close - prev_close) / prev_close * 100) if prev_close > 0 else 0.0
+            
             return {
-                'price': float(data['lastPrice']),
-                'change': float(data['priceChangePercent']),
-                'volume': float(data['quoteVolume']),  # Используем quoteVolume для оборота в USDT
-                'count': int(data['count']) if data.get('count') is not None else 0,
-                'bid': float(data['bidPrice']) if data.get('bidPrice') is not None else 0.0,
-                'ask': float(data['askPrice']) if data.get('askPrice') is not None else 0.0
+                'price': float(ticker_data['lastPrice']),  # Используем актуальную цену из тикера
+                'change': price_change,  # Изменение за 1 минуту
+                'volume': float(current_candle[7]),  # quoteVolume за 1 минуту в USDT
+                'count': int(current_candle[8]),  # Количество сделок за 1 минуту
+                'bid': float(ticker_data['bidPrice']) if ticker_data.get('bidPrice') is not None else 0.0,
+                'ask': float(ticker_data['askPrice']) if ticker_data.get('askPrice') is not None else 0.0
             }
-        except (KeyError, ValueError, TypeError) as e:
-            bot_logger.error(f"Ошибка парсинга тикера для {symbol}: {e}")
-            bot_logger.debug(f"Данные тикера: {data}")
+        except (KeyError, ValueError, TypeError, IndexError) as e:
+            bot_logger.error(f"Ошибка парсинга 1-минутных данных для {symbol}: {e}")
             return None
 
     def get_coin_data(self, symbol: str) -> Optional[Dict]:

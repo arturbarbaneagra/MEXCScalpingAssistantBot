@@ -221,11 +221,11 @@ class TradingTelegramBot:
         return (
             f"{status} <b>{data['symbol']}_USDT</b>\n"
             f"💰 Цена: ${data['price']:.6f}\n"
-            f"🔄 Изменение: {data['change']:+.2f}%\n"
-            f"📊 Объём: ${data['volume']:,.2f}\n"
+            f"🔄 1м изменение: {data['change']:+.2f}%\n"
+            f"📊 1м объём: ${data['volume']:,.2f}\n"
             f"📈 NATR: {data['natr']:.2f}%\n"
             f"⇄ Спред: {data['spread']:.2f}%\n"
-            f"🔁 Сделок: {data['trades']}"
+            f"🔁 1м сделок: {data['trades']}"
         )
     
     async def _monitoring_mode_loop(self):
@@ -294,7 +294,7 @@ class TradingTelegramBot:
         # Сортируем по объему
         results.sort(key=lambda x: x['volume'], reverse=True)
         
-        parts = ["<b>📊 Мониторинг (автообновление)</b>\n"]
+        parts = ["<b>📊 Скальпинг мониторинг (1м данные)</b>\n"]
         
         # Информация о фильтрах
         vol_thresh = config_manager.get('VOLUME_THRESHOLD')
@@ -302,7 +302,7 @@ class TradingTelegramBot:
         natr_thresh = config_manager.get('NATR_THRESHOLD')
         
         parts.append(
-            f"<i>Фильтры: Объём ≥${vol_thresh:,}, "
+            f"<i>1м фильтры: Объём ≥${vol_thresh:,}, "
             f"Спред ≥{spread_thresh}%, NATR ≥{natr_thresh}%</i>\n"
         )
         
