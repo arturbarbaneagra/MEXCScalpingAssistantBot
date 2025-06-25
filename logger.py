@@ -55,7 +55,8 @@ class TradingBotLogger:
     
     def debug(self, message: str):
         """Логирует отладочное сообщение"""
-        self.logger.debug(message)
+        if self.logger.isEnabledFor(logging.DEBUG):
+            self.logger.debug(message)
     
     def critical(self, message: str):
         """Логирует критическую ошибку"""

@@ -332,10 +332,11 @@ class TradingTelegramBot:
         inactive_coins = [r for r in results if not r['active']]
         if inactive_coins:
             parts.append("<b>🔴 НЕАКТИВНЫЕ (топ по объёму):</b>")
-            for coin in inactive_coins[:5]:
+            for coin in inactive_coins[:8]:  # Показываем больше неактивных
                 parts.append(
                     f"• <b>{coin['symbol']}</b> "
-                    f"${coin['volume']:,.0f} | {coin['change']:+.1f}%"
+                    f"${coin['volume']:,.0f} | {coin['change']:+.1f}% | "
+                    f"S:{coin['spread']:.2f}% | N:{coin['natr']:.2f}%"
                 )
 
         # Добавляем статистику
@@ -714,21 +715,30 @@ class TradingTelegramBot:
 
     def setup_application(self):
         """Настраивает Telegram приложение"""
-        from telegram.error import Conflict
+        from telegram.error import Conflict, NetworkError, TimedOut
 
         # Создаем приложение с обработкой ошибок
         builder = Application.builder()
         builder.token(self.token)
+        builder.connection_pool_size(8)
+        builder.pool_timeout(20.0)
+        builder.read_timeout(30.0)
+        builder.write_timeout(30.0)
 
-        # Добавляем обработку конфликтов
+        # Улучшенная обработка ошибок
         async def error_handler(update, context):
-            if isinstance(context.error, Conflict):
+            error = context.error
+            
+            if isinstance(error, Conflict):
                 bot_logger.warning("Конфликт Telegram API - возможно запущен другой экземпляр бота")
-                # Пытаемся переподключиться через некоторое время
                 await asyncio.sleep(5)
                 return
+            elif isinstance(error, (NetworkError, TimedOut)):
+                bot_logger.warning(f"Сетевая ошибка Telegram: {error}")
+                await asyncio.sleep(2)
+                return
             else:
-                bot_logger.error(f"Ошибка обновления: {context.error}")
+                bot_logger.error(f"Ошибка Telegram бота: {error}", exc_info=True)
 
         self.app = builder.build()
         self.app.add_error_handler(error_handler)

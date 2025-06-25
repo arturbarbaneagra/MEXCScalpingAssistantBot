@@ -111,7 +111,8 @@ def main():
         application.run_polling(
             drop_pending_updates=True,
             poll_interval=1.0,
-            timeout=10
+            timeout=20,
+            close_loop=False
         )
 
     except KeyboardInterrupt:
@@ -120,6 +121,17 @@ def main():
         bot_logger.error(f"💥 Критическая ошибка: {e}", exc_info=True)
         sys.exit(1)
     finally:
+        # Graceful shutdown
+        try:
+            if telegram_bot.bot_running:
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(telegram_bot._stop_current_mode())
+                loop.close()
+        except Exception as e:
+            bot_logger.error(f"Ошибка при остановке: {e}")
+        
         bot_logger.info("🛑 Бот остановлен")
 
 if __name__ == "__main__":

@@ -105,11 +105,11 @@ class MexcApiClient:
         """Получает тикер монеты с 1-минутными данными"""
         symbol = symbol if symbol.endswith("USDT") else symbol + "USDT"
         
-        # Получаем последние 2 завершенные 1-минутные свечи для расчета изменения
+        # Получаем последние 3 завершенные 1-минутные свечи для надежности
         candle_params = {
             'symbol': symbol,
             'interval': '1m',
-            'limit': 2  # Получаем 2 свечи для сравнения
+            'limit': 3
         }
 
         candle_data = self._make_request('klines', candle_params)
@@ -121,18 +121,19 @@ class MexcApiClient:
             # Сортируем по времени (самая новая свеча - последняя)
             candle_data.sort(key=lambda x: int(x[0]))
             
+            # Берем две последние завершенные свечи
             previous_candle = candle_data[-2]  # Предыдущая минута
-            current_candle = candle_data[-1]   # Текущая минута
+            current_candle = candle_data[-1]   # Последняя завершенная минута
             
-            # Проверяем структуру данных
-            if not isinstance(current_candle, list) or len(current_candle) < 8:
+            # Проверяем структуру данных - в MEXC API свечи имеют 12 полей
+            if not isinstance(current_candle, list) or len(current_candle) < 9:
                 bot_logger.warning(f"Некорректная структура свечи для {symbol}")
                 return None
 
-            # Данные текущей свечи
-            current_close = float(current_candle[4])
-            current_volume = float(current_candle[7])  # quoteVolume в USDT
-            current_count = int(current_candle[8]) if len(current_candle) > 8 else 1  # Количество сделок
+            # Данные текущей свечи (индексы для MEXC API)
+            current_close = float(current_candle[4])     # Цена закрытия
+            current_volume = float(current_candle[7])    # Quote volume в USDT
+            current_count = int(current_candle[8])       # Количество сделок
             
             # Данные предыдущей свечи для расчета изменения
             previous_close = float(previous_candle[4])
@@ -147,9 +148,12 @@ class MexcApiClient:
             bid_price = float(ticker_data['bidPrice']) if ticker_data and ticker_data.get('bidPrice') else current_close
             ask_price = float(ticker_data['askPrice']) if ticker_data and ticker_data.get('askPrice') else current_close
 
+            # Логируем для отладки
+            bot_logger.debug(f"{symbol}: price={current_close:.6f}, 1m_change={price_change:+.2f}%, volume=${current_volume:,.0f}")
+
             return {
                 'price': current_close,
-                'change': price_change,  # Изменение между двумя последними минутами
+                'change': price_change,  # 1-минутное изменение
                 'volume': current_volume,
                 'count': current_count,
                 'bid': bid_price,
