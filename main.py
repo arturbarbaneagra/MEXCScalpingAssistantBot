@@ -8,9 +8,13 @@ import os
 import sys
 from flask import Flask
 from threading import Thread
+from dotenv import load_dotenv
 from logger import bot_logger
 from config import config_manager
 from telegram_bot import telegram_bot
+
+# Загружаем переменные окружения из .env файла
+load_dotenv()
 
 # Flask приложение для keep-alive
 app = Flask(__name__)
