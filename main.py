@@ -21,6 +21,7 @@ print(f"DEBUG: TELEGRAM_CHAT_ID = {os.getenv('TELEGRAM_CHAT_ID')}")
 from logger import bot_logger
 from config import config_manager
 from telegram_bot import telegram_bot
+from watchlist_manager import watchlist_manager
 
 # Flask приложение для keep-alive
 app = Flask(__name__)
@@ -31,7 +32,7 @@ def health_check():
     status = {
         'bot_running': telegram_bot.bot_running,
         'bot_mode': telegram_bot.bot_mode,
-        'watchlist_size': telegram_bot.watchlist_manager.size() if hasattr(telegram_bot, 'watchlist_manager') else 0
+        'watchlist_size': watchlist_manager.size()
     }
 
     return f"""
@@ -103,7 +104,7 @@ def main():
         application = telegram_bot.setup_application()
 
         bot_logger.info("✅ Бот успешно запущен!")
-        bot_logger.info(f"📊 Загружено {telegram_bot.watchlist_manager.size()} монет для отслеживания")
+        bot_logger.info(f"📊 Загружено {watchlist_manager.size()} монет для отслеживания")
         bot_logger.info("🔄 Ожидание команд...")
 
         # Запускаем polling
