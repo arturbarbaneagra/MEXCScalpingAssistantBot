@@ -10,6 +10,7 @@ from logger import bot_logger
 from config import config_manager
 from api_client import api_client
 from watchlist_manager import watchlist_manager
+from bot_state import bot_state_manager
 import os
 
 class TradingTelegramBot:
@@ -119,6 +120,9 @@ class TradingTelegramBot:
                     if coin_data.get('msg_id'):
                         await self.delete_message(coin_data['msg_id'])
                 self.active_coins.clear()
+            
+            # Сохраняем состояние остановки
+            bot_state_manager.set_last_mode(None)
     
     async def _notification_mode_loop(self):
         """Цикл режима уведомлений"""
@@ -354,6 +358,9 @@ class TradingTelegramBot:
     # Telegram Handlers
     async def start_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик команды /start"""
+        # Проверяем, нужно ли восстановить последний режим
+        last_mode = bot_state_manager.get_last_mode()
+        
         welcome_text = (
             "🤖 <b>Добро пожаловать в торговый бот!</b>\n\n"
             "📊 <b>Режимы работы:</b>\n"
@@ -364,8 +371,39 @@ class TradingTelegramBot:
             "• ➖ Удалить монету из списка\n"
             "• 📋 Показать список монет\n"
             "• ⚙ Настройки фильтров\n\n"
-            "Выберите действие:"
         )
+        
+        # Автовосстановление последнего режима
+        if last_mode and not self.bot_running:
+            if last_mode == 'notification':
+                welcome_text += "🔄 <b>Восстанавливаю режим уведомлений...</b>\n\n"
+                await update.message.reply_text(welcome_text + "Выберите действие:", reply_markup=self.main_keyboard, parse_mode=ParseMode.HTML)
+                
+                self.bot_mode = 'notification'
+                self.bot_running = True
+                self.start_monitoring_loop()
+                
+                await self.send_message(
+                    "✅ <b>Режим уведомлений восстановлен</b>\n"
+                    "Вы будете получать уведомления об активных монетах."
+                )
+                return
+                
+            elif last_mode == 'monitoring':
+                welcome_text += "🔄 <b>Восстанавливаю режим мониторинга...</b>\n\n"
+                await update.message.reply_text(welcome_text + "Выберите действие:", reply_markup=self.main_keyboard, parse_mode=ParseMode.HTML)
+                
+                self.bot_mode = 'monitoring'
+                self.bot_running = True
+                self.start_monitoring_loop()
+                
+                await self.send_message(
+                    "✅ <b>Режим мониторинга восстановлен</b>\n"
+                    "Сводка будет обновляться автоматически."
+                )
+                return
+        
+        welcome_text += "Выберите действие:"
         await update.message.reply_text(welcome_text, reply_markup=self.main_keyboard, parse_mode=ParseMode.HTML)
     
     async def button_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -417,6 +455,7 @@ class TradingTelegramBot:
         await self._stop_current_mode()
         self.bot_mode = 'notification'
         self.bot_running = True
+        bot_state_manager.set_last_mode('notification')
         self.start_monitoring_loop()
         
         await update.message.reply_text(
@@ -438,6 +477,7 @@ class TradingTelegramBot:
         await self._stop_current_mode()
         self.bot_mode = 'monitoring'
         self.bot_running = True
+        bot_state_manager.set_last_mode('monitoring')
         self.start_monitoring_loop()
         
         await update.message.reply_text(

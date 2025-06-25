@@ -162,7 +162,7 @@ class MexcApiClient:
                 'price': ticker_data['price'],
                 'change': ticker_data['change'],
                 'volume': volume,
-                'trades': ticker_data['trades'],
+                'trades': ticker_data['count'],
                 'spread': spread,
                 'natr': natr,
                 'active': is_active,
