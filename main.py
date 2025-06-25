@@ -1,27 +1,71 @@
-
-import json
+import requests
 import time
-import asyncio
 import threading
+import json
 import os
-import websockets
-from telegram import Update, ReplyKeyboardMarkup
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import Application, CommandHandler, ConversationHandler, MessageHandler, filters, ContextTypes
+import asyncio
+from flask import Flask
+from threading import Thread
 
-MEXC_WS_URL = "wss://wbs.mexc.com/ws"
-VOLUME_THRESHOLD = 1000
-SPREAD_THRESHOLD = 0.1
-NATR_THRESHOLD = 0.5
-
+# Конфигурация
+MEXC_BASE_URL = "https://api.mexc.com/api/v3"
+WATCHLIST_FILE = "watchlist.json"
+CONFIG_FILE = "config.json"
 TELEGRAM_TOKEN = "8180368589:AAHgiD22KRFzXHTiFkw4n5WPwN3Ho2hA4rA"
 TELEGRAM_CHAT_ID = "1090477927"
 
-WATCHLIST_FILE = "watchlist.json"
-BOT_RUNNING = False
+# Параметры по умолчанию
+DEFAULT_CONFIG = {
+    'VOLUME_THRESHOLD': 1000,
+    'SPREAD_THRESHOLD': 0.1,
+    'NATR_THRESHOLD': 0.5,
+    'CHECK_BATCH_SIZE': 10,
+    'CHECK_BATCH_INTERVAL': 1.0,
+    'CHECK_FULL_CYCLE_INTERVAL': 2,
+    'INACTIVITY_TIMEOUT': 30,
+    'COIN_DATA_DELAY': 0.5,
+    'MONITORING_UPDATE_INTERVAL': 15,
+    'MAX_API_REQUESTS_PER_SECOND': 8,
+    'MESSAGE_RATE_LIMIT': 20
+}
 
-# Хранилище данных монет
-COIN_DATA = {}
+# Глобальные переменные
+BOT_RUNNING = False
+BOT_MODE = None  # 'notification' или 'monitoring'
 ACTIVE_COINS = {}
+monitoring_message_id = None
+last_message_time = 0
+WATCHLIST = set()
+
+# Загрузка конфигурации
+def load_config():
+    # Создаем файл с настройками по умолчанию, если его нет
+    if not os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(DEFAULT_CONFIG, f)
+        return DEFAULT_CONFIG
+
+    try:
+        with open(CONFIG_FILE, 'r') as f:
+            config = json.load(f)
+            # Обновляем только существующие ключи
+            return {**DEFAULT_CONFIG, **{k: v for k, v in config.items() if k in DEFAULT_CONFIG}}
+    except (json.JSONDecodeError, IOError):
+        # Если файл поврежден, создаем заново
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(DEFAULT_CONFIG, f)
+        return DEFAULT_CONFIG
+
+def save_config():
+    with open(CONFIG_FILE, 'w') as f:
+        json.dump({k: v for k, v in globals().items() if k in DEFAULT_CONFIG}, f)
+
+# Загружаем конфиг при старте
+config = load_config()
+globals().update(config)
 
 def load_watchlist():
     if os.path.exists(WATCHLIST_FILE):
@@ -34,466 +78,638 @@ def save_watchlist():
 
 WATCHLIST = load_watchlist()
 
-async def send_telegram_message(text, parse_mode="HTML"):
-    import requests
-    r = requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", data={
-        'chat_id': TELEGRAM_CHAT_ID,
-        'text': text,
-        'parse_mode': parse_mode
-    })
-    if r.ok:
-        return r.json().get("result", {}).get("message_id")
-    return None
-
-async def delete_message(message_id):
-    import requests
-    requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteMessage", data={
-        "chat_id": TELEGRAM_CHAT_ID,
-        "message_id": message_id
-    })
-
-def calculate_metrics(symbol, kline_data):
-    """Рассчитывает метрики на основе данных свечи"""
+# ——— API функции ———
+def get_candle(symbol, interval='1m'):
+    sym = symbol if symbol.endswith("USDT") else symbol + "USDT"
+    params = {'symbol': sym, 'interval': interval, 'limit': 1}
     try:
-        print(f"📊 Расчет метрик для {symbol}, данные: {kline_data}")
-        
-        open_price = float(kline_data.get('o', 0))
-        close_price = float(kline_data.get('c', 0))
-        high_price = float(kline_data.get('h', 0))
-        low_price = float(kline_data.get('l', 0))
-        volume = float(kline_data.get('v', 0))
-        
-        print(f"🔢 {symbol} OHLCV: O={open_price}, H={high_price}, L={low_price}, C={close_price}, V={volume}")
-        
-        if close_price == 0 or open_price == 0:
-            print(f"⚠️ {symbol}: Некорректные цены (close={close_price}, open={open_price})")
+        response = requests.get(f"{MEXC_BASE_URL}/klines", params=params, timeout=5)
+        response.raise_for_status()
+        j = response.json()
+        if not isinstance(j, list) or not j:
             return None
-        
-        # NATR (Normalized Average True Range)
-        natr = (high_price - low_price) / close_price * 100
-        
-        # Изменение цены
-        change = (close_price - open_price) / open_price * 100
-        
-        print(f"✅ {symbol}: V={volume:.2f}, NATR={natr:.2f}%, Change={change:.2f}%")
-        
+        c = j[0]
         return {
-            'symbol': symbol,
-            'volume': volume,
-            'natr': natr,
-            'change': change,
-            'close': close_price
+            'open': float(c[1]), 'close': float(c[4]),
+            'high': float(c[2]), 'low': float(c[3]),
+            'volume': float(c[7])
         }
     except Exception as e:
-        print(f"❌ Ошибка расчета метрик для {symbol}: {e}")
-        print(f"❌ Данные kline: {kline_data}")
+        print(f"Error getting candle for {symbol}: {e}")
         return None
 
-async def websocket_handler():
-    """Обработчик WebSocket соединения"""
-    global BOT_RUNNING, COIN_DATA
-    
-    while BOT_RUNNING:
-        try:
-            # Подготавливаем подписки для монет из вотчлиста (правильный формат MEXC)
-            subscriptions = []
-            for coin in WATCHLIST:
-                symbol = coin + "USDT"
-                # Правильный формат для MEXC WebSocket API
-                subscriptions.extend([
-                    f"spot@public.kline.v3.api@{symbol}@Min1",
-                    f"spot@public.bookTicker.v3.api@{symbol}"
-                ])
-            
-            # Ограничиваем количество подписок (MEXC может иметь лимиты)
-            if len(subscriptions) > 20:  # Уменьшим лимит
-                subscriptions = subscriptions[:20]
-                print(f"⚠️ Ограничили количество подписок до 20")
-            
-            if not subscriptions:
-                print("⚠️ Нет подписок, вотчлист пуст")
-                await asyncio.sleep(5)
-                continue
-            
-            print(f"🔗 Подключаемся к WebSocket: {MEXC_WS_URL}")
-            print(f"📋 Монеты в вотчлисте: {sorted(WATCHLIST)}")
-            print(f"📡 Подготовлены подписки: {subscriptions[:3]}... (всего {len(subscriptions)})")
-            
-            async with websockets.connect(MEXC_WS_URL) as websocket:
-                # Отправляем подписки по одной (может быть проблема с batch подпиской)
-                for subscription in subscriptions:
-                    subscribe_msg = {
-                        "method": "SUBSCRIPTION", 
-                        "params": [subscription]
-                    }
-                    print(f"📤 Отправляем подписку: {subscription}")
-                    await websocket.send(json.dumps(subscribe_msg))
-                    
-                    # Ждем ответ на каждую подписку
-                    try:
-                        response = await asyncio.wait_for(websocket.recv(), timeout=2.0)
-                        print(f"📥 Ответ на {subscription}: {response}")
-                    except asyncio.TimeoutError:
-                        print(f"⏰ Таймаут ответа на {subscription}")
-                    
-                    # Небольшая пауза между подписками
-                    await asyncio.sleep(0.1)
-                
-                print(f"✅ Отправили {len(subscriptions)} подписок, ожидаем данные...")
-                
-                message_count = 0
-                last_log_time = time.time()
-                
-                async for message in websocket:
-                    if not BOT_RUNNING:
-                        break
-                    
-                    message_count += 1
-                    current_time = time.time()
-                    
-                    # Логируем каждые 30 секунд
-                    if current_time - last_log_time > 30:
-                        print(f"📊 Обработано {message_count} сообщений, активных монет: {len(ACTIVE_COINS)}")
-                        last_log_time = current_time
-                        
-                    try:
-                        if message.strip():  # Проверяем что сообщение не пустое
-                            data = json.loads(message)
-                            
-                            # Логируем первые несколько сообщений для отладки
-                            if message_count <= 5:
-                                print(f"🔍 Сообщение #{message_count}: {json.dumps(data, indent=2)[:200]}...")
-                            
-                            await process_websocket_data(data)
-                        else:
-                            print("⚠️ Получено пустое сообщение")
-                    except json.JSONDecodeError as e:
-                        print(f"❌ Ошибка JSON: {e}, сообщение: {message[:100]}...")
+def get_depth(symbol):
+    sym = symbol if symbol.endswith("USDT") else symbol + "USDT"
+    params = {'symbol': sym, 'limit': 1}
+    try:
+        response = requests.get(f"{MEXC_BASE_URL}/depth", params=params, timeout=5)
+        response.raise_for_status()
+        j = response.json()
+        bids, asks = j.get('bids'), j.get('asks')
+        if not bids or not asks:
+            return None
+        bid, ask = float(bids[0][0]), float(asks[0][0])
+        return (ask - bid) / bid * 100
+    except Exception as e:
+        print(f"Error getting depth for {symbol}: {e}")
+        return None
+
+def get_trade_count(symbol):
+    sym = symbol if symbol.endswith("USDT") else symbol + "USDT"
+    params = {'symbol': sym, 'limit': 1000}
+    try:
+        response = requests.get(f"{MEXC_BASE_URL}/trades", params=params, timeout=5)
+        response.raise_for_status()
+        trades = response.json()
+        one_min_ago = int(time.time() * 1000) - 60_000
+        return sum(1 for t in trades if t.get('time', 0) >= one_min_ago)
+    except Exception as e:
+        print(f"Error getting trades for {symbol}: {e}")
+        return 0
+
+def get_coin_data(symbol):
+    """Получает все данные по монете"""
+    time.sleep(COIN_DATA_DELAY)
+
+    candle = get_candle(symbol)
+    if not candle:
+        return None
+
+    spread = get_depth(symbol)
+    if spread is None:
+        spread = 0
+
+    natr = (candle['high'] - candle['low']) / candle['close'] * 100 if candle['close'] != 0 else 0
+    volume = candle['volume']
+    change = (candle['close'] - candle['open']) / candle['open'] * 100 if candle['open'] != 0 else 0
+    trades = get_trade_count(symbol)
+
+    return {
+        'symbol': symbol,
+        'volume': volume,
+        'spread': spread,
+        'natr': natr,
+        'change': change,
+        'trades': trades,
+        'active': (volume >= VOLUME_THRESHOLD and spread >= SPREAD_THRESHOLD and natr >= NATR_THRESHOLD)
+    }
+
+# ——— Telegram функции ———
+async def send_telegram_message(text, parse_mode="HTML", reply_markup=None):
+    global last_message_time
+
+    current_time = time.time()
+    if current_time - last_message_time < 3:
+        await asyncio.sleep(3 - (current_time - last_message_time))
+
+    try:
+        data = {
+            'chat_id': TELEGRAM_CHAT_ID,
+            'text': text,
+            'parse_mode': parse_mode
+        }
+        if reply_markup:
+            data['reply_markup'] = reply_markup
+
+        r = requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", 
+                         data=data, timeout=5)
+        if r.ok:
+            last_message_time = time.time()
+            return r.json().get("result", {}).get("message_id")
+    except Exception as e:
+        print(f"Error sending Telegram message: {e}")
+    return None
+
+async def edit_message(message_id, text, parse_mode="HTML", reply_markup=None):
+    try:
+        data = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "message_id": message_id,
+            "text": text,
+            "parse_mode": parse_mode
+        }
+        if reply_markup:
+            data['reply_markup'] = reply_markup
+
+        requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageText", 
+                     data=data, timeout=5)
+    except Exception as e:
+        print(f"Error editing Telegram message: {e}")
+
+async def delete_message(message_id):
+    try:
+        requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteMessage", data={
+            "chat_id": TELEGRAM_CHAT_ID,
+            "message_id": message_id
+        }, timeout=5)
+    except Exception as e:
+        print(f"Error deleting Telegram message: {e}")
+
+# ——— Основные функции бота ———
+def chunks(lst, n):
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
+
+async def notification_mode_loop():
+    """Цикл для режима уведомлений"""
+    global BOT_RUNNING, ACTIVE_COINS
+
+    while BOT_RUNNING and BOT_MODE == 'notification':
+        if not WATCHLIST:
+            await asyncio.sleep(CHECK_FULL_CYCLE_INTERVAL)
+            continue
+
+        for batch in chunks(list(WATCHLIST), CHECK_BATCH_SIZE):
+            if not BOT_RUNNING or BOT_MODE != 'notification':
+                break
+
+            tasks = []
+            with ThreadPoolExecutor(max_workers=min(CHECK_BATCH_SIZE, 10)) as pool:
+                futures = {pool.submit(get_coin_data, coin): coin for coin in batch}
+                for f in as_completed(futures):
+                    symbol = futures[f]
+                    result = f.result()
+                    if not result:
                         continue
-                    except Exception as e:
-                        print(f"❌ Ошибка обработки данных: {e}")
-                        
-        except Exception as e:
-            print(f"❌ Ошибка WebSocket: {e}")
-            if BOT_RUNNING:
-                print("🔄 Переподключение через 5 секунд...")
-                await asyncio.sleep(5)
 
-async def process_websocket_data(data):
-    """Обрабатывает данные от WebSocket"""
-    global COIN_DATA, ACTIVE_COINS
-    
-    # Проверяем, что это нужный нам тип данных
-    if not isinstance(data, dict):
-        print("❌ Данные не являются словарем")
-        return
-    
-    # Определяем тип сообщения по полю 'c' (channel)
-    channel = data.get('c', '')
-    symbol_full = data.get('s', '')
-    
-    if not symbol_full.endswith('USDT'):
-        return
-        
-    symbol = symbol_full.replace('USDT', '')
-    if symbol not in WATCHLIST:
-        return
-    
-    print(f"📦 Канал: {channel}, Символ: {symbol}")
-    
-    # Обработка данных kline (свечи)
-    if 'kline' in channel and 'd' in data:
-        print(f"📈 Получены данные kline для {symbol}")
-        
-        # Извлекаем данные из поля 'k' (MEXC формат)
-        if 'k' in data['d']:
-            kline_data = data['d']['k']
-            print(f"🔍 Извлечены kline данные из 'k': {kline_data}")
-        else:
-            kline_data = data['d']
-        
-        # Ожидаемые поля для kline данных
-        if all(field in kline_data for field in ['o', 'h', 'l', 'c', 'v']):
-            metrics = calculate_metrics(symbol, kline_data)
-            if metrics:
-                if symbol not in COIN_DATA:
-                    COIN_DATA[symbol] = {}
-                COIN_DATA[symbol].update({
-                    **metrics,
-                    'last_update': time.time()
-                })
-                print(f"✅ Обновлены kline данные для {symbol}: V={metrics['volume']:.2f}, NATR={metrics['natr']:.2f}%")
-        else:
-            print(f"⚠️ Неполные kline данные для {symbol}: {kline_data}")
-    
-    # Обработка данных bookTicker (лучшие цены)
-    elif 'bookTicker' in channel and 'd' in data:
-        print(f"💰 Получены данные bookTicker для {symbol}")
-        ticker_data = data['d']
-        
-        # Проверяем наличие bid и ask цен
-        if 'b' in ticker_data and 'a' in ticker_data:
-            try:
-                bid = float(ticker_data['b'])
-                ask = float(ticker_data['a'])
-                
-                print(f"💰 {symbol}: bid={bid}, ask={ask}")
-                
-                if bid > 0:
-                    spread = (ask - bid) / bid * 100
-                    
-                    if symbol not in COIN_DATA:
-                        COIN_DATA[symbol] = {}
-                    
-                    COIN_DATA[symbol]['spread'] = spread
-                    COIN_DATA[symbol]['last_update'] = time.time()
-                    
-                    print(f"✅ Обновлен спред для {symbol}: {spread:.3f}%")
-                    
-            except (ValueError, ZeroDivisionError) as e:
-                print(f"❌ Ошибка обработки спреда для {symbol}: {e}")
-        else:
-            print(f"⚠️ Неполные ticker данные для {symbol}: {ticker_data}")
-    
-    else:
-        # Логируем только первые несколько неизвестных сообщений
-        print(f"⚠️ Неизвестный тип сообщения: канал={channel}, данные={data}")
-    
-    # Проверяем условия активности для обновленного символа
-    if symbol in COIN_DATA:
-        await check_coin_activity(symbol)
+                    now = time.time()
+                    active = symbol in ACTIVE_COINS
 
-async def check_coin_activity(symbol):
-    """Проверяет активность монеты и отправляет уведомления"""
-    if symbol not in COIN_DATA:
-        return
-    
-    data = COIN_DATA[symbol]
-    now = time.time()
-    
-    # Проверяем актуальность данных (не старше 5 минут)
-    if now - data.get('last_update', 0) > 300:
-        return
-    
-    volume = data.get('volume', 0)
-    spread = data.get('spread', 0)
-    natr = data.get('natr', 0)
-    change = data.get('change', 0)
-    
-    # Проверяем наличие всех необходимых данных
-    if volume == 0 or spread == 0 or natr == 0:
-        return
-    
-    is_active = (volume >= VOLUME_THRESHOLD and 
-                 spread >= SPREAD_THRESHOLD and 
-                 natr >= NATR_THRESHOLD)
-    
-    currently_active = symbol in ACTIVE_COINS
-    
-    print(f"🔍 Проверка {symbol}: V={volume:.2f} (>{VOLUME_THRESHOLD}), S={spread:.3f}% (>{SPREAD_THRESHOLD}), NATR={natr:.2f}% (>{NATR_THRESHOLD}) = {'АКТИВЕН' if is_active else 'НЕ АКТИВЕН'}")
-    
-    if is_active and not currently_active:
-        # Монета стала активной
-        msg = (
-            f"🚨 <b>{symbol}_USDT активен</b>\n"
-            f"🔄 Изм: {change:.2f}%\n"
-            f"📊 Объём: ${volume:,.2f}  NATR: {natr:.2f}%\n"
-            f"⇄ Спред: {spread:.2f}%"
-        )
-        msg_id = await send_telegram_message(msg)
-        ACTIVE_COINS[symbol] = {'start': now, 'msg_id': msg_id}
-        print(f"🚨 {symbol} стал активным!")
-        
-    elif not is_active and currently_active:
-        # Монета стала неактивной
-        duration = now - ACTIVE_COINS[symbol]['start']
-        msg_id = ACTIVE_COINS[symbol]['msg_id']
-        
-        if msg_id:
-            await delete_message(msg_id)
-        
-        if duration >= 60:
-            minutes = int(duration // 60)
-            seconds = int(duration % 60)
-            msg = f"✅ <b>{symbol}_USDT</b> — активность завершена\n⏱ Длительность: {minutes} мин {seconds} сек"
-            await send_telegram_message(msg)
-        
-        del ACTIVE_COINS[symbol]
-        print(f"✅ {symbol} стал неактивным")
+                    if result['active']:
+                        if not active:
+                            # Новая активная монета
+                            msg = (
+                                f"🚨 <b>{symbol}_USDT активен</b>\n"
+                                f"🔄 Изм: {result['change']:.2f}%  🔁 Сделок: {result['trades']}\n"
+                                f"📊 Объём: ${result['volume']:,.2f}  NATR: {result['natr']:.2f}%\n"
+                                f"⇄ Спред: {result['spread']:.2f}%"
+                            )
+                            msg_id = await send_telegram_message(msg)
+                            if msg_id:
+                                ACTIVE_COINS[symbol] = {
+                                    'start': now,
+                                    'last_active': now,
+                                    'msg_id': msg_id,
+                                    'data': result
+                                }
+                        else:
+                            # Обновляем данные по активной монете
+                            ACTIVE_COINS[symbol]['last_active'] = now
+                            ACTIVE_COINS[symbol]['data'] = result
 
-async def cleanup_old_data():
-    """Очищает устаревшие данные"""
-    while BOT_RUNNING:
-        now = time.time()
-        to_remove = []
-        
-        for symbol, data in COIN_DATA.items():
-            if now - data.get('last_update', 0) > 600:  # Удаляем данные старше 10 минут
-                to_remove.append(symbol)
-        
-        for symbol in to_remove:
-            del COIN_DATA[symbol]
-            if symbol in ACTIVE_COINS:
-                del ACTIVE_COINS[symbol]
-        
-        await asyncio.sleep(60)  # Проверяем каждую минуту
+                            msg = (
+                                f"🚨 <b>{symbol}_USDT активен</b>\n"
+                                f"🔄 Изм: {result['change']:.2f}%  🔁 Сделок: {result['trades']}\n"
+                                f"📊 Объём: ${result['volume']:,.2f}  NATR: {result['natr']:.2f}%\n"
+                                f"⇄ Спред: {result['spread']:.2f}%"
+                            )
+                            await edit_message(ACTIVE_COINS[symbol]['msg_id'], msg)
+                    elif active:
+                        # Проверяем, не прошло ли время неактивности
+                        if now - ACTIVE_COINS[symbol]['last_active'] > INACTIVITY_TIMEOUT:
+                            # Удаляем сообщение
+                            msg_id = ACTIVE_COINS[symbol]['msg_id']
+                            if msg_id:
+                                await delete_message(msg_id)
+
+                            # Отправляем сообщение о завершении активности
+                            duration = now - ACTIVE_COINS[symbol]['start']
+                            if duration >= 60:
+                                duration_min = int(duration // 60)
+                                duration_sec = int(duration % 60)
+                                end_msg = (
+                                    f"✅ <b>{symbol}_USDT завершил активность</b>\n"
+                                    f"⏱ Длительность: {duration_min} мин {duration_sec} сек"
+                                )
+                                await send_telegram_message(end_msg)
+
+                            del ACTIVE_COINS[symbol]
+
+            await asyncio.sleep(CHECK_BATCH_INTERVAL)
+        await asyncio.sleep(CHECK_FULL_CYCLE_INTERVAL)
+
+async def monitoring_mode_loop():
+    """Цикл для режима мониторинга"""
+    global BOT_RUNNING, monitoring_message_id
+
+    initial_text = "🔄 Собираю данные для мониторинга..."
+    monitoring_message_id = await send_telegram_message(initial_text)
+
+    while BOT_RUNNING and BOT_MODE == 'monitoring':
+        if not WATCHLIST:
+            await asyncio.sleep(MONITORING_UPDATE_INTERVAL)
+            continue
+
+        results = []
+        failed_coins = []
+
+        for batch in chunks(sorted(WATCHLIST), CHECK_BATCH_SIZE):
+            if not BOT_RUNNING or BOT_MODE != 'monitoring':
+                break
+
+            batch_results = []
+            for symbol in batch:
+                try:
+                    data = get_coin_data(symbol)
+                    if data:
+                        batch_results.append(data)
+                    else:
+                        failed_coins.append(symbol)
+                except Exception as e:
+                    print(f"Ошибка при получении данных для {symbol}: {e}")
+                    failed_coins.append(symbol)
+                await asyncio.sleep(COIN_DATA_DELAY)
+
+            results.extend(batch_results)
+            await asyncio.sleep(CHECK_BATCH_INTERVAL)
+
+        if not results:
+            text = "Не удалось получить данные ни по одной монете."
+            if monitoring_message_id:
+                await edit_message(monitoring_message_id, text)
+            else:
+                monitoring_message_id = await send_telegram_message(text)
+            await asyncio.sleep(MONITORING_UPDATE_INTERVAL)
+            continue
+
+        results.sort(key=lambda x: x['volume'], reverse=True)
+
+        report_parts = ["<b>📊 Режим мониторинга (обновляется автоматически):</b>\n"]
+        report_parts.append(f"<i>Фильтры: Объём ≥${VOLUME_THRESHOLD}, Спред ≥{SPREAD_THRESHOLD}%, NATR ≥{NATR_THRESHOLD}%</i>")
+
+        if failed_coins:
+            report_parts.append(f"\n⚠ Не удалось получить данные для: {', '.join(failed_coins)}\n")
+
+        max_coins_to_show = 20
+        for coin in results[:max_coins_to_show]:
+            status = "🟢 АКТИВНА" if coin['active'] else "🔴 НЕАКТИВНА"
+            coin_info = (
+                f"\n<b>{coin['symbol']}_USDT</b> {status}\n"
+                f"📊 Объём: ${coin['volume']:,.2f}\n"
+                f"🔄 Изм: {coin['change']:.2f}%\n"
+                f"⇄ Спред: {coin['spread']:.2f}%\n"
+                f"📈 NATR: {coin['natr']:.2f}%\n"
+                f"🔁 Сделок: {coin['trades']}"
+            )
+            report_parts.append(coin_info)
+
+        if len(results) > max_coins_to_show:
+            report_parts.append(f"\n... и ещё {len(results) - max_coins_to_show} монет")
+
+        full_message = "\n".join(report_parts)
+        if len(full_message) > 4000:
+            full_message = full_message[:4000] + "\n... (сообщение обрезано)"
+
+        if monitoring_message_id:
+            await edit_message(monitoring_message_id, full_message)
+        else:
+            monitoring_message_id = await send_telegram_message(full_message)
+
+        await asyncio.sleep(MONITORING_UPDATE_INTERVAL)
+
+    if monitoring_message_id:
+        await delete_message(monitoring_message_id)
+        monitoring_message_id = None
 
 def start_bot_loop():
-    """Запускает основной цикл бота"""
+    """Запускает соответствующий цикл в зависимости от режима"""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    
-    # Запускаем задачи
-    tasks = [
-        websocket_handler(),
-        cleanup_old_data()
-    ]
-    
-    loop.run_until_complete(asyncio.gather(*tasks))
 
-# ——— Telegram меню ———
-MENU_KEYBOARD = ReplyKeyboardMarkup([
-    ["Запустить бота", "Выключить бота"],
-    ["Добавить монету", "Исключить монету"],
-    ["Показать список монет", "Статус активных монет"],
-    ["Показать данные монет", "Установить пороги"]
+    if BOT_MODE == 'notification':
+        loop.run_until_complete(notification_mode_loop())
+    elif BOT_MODE == 'monitoring':
+        loop.run_until_complete(monitoring_mode_loop())
+
+# ——— Telegram Handlers ———
+async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    await show_main_menu(update)
+
+async def show_main_menu(update: Update, text=None):
+    reply_text = text or "Выберите действие:"
+    await update.message.reply_text(
+        reply_text,
+        reply_markup=MAIN_MENU_KEYBOARD
+    )
+
+async def show_settings_menu(update: Update):
+    current_settings = (
+        f"Текущие настройки:\n"
+        f"📊 Минимальный объём: ${VOLUME_THRESHOLD}\n"
+        f"⇄ Минимальный спред: {SPREAD_THRESHOLD}%\n"
+        f"📈 Минимальный NATR: {NATR_THRESHOLD}%"
+    )
+    await update.message.reply_text(
+        current_settings,
+        reply_markup=SETTINGS_KEYBOARD
+    )
+
+# Клавиатуры
+MAIN_MENU_KEYBOARD = ReplyKeyboardMarkup([
+    ["🔔 Режим уведомлений", "📊 Режим мониторинга"],
+    ["➕ Добавить монету", "➖ Исключить монету"],
+    ["📋 Список монет", "⚙ Настройки"],
+    ["🛑 Остановить бота"]
 ], resize_keyboard=True)
 
-ADDING, REMOVING, SETTING_THRESHOLDS = range(3)
+SETTINGS_KEYBOARD = ReplyKeyboardMarkup([
+    ["📊 Изменить объём", "⇄ Изменить спред"],
+    ["📈 Изменить NATR", "🔙 Назад"]
+], resize_keyboard=True)
 
-async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Выберите действие:", reply_markup=MENU_KEYBOARD)
+BACK_KEYBOARD = ReplyKeyboardMarkup([
+    ["🔙 Назад"]
+], resize_keyboard=True)
+
+# Состояния
+ADDING, REMOVING = range(2)
+SETTING_VOLUME, SETTING_SPREAD, SETTING_NATR = range(3, 6)
+
+async def stop_current_mode():
+    """Останавливает текущий режим с корректным завершением"""
+    global BOT_RUNNING, ACTIVE_COINS, monitoring_message_id
+
+    if BOT_RUNNING:
+        BOT_RUNNING = False
+        await asyncio.sleep(2)
+
+        if BOT_MODE == 'monitoring' and monitoring_message_id:
+            await delete_message(monitoring_message_id)
+            monitoring_message_id = None
+        elif BOT_MODE == 'notification':
+            ACTIVE_COINS = {}
 
 async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    global BOT_RUNNING, VOLUME_THRESHOLD, SPREAD_THRESHOLD, NATR_THRESHOLD
-    t = update.message.text
-    
-    if t == "Запустить бота":
-        if not BOT_RUNNING:
-            BOT_RUNNING = True
-            threading.Thread(target=start_bot_loop, daemon=True).start()
-            await update.message.reply_text("🚀 Бот запущен и подключен к WebSocket MEXC.", reply_markup=MENU_KEYBOARD)
-        else:
-            await update.message.reply_text("Бот уже работает.", reply_markup=MENU_KEYBOARD)
-            
-    elif t == "Выключить бота":
-        BOT_RUNNING = False
-        await update.message.reply_text("🛑 Бот остановлен.", reply_markup=MENU_KEYBOARD)
-        
-    elif t == "Добавить монету":
-        await update.message.reply_text("Введите символ (например BTC):")
+    global BOT_RUNNING, BOT_MODE, ACTIVE_COINS, monitoring_message_id
+
+    text = update.message.text
+
+    if text == "🔔 Режим уведомлений":
+        if BOT_RUNNING and BOT_MODE == 'notification':
+            await update.message.reply_text("Бот уже работает в режиме уведомлений.", reply_markup=MAIN_MENU_KEYBOARD)
+            return ConversationHandler.END
+
+        await stop_current_mode()
+        BOT_MODE = 'notification'
+        BOT_RUNNING = True
+        ACTIVE_COINS = {}
+        threading.Thread(target=start_bot_loop, daemon=True).start()
+
+        await update.message.reply_text(
+            "✅ Бот запущен в режиме уведомлений. Будут приходить уведомления только об активных монетах.",
+            reply_markup=MAIN_MENU_KEYBOARD
+        )
+
+    elif text == "📊 Режим мониторинга":
+        if BOT_RUNNING and BOT_MODE == 'monitoring':
+            await update.message.reply_text("Бот уже работает в режиме мониторинга.", reply_markup=MAIN_MENU_KEYBOARD)
+            return ConversationHandler.END
+
+        await stop_current_mode()
+        BOT_MODE = 'monitoring'
+        BOT_RUNNING = True
+        threading.Thread(target=start_bot_loop, daemon=True).start()
+
+        await update.message.reply_text(
+            "✅ Бот запущен в режиме мониторинга. Будет отображаться информация по всем монетам из списка.",
+            reply_markup=MAIN_MENU_KEYBOARD
+        )
+
+    elif text == "🛑 Остановить бота":
+        await stop_current_mode()
+        await update.message.reply_text("Бот остановлен.", reply_markup=MAIN_MENU_KEYBOARD)
+
+    elif text == "➕ Добавить монету":
+        await stop_current_mode()
+        await update.message.reply_text(
+            "Введите символ монеты для добавления (например, BTC или BTC_USDT):",
+            reply_markup=BACK_KEYBOARD
+        )
         return ADDING
-        
-    elif t == "Исключить монету":
-        await update.message.reply_text("Введите символ:")
+
+    elif text == "➖ Исключить монету":
+        await stop_current_mode()
+        await update.message.reply_text(
+            "Введите символ монеты для исключения:",
+            reply_markup=BACK_KEYBOARD
+        )
         return REMOVING
-        
-    elif t == "Показать список монет":
-        text = "📋 Отслеживаемые монеты:\n" + "\n".join(f"• {coin}" for coin in sorted(WATCHLIST)) if WATCHLIST else "Список пуст."
-        await update.message.reply_text(text, reply_markup=MENU_KEYBOARD)
-        
-    elif t == "Статус активных монет":
-        if ACTIVE_COINS:
-            lines = []
-            for symbol, info in ACTIVE_COINS.items():
-                duration = int(time.time() - info['start'])
-                minutes = duration // 60
-                seconds = duration % 60
-                lines.append(f"🔥 {symbol}_USDT — {minutes}м {seconds}с")
-            text = "⚡ Активные монеты:\n" + "\n".join(lines)
-        else:
-            text = "💤 Нет активных монет"
-        await update.message.reply_text(text, reply_markup=MENU_KEYBOARD)
-        
-    elif t == "Показать данные монет":
-        if COIN_DATA:
-            lines = []
-            for symbol, data in list(COIN_DATA.items())[:10]:  # Показываем первые 10
-                volume = data.get('volume', 0)
-                spread = data.get('spread', 0)
-                natr = data.get('natr', 0)
-                change = data.get('change', 0)
-                lines.append(f"📊 {symbol}: V={volume:.0f}, S={spread:.3f}%, NATR={natr:.2f}%, Δ={change:.2f}%")
-            text = "📈 Данные монет:\n" + "\n".join(lines)
-        else:
-            text = "📭 Нет данных о монетах"
-        await update.message.reply_text(text, reply_markup=MENU_KEYBOARD)
-        
-    elif t == "Установить пороги":
-        text = (f"📊 Текущие пороги:\n"
-                f"• Объём: {VOLUME_THRESHOLD}\n"
-                f"• Спред: {SPREAD_THRESHOLD}%\n"
-                f"• NATR: {NATR_THRESHOLD}%\n\n"
-                f"Введите новые значения через пробел:\nобъём спред natr")
-        await update.message.reply_text(text)
-        return SETTING_THRESHOLDS
-        
-    else:
-        await update.message.reply_text("Выберите из меню:", reply_markup=MENU_KEYBOARD)
-    
+
+    elif text == "📋 Список монет":
+        await stop_current_mode()
+        text = "\n".join(sorted(WATCHLIST)) or "Список пуст."
+        await update.message.reply_text(
+            f"📋 Список отслеживаемых монет:\n{text}",
+            reply_markup=MAIN_MENU_KEYBOARD
+        )
+
+    elif text == "⚙ Настройки":
+        await stop_current_mode()
+        await show_settings_menu(update)
+
+    elif text == "📊 Изменить объём":
+        await update.message.reply_text(
+            f"Текущий минимальный объём: ${VOLUME_THRESHOLD}\n"
+            "Введите новое значение (в долларах):",
+            reply_markup=BACK_KEYBOARD
+        )
+        return SETTING_VOLUME
+
+    elif text == "⇄ Изменить спред":
+        await update.message.reply_text(
+            f"Текущий минимальный спред: {SPREAD_THRESHOLD}%\n"
+            "Введите новое значение (в процентах):",
+            reply_markup=BACK_KEYBOARD
+        )
+        return SETTING_SPREAD
+
+    elif text == "📈 Изменить NATR":
+        await update.message.reply_text(
+            f"Текущий минимальный NATR: {NATR_THRESHOLD}%\n"
+            "Введите новое значение (в процентах):",
+            reply_markup=BACK_KEYBOARD
+        )
+        return SETTING_NATR
+
+    elif text == "🔙 Назад":
+        await show_main_menu(update)
+        return ConversationHandler.END
+
     return ConversationHandler.END
 
 async def add_coin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     coin = update.message.text.upper().strip().replace("_USDT", "")
-    if len(coin) >= 2 and coin.isalnum():
+
+    if coin == "🔙 НАЗАД":
+        await show_main_menu(update)
+        return ConversationHandler.END
+
+    try:
+        candle = get_candle(coin)
+        depth = get_depth(coin)
+
+        if not candle or not depth:
+            await update.message.reply_text(
+                f"❌ {coin}_USDT не найдена или не торгуется.",
+                reply_markup=MAIN_MENU_KEYBOARD
+            )
+            return ConversationHandler.END
+
         WATCHLIST.add(coin)
         save_watchlist()
-        await update.message.reply_text(f"✅ {coin} добавлена в отслеживание.", reply_markup=MENU_KEYBOARD)
-    else:
-        await update.message.reply_text(f"❌ Некорректный символ: {coin}", reply_markup=MENU_KEYBOARD)
+        await update.message.reply_text(
+            f"✅ {coin}_USDT добавлена в список.",
+            reply_markup=MAIN_MENU_KEYBOARD
+        )
+    except Exception as e:
+        await update.message.reply_text(
+            f"❌ Ошибка при проверке {coin}_USDT: {str(e)}",
+            reply_markup=MAIN_MENU_KEYBOARD
+        )
+
     return ConversationHandler.END
 
 async def remove_coin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     coin = update.message.text.upper().strip().replace("_USDT", "")
+
+    if coin == "🔙 НАЗАД":
+        await show_main_menu(update)
+        return ConversationHandler.END
+
     if coin in WATCHLIST:
         WATCHLIST.remove(coin)
         save_watchlist()
-        if coin in ACTIVE_COINS:
-            del ACTIVE_COINS[coin]
-        if coin in COIN_DATA:
-            del COIN_DATA[coin]
-        await update.message.reply_text(f"🗑️ {coin} удалена из отслеживания.", reply_markup=MENU_KEYBOARD)
+        await update.message.reply_text(
+            f"✅ {coin} удалена из списка.",
+            reply_markup=MAIN_MENU_KEYBOARD
+        )
     else:
-        await update.message.reply_text(f"❌ {coin} не найдена в списке.", reply_markup=MENU_KEYBOARD)
+        await update.message.reply_text(
+            f"❌ {coin} не в списке.",
+            reply_markup=MAIN_MENU_KEYBOARD
+        )
     return ConversationHandler.END
 
-async def set_thresholds(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    global VOLUME_THRESHOLD, SPREAD_THRESHOLD, NATR_THRESHOLD
+async def set_volume(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    global VOLUME_THRESHOLD
+
+    text = update.message.text
+
+    if text == "🔙 Назад":
+        await show_settings_menu(update)
+        return ConversationHandler.END
+
     try:
-        parts = update.message.text.strip().split()
-        if len(parts) == 3:
-            VOLUME_THRESHOLD = float(parts[0])
-            SPREAD_THRESHOLD = float(parts[1])
-            NATR_THRESHOLD = float(parts[2])
-            text = (f"✅ Пороги обновлены:\n"
-                    f"• Объём: {VOLUME_THRESHOLD}\n"
-                    f"• Спред: {SPREAD_THRESHOLD}%\n"
-                    f"• NATR: {NATR_THRESHOLD}%")
-        else:
-            text = "❌ Введите 3 числа через пробел"
+        new_value = float(text)
+        if new_value <= 0:
+            raise ValueError("Значение должно быть больше 0")
+
+        VOLUME_THRESHOLD = new_value
+        save_config()
+        await update.message.reply_text(
+            f"✅ Минимальный объём изменён на ${new_value}",
+            reply_markup=MAIN_MENU_KEYBOARD
+        )
     except ValueError:
-        text = "❌ Некорректные числа"
-    
-    await update.message.reply_text(text, reply_markup=MENU_KEYBOARD)
+        await update.message.reply_text(
+            "❌ Неверный формат. Введите число (например: 1000)",
+            reply_markup=BACK_KEYBOARD
+        )
+        return SETTING_VOLUME
+
     return ConversationHandler.END
 
-# ————————————
+async def set_spread(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    global SPREAD_THRESHOLD
+
+    text = update.message.text
+
+    if text == "🔙 Назад":
+        await show_settings_menu(update)
+        return ConversationHandler.END
+
+    try:
+        new_value = float(text)
+        if new_value <= 0:
+            raise ValueError("Значение должно быть больше 0")
+
+        SPREAD_THRESHOLD = new_value
+        save_config()
+        await update.message.reply_text(
+            f"✅ Минимальный спред изменён на {new_value}%",
+            reply_markup=MAIN_MENU_KEYBOARD
+        )
+    except ValueError:
+        await update.message.reply_text(
+            "❌ Неверный формат. Введите число (например: 0.1)",
+            reply_markup=BACK_KEYBOARD
+        )
+        return SETTING_SPREAD
+
+    return ConversationHandler.END
+
+async def set_natr(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    global NATR_THRESHOLD
+
+    text = update.message.text
+
+    if text == "🔙 Назад":
+        await show_settings_menu(update)
+        return ConversationHandler.END
+
+    try:
+        new_value = float(text)
+        if new_value <= 0:
+            raise ValueError("Значение должно быть больше 0")
+
+        NATR_THRESHOLD = new_value
+        save_config()
+        await update.message.reply_text(
+            f"✅ Минимальный NATR изменён на {new_value}%",
+            reply_markup=MAIN_MENU_KEYBOARD
+        )
+    except ValueError:
+        await update.message.reply_text(
+            "❌ Неверный формат. Введите число (например: 0.5)",
+            reply_markup=BACK_KEYBOARD
+        )
+        return SETTING_NATR
+
+    return ConversationHandler.END
+
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is running!"
+
+def run_flask():
+    app.run(host='0.0.0.0', port=8080)
+
+def keep_alive():
+    t = Thread(target=run_flask)
+    t.start()
+
 if __name__ == '__main__':
+    keep_alive()  # Запускаем Flask-сервер в отдельном потоке
+
     app = Application.builder().token(TELEGRAM_TOKEN).build()
-    
-    conv = ConversationHandler(
+
+    conv_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.TEXT & ~filters.COMMAND, button_handler)],
         states={
             ADDING: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_coin)],
             REMOVING: [MessageHandler(filters.TEXT & ~filters.COMMAND, remove_coin)],
-            SETTING_THRESHOLDS: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_thresholds)]
+            SETTING_VOLUME: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_volume)],
+            SETTING_SPREAD: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_spread)],
+            SETTING_NATR: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_natr)],
         },
-        fallbacks=[],
+        fallbacks=[CommandHandler("start", start)],
         per_message=False
     )
-    
+
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(conv)
-    
-    print("🚀 Telegram бот запущен...")
+    app.add_handler(conv_handler)
+
+    print("🚀 Бот запущен...")
     app.run_polling()
