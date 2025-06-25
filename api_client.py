@@ -111,11 +111,11 @@ class MexcApiClient:
         if not ticker_data:
             return None
 
-        # Получаем 1-минутную свечу для объема и изменения цены
+        # Получаем последнюю завершенную 1-минутную свечу
         candle_params = {
             'symbol': symbol,
             'interval': '1m',
-            'limit': 2  # Текущая и предыдущая минута для расчета изменения
+            'limit': 1  # Только последняя завершенная минута
         }
 
         candle_data = self._make_request('klines', candle_params)
@@ -124,26 +124,27 @@ class MexcApiClient:
             return None
 
         try:
-            # Текущая и предыдущая 1-минутная свеча
-            current_candle = candle_data[0]  # Последняя завершенная минута
-            prev_candle = candle_data[1] if len(candle_data) > 1 else current_candle
-
-            current_close = float(current_candle[4])
-            prev_close = float(prev_candle[4])
-
+            # Получаем данные из последней 1-минутной свечи
+            candle = candle_data[0]
+            
+            # Используем данные из тикера для изменения цены (24ч) и цены
+            # А из свечи берем объем и количество сделок за 1 минуту
+            current_open = float(candle[1])
+            current_close = float(candle[4])
+            
             # Рассчитываем изменение за последнюю минуту
-            price_change = ((current_close - prev_close) / prev_close * 100) if prev_close > 0 else 0.0
+            price_change = ((current_close - current_open) / current_open * 100) if current_open > 0 else 0.0
 
             return {
-                'price': float(ticker_data['lastPrice']),  # Используем актуальную цену из тикера
-                'change': price_change,  # Изменение за 1 минуту
-                'volume': float(current_candle[7]),  # quoteVolume за 1 минуту в USDT
-                'count': int(current_candle[8]),  # Количество сделок за 1 минуту
+                'price': float(ticker_data['lastPrice']),  # Актуальная цена
+                'change': price_change,  # Изменение за 1 минуту (open vs close)
+                'volume': float(candle[7]),  # quoteVolume за 1 минуту в USDT
+                'count': int(candle[8]),  # Количество сделок за 1 минуту
                 'bid': float(ticker_data['bidPrice']) if ticker_data.get('bidPrice') is not None else 0.0,
                 'ask': float(ticker_data['askPrice']) if ticker_data.get('askPrice') is not None else 0.0
             }
         except (KeyError, ValueError, TypeError, IndexError) as e:
-            bot_logger.warning(f"Нет корректных 1-минутных данных для {symbol}: {e}")
+            bot_logger.warning(f"Ошибка обработки 1-минутных данных для {symbol}: {e}")
             return None
 
     def get_coin_data(self, symbol: str) -> Optional[Dict]:
