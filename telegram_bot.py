@@ -91,7 +91,7 @@ class TradingTelegramBot:
         except Exception as e:
             bot_logger.error(f"Ошибка редактирования сообщения: {e}")
 
-    async def delete_message(self, message_id: int):
+    async def delete_message(self, message_id: int) -> bool:
         """Удаляет сообщение"""
         try:
             if self.app and self.app.bot and message_id and isinstance(message_id, int) and message_id > 0:
@@ -112,27 +112,29 @@ class TradingTelegramBot:
             yield lst[i:i + size]
 
     async def _stop_current_mode(self):
-        """Останавливает текущий режим"""
+        """Останавливает текущий режим работы"""
         if self.bot_running:
             bot_logger.info(f"Остановка режима: {self.bot_mode}")
 
             # Останавливаем сначала, чтобы прекратить обновления
             self.bot_running = False
-            await asyncio.sleep(0.5)  # Даем время циклам завершиться
+            await asyncio.sleep(1.0)  # Увеличиваем время для корректного завершения
 
             # Затем удаляем сообщения
-            if self.bot_mode == 'monitoring' and self.monitoring_message_id:
-                bot_logger.info(f"Удаляем сообщение мониторинга: {self.monitoring_message_id}")
-                if isinstance(self.monitoring_message_id, int) and self.monitoring_message_id > 0:
+            try:
+                if self.bot_mode == 'monitoring' and self.monitoring_message_id:
+                    bot_logger.info(f"Удаляем сообщение мониторинга: {self.monitoring_message_id}")
                     await self.delete_message(self.monitoring_message_id)
-                self.monitoring_message_id = None
-            elif self.bot_mode == 'notification':
-                # Удаляем все активные сообщения уведомлений
-                for symbol, coin_data in list(self.active_coins.items()):
-                    if coin_data.get('msg_id'):
-                        bot_logger.info(f"Удаляем сообщение уведомления для {symbol}: {coin_data['msg_id']}")
-                        await self.delete_message(coin_data['msg_id'])
-                self.active_coins.clear()
+                    self.monitoring_message_id = None
+                elif self.bot_mode == 'notification':
+                    # Удаляем все активные сообщения уведомлений
+                    for symbol, coin_data in list(self.active_coins.items()):
+                        if coin_data.get('msg_id'):
+                            bot_logger.info(f"Удаляем сообщение уведомления для {symbol}: {coin_data['msg_id']}")
+                            await self.delete_message(coin_data['msg_id'])
+                    self.active_coins.clear()
+            except Exception as e:
+                bot_logger.error(f"Ошибка при очистке сообщений: {e}")
 
             # Сохраняем состояние остановки
             bot_state_manager.set_last_mode(None)
@@ -737,7 +739,7 @@ class TradingTelegramBot:
         # Улучшенная обработка ошибок
         async def error_handler(update, context):
             error = context.error
-            
+
             if isinstance(error, Conflict):
                 bot_logger.warning("Конфликт Telegram API - возможно запущен другой экземпляр бота")
                 await asyncio.sleep(5)
@@ -747,7 +749,8 @@ class TradingTelegramBot:
                 await asyncio.sleep(2)
                 return
             else:
-                bot_logger.error(f"Ошибка Telegram бота: {error}", exc_info=True)
+                bot_logger.error(f"Ошибка Telegram бота: {error}",```python
+ exc_info=True)
 
         self.app = builder.build()
         self.app.add_error_handler(error_handler)

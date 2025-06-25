@@ -137,14 +137,17 @@ class MexcApiClient:
             # Данные текущей свечи - правильная структура MEXC API
             current_close = float(current_candle[4])     # Цена закрытия
             current_volume = float(current_candle[5])    # Base volume
-            current_count = int(current_candle[7]) if len(current_candle) > 7 else 0  # Количество сделок
+            
+            # MEXC API возвращает дробные числа в поле count, приводим к int
+            current_count = 0
+            try:
+                if len(current_candle) > 7:
+                    current_count = int(float(current_candle[7]))  # Сначала float, потом int
+            except (ValueError, TypeError):
+                current_count = 0
             
             # Данные предыдущей свечи для расчета изменения  
             previous_close = float(previous_candle[4])
-            
-            # Логируем структуру для отладки (только для первых запросов)
-            if symbol.endswith('USDT') and len(symbol) <= 8:  # Ограничиваем логи
-                bot_logger.debug(f"Свеча {symbol}: {len(current_candle)} полей, volume_index_7={current_candle[7] if len(current_candle) > 7 else 'N/A'}")
 
             # Рассчитываем изменение цены за последнюю минуту
             price_change = ((current_close - previous_close) / previous_close * 100) if previous_close > 0 else 0.0
@@ -157,7 +160,7 @@ class MexcApiClient:
             ask_price = float(ticker_data['askPrice']) if ticker_data and ticker_data.get('askPrice') else current_close
 
             # Логируем для отладки
-            bot_logger.debug(f"{symbol}: price={current_close:.6f}, 1m_change={price_change:+.2f}%, volume=${current_volume:,.0f}")
+            bot_logger.debug(f"{symbol}: price={current_close:.6f}, 1m_change={price_change:+.2f}%, volume=${current_volume:,.0f}, trades={current_count}")
 
             return {
                 'price': current_close,
