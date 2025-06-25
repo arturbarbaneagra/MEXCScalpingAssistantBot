@@ -14,7 +14,7 @@ from threading import Thread
 MEXC_BASE_URL = "https://api.mexc.com/api/v3"
 WATCHLIST_FILE = "watchlist.json"
 CONFIG_FILE = "config.json"
-TELEGRAM_TOKEN = "8180368589:AAHgiD22KRFzXHTiFkw4n5WPwN3Ho2hA4rA"
+TELEGRAM_TOKEN = "8017401034:AAF7W690hUEaQibsMvwu0CUirS8pVeH-_Zg"
 TELEGRAM_CHAT_ID = "1090477927"
 
 # Параметры по умолчанию
