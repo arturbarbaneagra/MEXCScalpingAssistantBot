@@ -117,33 +117,23 @@ class MexcApiClient:
             'interval': '1m',
             'limit': 2  # Текущая и предыдущая минута для расчета изменения
         }
-        
+
         candle_data = self._make_request('klines', candle_params)
-        if not candle_data or len(candle_data) < 2:
-            # Fallback к 24ч данным если 1м недоступны
-            try:
-                return {
-                    'price': float(ticker_data['lastPrice']),
-                    'change': float(ticker_data['priceChangePercent']),
-                    'volume': float(ticker_data['quoteVolume']),
-                    'count': int(ticker_data['count']) if ticker_data.get('count') is not None else 0,
-                    'bid': float(ticker_data['bidPrice']) if ticker_data.get('bidPrice') is not None else 0.0,
-                    'ask': float(ticker_data['askPrice']) if ticker_data.get('askPrice') is not None else 0.0
-                }
-            except (KeyError, ValueError, TypeError):
-                return None
+        if not candle_data or len(candle_data) == 0:
+            bot_logger.warning(f"Нет 1-минутных данных для {symbol}")
+            return None
 
         try:
             # Текущая и предыдущая 1-минутная свеча
             current_candle = candle_data[0]  # Последняя завершенная минута
             prev_candle = candle_data[1] if len(candle_data) > 1 else current_candle
-            
+
             current_close = float(current_candle[4])
             prev_close = float(prev_candle[4])
-            
+
             # Рассчитываем изменение за последнюю минуту
             price_change = ((current_close - prev_close) / prev_close * 100) if prev_close > 0 else 0.0
-            
+
             return {
                 'price': float(ticker_data['lastPrice']),  # Используем актуальную цену из тикера
                 'change': price_change,  # Изменение за 1 минуту
@@ -153,7 +143,7 @@ class MexcApiClient:
                 'ask': float(ticker_data['askPrice']) if ticker_data.get('askPrice') is not None else 0.0
             }
         except (KeyError, ValueError, TypeError, IndexError) as e:
-            bot_logger.error(f"Ошибка парсинга 1-минутных данных для {symbol}: {e}")
+            bot_logger.warning(f"Нет корректных 1-минутных данных для {symbol}: {e}")
             return None
 
     def get_coin_data(self, symbol: str) -> Optional[Dict]:
