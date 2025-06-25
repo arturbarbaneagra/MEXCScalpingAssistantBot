@@ -134,7 +134,7 @@ class MexcApiClient:
 
             # Проверяем что свеча содержит достаточно данных
             if not isinstance(candle, list) or len(candle) < 9:
-                bot_logger.warning(f"Некорректная структура свечи для {symbol}")
+                bot_logger.warning(f"Некорректная структура свечи для {symbol}: {candle}")
                 return None
 
             # Используем данные из тикера для изменения цены (24ч) и цены
