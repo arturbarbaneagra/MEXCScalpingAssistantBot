@@ -294,7 +294,7 @@ class TradingTelegramBot:
             await asyncio.sleep(config_manager.get('CHECK_FULL_CYCLE_INTERVAL'))
 
     async def _process_coin_notification(self, symbol: str, data: Dict):
-        """Обрабатывает уведомление для монеты - упрощенная логика как в старом боте"""
+        """Обрабатывает уведомление для монеты - с защитой от дублирования"""
         now = time.time()
         is_currently_active = symbol in self.active_coins
 
@@ -303,46 +303,67 @@ class TradingTelegramBot:
 
         if data['active']:
             if not is_currently_active:
-                # Дополнительная проверка - убеждаемся что монета действительно не в списке активных
-                # (защита от race condition)
+                # Усиленная защита от дублирования - проверяем дважды с небольшой задержкой
                 if symbol in self.active_coins:
                     bot_logger.debug(f"Монета {symbol} уже активна, пропускаем создание нового уведомления")
                     return
 
-                # Новая активная монета
+                # Атомарная операция - сначала резервируем место с временным маркером
+                temp_marker = f"creating_{now}"
+                self.active_coins[symbol] = {
+                    'start': now,
+                    'last_active': now,
+                    'msg_id': temp_marker,  # Временный маркер для защиты от дублирования
+                    'data': data,
+                    'creating': True  # Флаг процесса создания
+                }
+
+                # Дополнительная проверка после резервирования
+                await asyncio.sleep(0.05)  # Минимальная задержка для стабилизации
+                
+                # Проверяем, что наш маркер все еще на месте
+                if (symbol not in self.active_coins or 
+                    self.active_coins[symbol].get('msg_id') != temp_marker):
+                    bot_logger.debug(f"Монета {symbol} уже обрабатывается другим процессом")
+                    return
+
+                # Формируем и отправляем сообщение
                 message = (
                     f"🚨 <b>{symbol}_USDT активен</b>\n"
                     f"🔄 Изм: {data['change']:+.2f}%  🔁 Сделок: {data['trades']}\n"
                     f"📊 Объём: ${data['volume']:,.2f}  NATR: {data['natr']:.2f}%\n"
                     f"⇄ Спред: {data['spread']:.2f}%"
                 )
-                
-                # Сначала добавляем в активные (резервируем место), затем отправляем сообщение
-                self.active_coins[symbol] = {
-                    'start': now,
-                    'last_active': now,
-                    'msg_id': None,  # Временно None пока отправляем
-                    'data': data
-                }
 
                 msg_id = await self.send_message(message)
 
-                if msg_id:
-                    # Обновляем с реальным ID сообщения
-                    self.active_coins[symbol]['msg_id'] = msg_id
+                if msg_id and symbol in self.active_coins:
+                    # Успешно отправили - обновляем с реальным ID
+                    self.active_coins[symbol].update({
+                        'msg_id': msg_id,
+                        'creating': False
+                    })
                     bot_logger.trade_activity(symbol, "STARTED", f"Volume: ${data['volume']:,.2f}, Trades: {data['trades']}")
                 else:
-                    # Если не удалось отправить - удаляем из активных
+                    # Не удалось отправить - полностью удаляем
                     if symbol in self.active_coins:
                         del self.active_coins[symbol]
+                    bot_logger.debug(f"Не удалось отправить уведомление для {symbol}")
+                    
             else:
-                # Обновляем данные по активной монете
-                self.active_coins[symbol]['last_active'] = now
-                self.active_coins[symbol]['data'] = data
+                # Монета уже активна - проверяем, что она не в процессе создания
+                coin_info = self.active_coins[symbol]
+                if coin_info.get('creating', False):
+                    bot_logger.debug(f"Монета {symbol} еще в процессе создания, пропускаем обновление")
+                    return
 
-                # Обновляем сообщение только если есть msg_id
-                msg_id = self.active_coins[symbol].get('msg_id')
-                if msg_id:
+                # Обновляем данные
+                coin_info['last_active'] = now
+                coin_info['data'] = data
+
+                # Обновляем сообщение только если есть валидный msg_id
+                msg_id = coin_info.get('msg_id')
+                if msg_id and isinstance(msg_id, int) and msg_id > 0:
                     message = (
                         f"🚨 <b>{symbol}_USDT активен</b>\n"
                         f"🔄 Изм: {data['change']:+.2f}%  🔁 Сделок: {data['trades']}\n"
@@ -352,19 +373,32 @@ class TradingTelegramBot:
                     await self.edit_message(msg_id, message)
 
         elif is_currently_active:
-            # Проверяем, не прошло ли время неактивности
+            # Проверяем время неактивности, но не трогаем монеты в процессе создания
+            coin_info = self.active_coins[symbol]
+            if coin_info.get('creating', False):
+                return
+                
             inactivity_timeout = config_manager.get('INACTIVITY_TIMEOUT')
-            if now - self.active_coins[symbol]['last_active'] > inactivity_timeout:
+            if now - coin_info['last_active'] > inactivity_timeout:
                 await self._end_coin_activity(symbol, now)
 
     async def _end_coin_activity(self, symbol: str, end_time: float):
-        """Завершает активность монеты - как в старом боте"""
+        """Завершает активность монеты с проверкой состояния"""
+        if symbol not in self.active_coins:
+            return
+            
         coin_info = self.active_coins[symbol]
+        
+        # Не завершаем активность для монет в процессе создания
+        if coin_info.get('creating', False):
+            bot_logger.debug(f"Монета {symbol} в процессе создания, отклады завершение активности")
+            return
+            
         duration = end_time - coin_info['start']
 
-        # Удаляем сообщение об активности
+        # Удаляем сообщение об активности только если есть валидный ID
         msg_id = coin_info.get('msg_id')
-        if msg_id:
+        if msg_id and isinstance(msg_id, int) and msg_id > 0:
             await self.delete_message(msg_id)
 
         # Отправляем сообщение о завершении только если активность была >= 60 секунд
