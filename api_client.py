@@ -179,14 +179,8 @@ class MexcApiClient:
                 except (ValueError, TypeError):
                     pass  # Используем current_close как fallback
 
-            # Получаем количество сделок из 24hr ticker
-            trade_count = 0
-            count_data = self._make_request('ticker/24hr', {'symbol': symbol})
-            if count_data and isinstance(count_data, dict) and count_data.get('count'):
-                try:
-                    trade_count = int(count_data['count'])
-                except (ValueError, TypeError):
-                    trade_count = 0
+            # Получаем количество сделок за последнюю минуту через trades endpoint
+            trade_count = self._get_1min_trades_count(symbol)
 
             # Рассчитываем объем в базовой валюте для 1-минутного периода
             volume_usdt = current_volume * current_close if current_volume > 0 else 0.0
@@ -268,6 +262,39 @@ class MexcApiClient:
             return 0.0
         true_range = high - low
         return (true_range / close) * 100
+
+    def _get_1min_trades_count(self, symbol: str) -> int:
+        """Получает количество сделок за последнюю минуту"""
+        try:
+            # Получаем последние сделки (максимум 1000)
+            trades_data = self._make_request('trades', {'symbol': symbol, 'limit': 1000})
+            
+            if not trades_data or not isinstance(trades_data, list):
+                bot_logger.debug(f"Нет данных о сделках для {symbol}")
+                return 0
+
+            # Вычисляем временной диапазон (последняя минута)
+            now = int(time.time() * 1000)  # Текущее время в миллисекундах
+            one_minute_ago = now - 60000   # 60 секунд назад
+
+            # Фильтруем сделки за последнюю минуту
+            recent_trades = []
+            for trade in trades_data:
+                if isinstance(trade, dict) and trade.get('time'):
+                    try:
+                        trade_time = int(trade['time'])
+                        if trade_time >= one_minute_ago:
+                            recent_trades.append(trade)
+                    except (ValueError, TypeError):
+                        continue
+
+            trades_count = len(recent_trades)
+            bot_logger.debug(f"{symbol}: {trades_count} сделок за последнюю минуту")
+            return trades_count
+
+        except Exception as e:
+            bot_logger.warning(f"Ошибка получения 1м сделок для {symbol}: {e}")
+            return 0
 
     def get_klines(self, symbol: str, interval: str = "1m", limit: int = 100) -> Optional[Dict]:
         """Получает данные свечей для символа (1-минутные данные для скальпинга)"""
