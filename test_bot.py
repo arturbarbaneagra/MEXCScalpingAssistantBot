@@ -327,7 +327,9 @@ class TestIntegration(unittest.TestCase):
                 'spread': 0.1,
                 'natr': 0.8,
                 'trades': 100,
-                'active': True
+                'active': True,
+                'has_recent_trades': True,
+                'timestamp': time.time()
             }
             self.assertTrue(data_validator.validate_coin_data(valid_data))
 
@@ -346,6 +348,8 @@ class TestIntegration(unittest.TestCase):
         finally:
             # Восстанавливаем оригинальные значения
             config_manager.set('VOLUME_THRESHOLD', original_threshold)
+            watchlist_manager.watchlist = original_watchlist
+            watchlist_manager.save()E_THRESHOLD', original_threshold)
             watchlist_manager.clear()
             for symbol in original_watchlist:
                 watchlist_manager.add(symbol)

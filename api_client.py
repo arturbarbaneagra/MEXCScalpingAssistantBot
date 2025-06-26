@@ -435,11 +435,7 @@ class APIClient:
                 await self.session.close()
 
                 # Даем время на завершение всех соединений
-                await asyncio.sleep(0.2)
-
-                # Принудительно завершаем коннектор
-                if hasattr(self.session, '_connector') and self.session._connector:
-                    await self.session._connector.close()
+                await asyncio.sleep(0.25)
 
                 bot_logger.debug("HTTP сессия корректно закрыта")
             except Exception as e:

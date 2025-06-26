@@ -53,12 +53,12 @@ def health_check():
         metrics = metrics_manager.get_summary()
         cache_stats = cache_manager.get_stats()
         alerts = alert_manager.get_active_alerts()
-        
+
         # Получаем продвинутые алерты
         from advanced_alerts import advanced_alert_manager
         advanced_alerts = advanced_alert_manager.get_active_alerts()
         alert_stats = advanced_alert_manager.get_alert_stats()
-        
+
         # Получаем оценку производительности
         try:
             from performance_optimizer import performance_optimizer
@@ -114,7 +114,7 @@ def health_check():
 
                 <div class="metric-box">
                     <strong>🚨 Alerts:</strong> {alert_status}<br>
-                    {f"Recent alerts: {', '.join([a.get('message', '') for a in alerts[:3]])}" if alerts else "No active alerts"}<br>
+                    {f"Recent alerts: {', '.join([a.get('message', '')[:50] + '...' if len(a.get('message', '')) > 50 else a.get('message', '') for a in alerts[:2]])}" if alerts else "No active alerts"}<br>
                     <strong>Advanced:</strong> {len(advanced_alerts)} active, {alert_stats.get('total_triggers', 0)} total triggers
                 </div>
 
@@ -219,7 +219,7 @@ async def main():
         # Инициализируем состояние бота
         from bot_state import bot_state_manager
         bot_state_manager.increment_session()
-        
+
         # Запускаем автоматическое обслуживание
         from auto_maintenance import auto_maintenance
         maintenance_task = asyncio.create_task(auto_maintenance.start_maintenance_loop())
@@ -253,11 +253,11 @@ async def main():
                 # Останавливаем автоматическое обслуживание
                 auto_maintenance.stop_maintenance()
                 maintenance_task.cancel()
-                
+
                 # Сохраняем время работы
                 uptime = time.time() - start_time
                 bot_state_manager.add_uptime(uptime)
-                
+
                 await app.updater.stop()
                 await app.stop()
 
