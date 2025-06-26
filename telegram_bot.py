@@ -201,53 +201,60 @@ class TradingTelegramBot:
             yield lst[i:i + size]
 
     async def _stop_current_mode(self):
-        """Останавливает текущий режим работы бота с улучшенной обработкой"""
+        """Останавливает текущий режим работы бота с полной очисткой состояния"""
         if self.bot_mode:
             bot_logger.info(f"🛑 Остановка режима: {self.bot_mode}")
 
             # Сначала останавливаем циклы
             self.bot_running = False
 
-            # Даем время циклам завершиться
-            await asyncio.sleep(0.8)
+            # Увеличиваем время ожидания для полного завершения циклов
+            await asyncio.sleep(1.2)
 
             try:
                 # Проверяем event loop перед удалением сообщений
                 try:
                     current_loop = asyncio.get_running_loop()
                     if current_loop.is_closed():
-                        bot_logger.debug("Event loop закрыт, пропускаем удаление сообщений")
-                        self.monitoring_message_id = None
-                        self.active_coins.clear()
-                        self.bot_mode = None
-                        bot_state_manager.set_last_mode(None)
+                        bot_logger.debug("Event loop закрыт, принудительная очистка состояния")
+                        self._force_clear_state()
                         return
                 except RuntimeError:
-                    bot_logger.debug("Нет активного event loop, пропускаем удаление сообщений")
-                    self.monitoring_message_id = None
-                    self.active_coins.clear()
-                    self.bot_mode = None
-                    bot_state_manager.set_last_mode(None)
+                    bot_logger.debug("Нет активного event loop, принудительная очистка состояния")
+                    self._force_clear_state()
                     return
 
-                # Удаляем сообщение мониторинга если оно есть
+                # Сначала обрабатываем активные уведомления
+                if self.active_coins:
+                    deleted_count = 0
+                    creating_count = 0
+                    
+                    for symbol, coin_data in list(self.active_coins.items()):
+                        if coin_data.get('creating', False):
+                            creating_count += 1
+                            bot_logger.info(f"🔄 Принудительная остановка создания уведомления для {symbol}")
+                            
+                        msg_id = coin_data.get('msg_id')
+                        if msg_id and isinstance(msg_id, int) and msg_id > 0:
+                            success = await self.delete_message(msg_id)
+                            if success:
+                                deleted_count += 1
+                                bot_logger.debug(f"🗑 Удалено уведомление для {symbol} (ID: {msg_id})")
+                    
+                    if deleted_count > 0:
+                        bot_logger.info(f"🗑 Удалено {deleted_count} уведомлений")
+                    if creating_count > 0:
+                        bot_logger.info(f"🔄 Прервано {creating_count} процессов создания")
+                    
+                    # Принудительно очищаем все активные монеты
+                    self.active_coins.clear()
+
+                # Затем удаляем сообщение мониторинга
                 if self.monitoring_message_id:
                     success = await self.delete_message(self.monitoring_message_id)
                     if success:
                         bot_logger.info("📝 Сообщение мониторинга удалено")
                     self.monitoring_message_id = None
-
-                # Удаляем активные уведомления
-                if self.active_coins:
-                    deleted_count = 0
-                    for symbol, coin_data in list(self.active_coins.items()):
-                        if coin_data.get('msg_id'):
-                            success = await self.delete_message(coin_data['msg_id'])
-                            if success:
-                                deleted_count += 1
-                    if deleted_count > 0:
-                        bot_logger.info(f"🗑 Удалено {deleted_count} уведомлений")
-                    self.active_coins.clear()
 
             except Exception as e:
                 error_message = str(e).lower()
@@ -257,24 +264,28 @@ class TradingTelegramBot:
                     bot_logger.warning(f"Ошибка при очистке сообщений: {e}")
 
                 # Принудительная очистка состояния
-                self.monitoring_message_id = None
-                self.active_coins.clear()
+                self._force_clear_state()
 
-            # Очищаем кеш сообщений
-            self.message_cache.clear()
-
-            self.bot_mode = None
-            # Сохраняем состояние
-            bot_state_manager.set_last_mode(None)
+            # Полная очистка всех кешей и состояний
+            self._force_clear_state()
 
             # Правильно закрываем API сессию
             try:
                 await api_client.close()
-                # Дополнительная пауза для завершения всех соединений
-                await asyncio.sleep(0.2)
+                # Увеличиваем паузу для полного закрытия соединений
+                await asyncio.sleep(0.3)
                 bot_logger.debug("API сессия корректно закрыта")
             except Exception as e:
                 bot_logger.debug(f"Ошибка закрытия API сессии: {e}")
+
+    def _force_clear_state(self):
+        """Принудительная очистка всех состояний"""
+        self.monitoring_message_id = None
+        self.active_coins.clear()
+        self.message_cache.clear()
+        self.bot_mode = None
+        bot_state_manager.set_last_mode(None)
+        bot_logger.debug("🧹 Принудительная очистка состояния выполнена")
 
     async def _notification_mode_loop(self):
         """Цикл режима уведомлений с периодической очисткой"""
@@ -334,28 +345,63 @@ class TradingTelegramBot:
         """Очистка зависших процессов создания уведомлений"""
         current_time = time.time()
         stale_coins = []
+        creating_coins = []
+        orphaned_coins = []
 
-        for symbol, coin_info in self.active_coins.items():
+        for symbol, coin_info in list(self.active_coins.items()):
             if coin_info.get('creating', False):
                 creation_time = coin_info.get('creation_time', current_time)
-                if current_time - creation_time > 30:  # 30 секунд таймаут
+                if current_time - creation_time > 20:  # Сократили таймаут до 20 секунд
                     stale_coins.append(symbol)
+                else:
+                    creating_coins.append(symbol)
+            elif not coin_info.get('msg_id'):
+                # Монета активна, но без msg_id - потенциальный orphan
+                orphaned_coins.append(symbol)
 
+        # Очищаем зависшие процессы
         if stale_coins:
-            bot_logger.warning(f"[CLEANUP] Найдены зависшие процессы: {', '.join(stale_coins)}")
+            bot_logger.warning(f"[CLEANUP] Найдены зависшие процессы ({len(stale_coins)}): {', '.join(stale_coins[:5])}")
             for symbol in stale_coins:
                 try:
-                    coin_info = self.active_coins[symbol]
-                    msg_id = coin_info.get('msg_id')
-                    if msg_id:
-                        await self.delete_message(msg_id)
-                    del self.active_coins[symbol]
-                    bot_logger.info(f"[CLEANUP] Удален зависший процесс для {symbol}")
+                    coin_info = self.active_coins.get(symbol)
+                    if coin_info:
+                        msg_id = coin_info.get('msg_id')
+                        if msg_id and isinstance(msg_id, int) and msg_id > 0:
+                            await self.delete_message(msg_id)
+                        del self.active_coins[symbol]
+                        bot_logger.info(f"[CLEANUP] Удален зависший процесс для {symbol}")
                 except Exception as e:
                     bot_logger.error(f"[CLEANUP] Ошибка очистки {symbol}: {e}")
 
+        # Очищаем orphaned монеты
+        if orphaned_coins:
+            bot_logger.warning(f"[CLEANUP] Найдены orphaned монеты ({len(orphaned_coins)}): {', '.join(orphaned_coins[:3])}")
+            for symbol in orphaned_coins:
+                try:
+                    del self.active_coins[symbol]
+                    bot_logger.info(f"[CLEANUP] Удалена orphaned монета {symbol}")
+                except Exception as e:
+                    bot_logger.error(f"[CLEANUP] Ошибка очистки orphaned {symbol}: {e}")
+
+        # Информация о текущем состоянии
+        if creating_coins:
+            bot_logger.debug(f"[STATUS] Монеты в процессе создания ({len(creating_coins)}): {', '.join(creating_coins[:3])}")
+
+        # Общая статистика
+        total_active = len(self.active_coins)
+        if total_active > 0:
+            bot_logger.debug(f"[STATUS] Всего активных монет: {total_active}")
+
+        # Дополнительная очистка кеша сообщений
+        if len(self.message_cache) > 100:
+            # Оставляем только последние 50 записей
+            items = list(self.message_cache.items())
+            self.message_cache = dict(items[-50:])
+            bot_logger.debug(f"[CLEANUP] Очищен кеш сообщений, оставлено 50 записей")
+
     async def _process_coin_notification(self, symbol: str, data: Dict):
-        """Обрабатывает уведомление для монеты - улучшенная защита от дублирования"""
+        """Обрабатывает уведомление для монеты - исправлена race condition"""
         now = time.time()
 
         # Проверяем алерты для монеты
@@ -369,14 +415,20 @@ class TradingTelegramBot:
 
                 # НЕ обновляем монеты в процессе создания
                 if coin_info.get('creating', False):
-                    bot_logger.debug(f"[SKIP] {symbol} в процессе создания, пропускаем обновление")
-                    return
+                    creation_time = coin_info.get('creation_time', now)
+                    if now - creation_time > 15:  # Сократили таймаут до 15 секунд
+                        bot_logger.warning(f"[TIMEOUT_UPDATE] Принудительная очистка зависшего процесса {symbol}")
+                        del self.active_coins[symbol]
+                        return
+                    else:
+                        bot_logger.debug(f"[SKIP] {symbol} в процессе создания, пропускаем обновление")
+                        return
 
                 # Обновляем данные существующей активной монеты
                 coin_info['last_active'] = now
                 coin_info['data'] = data
 
-                # Обновляем сообщение только если есть валидный msg_id и содержимое изменилось
+                # Обновляем сообщение только если есть валидный msg_id
                 msg_id = coin_info.get('msg_id')
                 if msg_id and isinstance(msg_id, int) and msg_id > 0:
                     new_message = (
@@ -393,26 +445,42 @@ class TradingTelegramBot:
                         self.message_cache[msg_id] = new_message
                     else:
                         bot_logger.debug(f"[SKIP_UPDATE] {symbol} - содержимое не изменилось")
+                elif not msg_id:
+                    # Если нет msg_id, но монета не в процессе создания - возможно предыдущая отправка не удалась
+                    bot_logger.warning(f"[RECOVERY] {symbol} активна но без msg_id, удаляем и пересоздаем")
+                    del self.active_coins[symbol]
+                    # Рекурсивно вызываем себя для пересоздания
+                    await asyncio.sleep(0.1)
+                    await self._process_coin_notification(symbol, data)
+                    return
 
             else:
-                # Новая активность - создаем с атомарной блокировкой
-                unique_id = f"{symbol}_{now}_{id(asyncio.current_task() or 'main')}"
+                # Новая активность - создаем с улучшенной атомарной блокировкой
+                current_time = time.time()
+                task_id = id(asyncio.current_task() or 'main')
+                unique_id = f"{symbol}_{current_time}_{task_id}"
+
+                # Двойная проверка на race condition
+                if symbol in self.active_coins:
+                    bot_logger.debug(f"[RACE_DETECTED] {symbol} уже создается другим процессом")
+                    return
 
                 # Атомарно создаем запись с блокировкой
                 self.active_coins[symbol] = {
-                    'start': now,
-                    'last_active': now,
+                    'start': current_time,
+                    'last_active': current_time,
                     'msg_id': None,
                     'data': data,
                     'creating': True,
                     'lock_id': unique_id,
-                    'creation_time': now
+                    'creation_time': current_time,
+                    'creation_attempts': 1
                 }
 
                 bot_logger.info(f"[CREATE] Создание уведомления для {symbol} с ID {unique_id}")
 
-                # Небольшая задержка для избежания race conditions
-                await asyncio.sleep(0.05)
+                # Минимальная задержка для стабилизации
+                await asyncio.sleep(0.02)
 
                 # Проверяем, что наша блокировка все еще активна
                 current_coin_info = self.active_coins.get(symbol)
@@ -432,29 +500,38 @@ class TradingTelegramBot:
                 try:
                     msg_id = await self.send_message(message)
 
-                    # Финальная проверка и обновление статуса
-                    if symbol in self.active_coins and self.active_coins[symbol].get('lock_id') == unique_id:
-                        if msg_id:
+                    # Финальная проверка состояния
+                    final_coin_info = self.active_coins.get(symbol)
+                    if (final_coin_info and 
+                        final_coin_info.get('lock_id') == unique_id):
+                        
+                        if msg_id and isinstance(msg_id, int) and msg_id > 0:
                             # Успешно отправили - завершаем создание
                             self.active_coins[symbol].update({
                                 'msg_id': msg_id,
                                 'creating': False,
-                                'lock_id': None
+                                'lock_id': None,
+                                'creation_attempts': None
                             })
+                            # Кешируем сообщение
+                            self.message_cache[msg_id] = message
                             bot_logger.trade_activity(symbol, "STARTED", f"Volume: ${data['volume']:,.2f}, Trades: {data['trades']}")
                         else:
-                            # Не удалось отправить - удаляем запись
+                            # Не удалось отправить - полная очистка
+                            bot_logger.warning(f"[FAIL] Не удалось отправить уведомление для {symbol}")
                             if symbol in self.active_coins:
                                 del self.active_coins[symbol]
-                            bot_logger.warning(f"[FAIL] Не удалось отправить уведомление для {symbol}")
                     else:
-                        bot_logger.warning(f"[CONFLICT] Состояние {symbol} изменено внешне")
+                        bot_logger.warning(f"[CONFLICT] Состояние {symbol} изменено внешне во время создания")
+                        # Очищаем возможные остатки
+                        if symbol in self.active_coins:
+                            del self.active_coins[symbol]
 
                 except Exception as e:
-                    # Ошибка отправки - очищаем состояние
+                    # Ошибка отправки - полная очистка состояния
+                    bot_logger.error(f"[ERROR] Ошибка создания уведомления для {symbol}: {e}")
                     if symbol in self.active_coins and self.active_coins[symbol].get('lock_id') == unique_id:
                         del self.active_coins[symbol]
-                    bot_logger.error(f"[ERROR] Ошибка создания уведомления для {symbol}: {e}")
 
         else:
             # Монета неактивна - проверяем на завершение активности
@@ -465,7 +542,7 @@ class TradingTelegramBot:
                 if coin_info.get('creating', False):
                     # Проверяем таймаут создания (защита от зависших процессов)
                     creation_time = coin_info.get('creation_time', now)
-                    if now - creation_time > 30:  # 30 секунд таймаут
+                    if now - creation_time > 15:  # Сократили таймаут до 15 секунд
                         bot_logger.warning(f"[TIMEOUT] Принудительное завершение создания {symbol}")
                         del self.active_coins[symbol]
                     else:
@@ -871,7 +948,7 @@ class TradingTelegramBot:
         return ConversationHandler.END
 
     async def _handle_notification_mode(self, update: Update):
-        """Обработка режима уведомлений"""
+        """Обработка режима уведомлений с улучшенной стабильностью"""
         if self.bot_running and self.bot_mode == 'notification':
             await update.message.reply_text(
                 "✅ Бот уже работает в режиме уведомлений.",
@@ -879,55 +956,45 @@ class TradingTelegramBot:
             )
             return
 
-        # Останавливаем текущий режим (включая удаление сообщений)
+        # Останавливаем текущий режим с полной очисткой
         await self._stop_current_mode()
 
-        # Увеличиваем задержку для полной стабилизации event loop
-        await asyncio.sleep(1.0)
+        # Увеличиваем задержку для полной стабилизации
+        await asyncio.sleep(1.5)
 
-        # Дополнительно очищаем сообщение мониторинга, если оно есть
-        if self.monitoring_message_id:
-            bot_logger.info(f"Принудительная очистка сообщения мониторинга: {self.monitoring_message_id}")
-            await self.delete_message(self.monitoring_message_id)
-            self.monitoring_message_id = None
+        # Дополнительная проверка чистоты состояния
+        if self.active_coins or self.monitoring_message_id:
+            bot_logger.warning("Обнаружены остатки предыдущего режима, выполняем дополнительную очистку")
+            self._force_clear_state()
+            await asyncio.sleep(0.5)
+
+        # Отправляем подтверждение СНАЧАЛА
+        try:
+            await update.message.reply_text(
+                "✅ <b>Режим уведомлений активирован</b>\n"
+                "Вы будете получать уведомления об активных монетах.\n"
+                "🚀 <i>Оптимизирован для скальпинга</i>",
+                reply_markup=self.main_keyboard,
+                parse_mode=ParseMode.HTML
+            )
+        except Exception as e:
+            bot_logger.error(f"Ошибка отправки подтверждения активации: {e}")
+
+        # Небольшая пауза после отправки подтверждения
+        await asyncio.sleep(0.3)
 
         # Запускаем новый режим
         self.bot_mode = 'notification'
         self.bot_running = True
         bot_state_manager.set_last_mode('notification')
 
-        # Отправляем сообщение ПЕРЕД запуском loop чтобы избежать конфликта
-        try:
-            # Дополнительная проверка event loop перед отправкой
-            try:
-                current_loop = asyncio.get_running_loop()
-                if current_loop.is_closed():
-                    bot_logger.debug("Event loop закрыт, пропускаем отправку подтверждения")
-                else:
-                    await update.message.reply_text(
-                        "✅ <b>Режим уведомлений активирован</b>\n"
-                        "Вы будете получать уведомления об активных монетах.\n"
-                        "🚀 <i>Оптимизирован для скальпинга</i>",
-                        reply_markup=self.main_keyboard,
-                        parse_mode=ParseMode.HTML
-                    )
-            except RuntimeError as loop_error:
-                if "event loop" in str(loop_error).lower():
-                    bot_logger.debug(f"Event loop ошибка при отправке подтверждения: {type(loop_error).__name__}")
-                else:
-                    raise
-        except Exception as e:
-            error_msg = str(e).lower()
-            if "event loop" in error_msg or "asyncio" in error_msg:
-                bot_logger.debug(f"Event loop конфликт при активации уведомлений: {type(e).__name__}")
-            else:
-                bot_logger.error(f"Ошибка отправки подтверждения: {e}")
-
-        # Запускаем loop после отправки подтверждения
+        # Запускаем loop после всех подготовок
         self.start_monitoring_loop()
+        
+        bot_logger.info("🔔 Режим уведомлений успешно активирован")
 
     async def _handle_monitoring_mode(self, update: Update):
-        """Обработка режима мониторинга"""
+        """Обработка режима мониторинга с улучшенной стабильностью"""
         if self.bot_running and self.bot_mode == 'monitoring':
             await update.message.reply_text(
                 "✅ Бот уже работает в режиме мониторинга.",
@@ -935,54 +1002,42 @@ class TradingTelegramBot:
             )
             return
 
-        # Останавливаем текущий режим (включая удаление сообщений)
+        # Останавливаем текущий режим с полной очисткой
         await self._stop_current_mode()
 
-        # Увеличиваем задержку для полной стабилизации event loop
-        await asyncio.sleep(1.0)
+        # Увеличиваем задержку для полной стабилизации
+        await asyncio.sleep(1.5)
 
-        # Дополнительно очищаем активные уведомления, если они есть
-        if self.active_coins:
-            for symbol, coin_data in list(self.active_coins.items()):
-                if coin_data.get('msg_id'):
-                    bot_logger.info(f"Принудительная очистка уведомления для {symbol}: {coin_data['msg_id']}")
-                    await self.delete_message(coin_data['msg_id'])
-            self.active_coins.clear()
+        # Дополнительная проверка чистоты состояния
+        if self.active_coins or self.monitoring_message_id:
+            bot_logger.warning("Обнаружены остатки предыдущего режима, выполняем дополнительную очистку")
+            self._force_clear_state()
+            await asyncio.sleep(0.5)
+
+        # Отправляем подтверждение СНАЧАЛА
+        try:
+            await update.message.reply_text(
+                "✅ <b>Режим мониторинга активирован</b>\n"
+                "Сводка будет обновляться автоматически.\n"
+                "🚀 <i>Оптимизирован для скальпинга</i>",
+                reply_markup=self.main_keyboard,
+                parse_mode=ParseMode.HTML
+            )
+        except Exception as e:
+            bot_logger.error(f"Ошибка отправки подтверждения активации: {e}")
+
+        # Небольшая пауза после отправки подтверждения
+        await asyncio.sleep(0.3)
 
         # Запускаем новый режим
         self.bot_mode = 'monitoring'
         self.bot_running = True
         bot_state_manager.set_last_mode('monitoring')
 
-        # Отправляем сообщение ПЕРЕД запуском loop чтобы избежать конфликта
-        try:
-            # Дополнительная проверка event loop перед отправкой
-            try:
-                current_loop = asyncio.get_running_loop()
-                if current_loop.is_closed():
-                    bot_logger.debug("Event loop закрыт, пропускаем отправку подтверждения")
-                else:
-                    await update.message.reply_text(
-                        "✅ <b>Режим мониторинга активирован</b>\n"
-                        "Сводка будет обновляться автоматически.\n"
-                        "🚀 <i>Оптимизирован для скальпинга</i>",
-                        reply_markup=self.main_keyboard,
-                        parse_mode=ParseMode.HTML
-                    )
-            except RuntimeError as loop_error:
-                if "event loop" in str(loop_error).lower():
-                    bot_logger.debug(f"Event loop ошибка при отправке подтверждения: {type(loop_error).__name__}")
-                else:
-                    raise
-        except Exception as e:
-            error_msg = str(e).lower()
-            if "event loop" in error_msg or "asyncio" in error_msg:
-                bot_logger.debug(f"Event loop конфликт при активации мониторинга: {type(e).__name__}")
-            else:
-                bot_logger.error(f"Ошибка отправки подтверждения: {e}")
-
-        # Запускаем loop после отправки подтверждения
+        # Запускаем loop после всех подготовок
         self.start_monitoring_loop()
+        
+        bot_logger.info("📊 Режим мониторинга успешно активирован")
 
     async def _handle_stop(self, update: Update):
         """Обработка остановки бота"""
