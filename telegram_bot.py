@@ -260,16 +260,11 @@ class TradingTelegramBot:
 
     async def _notification_mode_loop(self):
         """Оптимизированный цикл уведомлений с WebSocket"""
-        bot_logger.info("Запущен оптимизированный режим уведомлений с WebSocket")
+        bot_logger.info("Запущен оптимизированный режим уведомлений")
 
-        # Запускаем WebSocket клиент
-        try:
-            await ws_client.connect()
-        except Exception as e:
-            bot_logger.error(f"Ошибка подключения WebSocket: {e}")
-            # Fallback на HTTP режим
-            await self._notification_mode_loop_http()
-            return
+        # Принудительно используем HTTP с максимальной оптимизацией
+        # WebSocket отключен для стабильности
+        await self._notification_mode_loop_optimized()
 
         # Подписываемся на все монеты из watchlist
         watchlist = watchlist_manager.get_all()
@@ -392,38 +387,44 @@ class TradingTelegramBot:
         except Exception as e:
             bot_logger.debug(f"Ошибка оптимизированной обработки {symbol}: {e}")
 
-    async def _notification_mode_loop_http(self):
-        """Fallback HTTP режим при недоступности WebSocket"""
-        bot_logger.info("Запущен fallback HTTP режим уведомлений")
+    async def _notification_mode_loop_optimized(self):
+        """Максимально оптимизированный HTTP режим"""
+        bot_logger.info("Запущен максимально оптимизированный режим уведомлений")
 
         while self.bot_running and self.bot_mode == 'notification':
             watchlist = watchlist_manager.get_all()
             if not watchlist:
-                await asyncio.sleep(config_manager.get('CHECK_FULL_CYCLE_INTERVAL'))
+                await asyncio.sleep(1)
                 continue
 
-            batch_size = config_manager.get('CHECK_BATCH_SIZE')
-            for batch in self._chunks(list(watchlist), batch_size):
-                if not self.bot_running or self.bot_mode != 'notification':
-                    break
+            # Обрабатываем все монеты параллельно с минимальными задержками
+            await self._process_all_coins_parallel(watchlist)
 
-                # Обрабатываем каждую монету в батче
-                for symbol in batch:
-                    if not self.bot_running or self.bot_mode != 'notification':
-                        break
+            # Минимальная задержка между циклами
+            await asyncio.sleep(0.5)  # Было 2 секунды, стало 0.5
 
+    async def _process_all_coins_parallel(self, watchlist):
+        """Обрабатывает все монеты параллельно"""
+        try:
+            # Создаем семафор для ограничения одновременных запросов
+            semaphore = asyncio.Semaphore(25)  # Увеличиваем до 25
+            
+            async def process_coin_limited(symbol):
+                async with semaphore:
                     try:
-                        coin_data = await api_client.get_coin_data(symbol)
+                        # Используем оптимизированный клиент
+                        coin_data = await optimized_api_client.get_optimized_coin_data(symbol)
                         if coin_data:
                             await self._process_coin_notification(symbol, coin_data)
                     except Exception as e:
-                        bot_logger.error(f"Ошибка обработки {symbol}: {e}")
+                        bot_logger.debug(f"Ошибка обработки {symbol}: {e}")
 
-                    await asyncio.sleep(config_manager.get('COIN_DATA_DELAY'))
-
-                await asyncio.sleep(config_manager.get('CHECK_BATCH_INTERVAL'))
-
-            await asyncio.sleep(config_manager.get('CHECK_FULL_CYCLE_INTERVAL'))
+            # Запускаем все задачи параллельно
+            tasks = [process_coin_limited(symbol) for symbol in watchlist]
+            await asyncio.gather(*tasks, return_exceptions=True)
+            
+        except Exception as e:
+            bot_logger.error(f"Ошибка параллельной обработки: {e}")
 
     async def _end_coin_activity(self, symbol: str, end_time: float):
         """Завершает активность монеты - как в старом боте"""
@@ -514,8 +515,8 @@ class TradingTelegramBot:
             # Периодическая очистка
             await self._periodic_cleanup(cycle_count)
 
-            # Значительно уменьшаем интервал обновления
-            await asyncio.sleep(5)  # Было 20 секунд, стало 5
+            # Максимально уменьшаем интервал обновления
+            await asyncio.sleep(1)  # Было 5 секунд, стало 1 секунда
 
         # Очищаем при остановке
         await self._cleanup_monitoring_mode()

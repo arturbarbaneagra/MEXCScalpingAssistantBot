@@ -13,9 +13,9 @@ class OptimizedAPIClient:
     def __init__(self):
         self.base_url = "https://api.mexc.com/api/v3"
         self.session_pool: List[aiohttp.ClientSession] = []
-        self.pool_size = 5
+        self.pool_size = 10  # Увеличиваем пул
         self.current_session = 0
-        self.rate_limiter = asyncio.Semaphore(15)  # Увеличиваем лимит
+        self.rate_limiter = asyncio.Semaphore(25)  # Максимальный лимит
         self.executor = ThreadPoolExecutor(max_workers=10)
         
     async def _get_session(self) -> aiohttp.ClientSession:
@@ -45,9 +45,9 @@ class OptimizedAPIClient:
     async def _create_session(self) -> aiohttp.ClientSession:
         """Создает оптимизированную HTTP сессию"""
         timeout = aiohttp.ClientTimeout(
-            total=8,  # Уменьшаем timeout
-            connect=3,
-            sock_read=5
+            total=5,  # Минимальный timeout для скорости
+            connect=2,
+            sock_read=3
         )
 
         connector = aiohttp.TCPConnector(
