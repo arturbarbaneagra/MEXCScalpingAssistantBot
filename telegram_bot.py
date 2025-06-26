@@ -256,9 +256,6 @@ class TradingTelegramBot:
                         bot_logger.info(f"🗑 Удалено {deleted_count} уведомлений")
                     if creating_count > 0:
                         bot_logger.info(f"🔄 Прервано {creating_count} процессов создания")
-                    
-                    # Принудительно очищаем все активные монеты
-                    self.active_coins.clear()
 
                 # Затем удаляем сообщение мониторинга
                 if self.monitoring_message_id:
@@ -274,10 +271,7 @@ class TradingTelegramBot:
                 else:
                     bot_logger.warning(f"Ошибка при очистке сообщений: {e}")
 
-                # Принудительная очистка состояния
-                self._force_clear_state()
-
-            # Полная очистка всех кешей и состояний
+            # Полная очистка всех кешей и состояний (ПОСЛЕ обработки сообщений)
             self._force_clear_state()
 
             # Правильно закрываем API сессию
@@ -291,6 +285,24 @@ class TradingTelegramBot:
 
     def _force_clear_state(self):
         """Принудительная очистка всех состояний"""
+        # Сохраняем активные монеты для защиты от дублирования
+        if hasattr(self, 'active_coins') and self.active_coins:
+            current_time = time.time()
+            if not hasattr(self, '_recently_cleared_coins'):
+                self._recently_cleared_coins = {}
+            
+            # Записываем время очистки для каждой активной монеты
+            for symbol in self.active_coins.keys():
+                self._recently_cleared_coins[symbol] = current_time
+                bot_logger.debug(f"[CLEAR_PROTECTION] Записана очистка {symbol} в {current_time}")
+            
+            # Очищаем старые записи (старше 60 секунд)
+            cutoff_time = current_time - 60
+            self._recently_cleared_coins = {
+                k: v for k, v in self._recently_cleared_coins.items() 
+                if v > cutoff_time
+            }
+        
         self.monitoring_message_id = None
         self.active_coins.clear()
         self.message_cache.clear()
@@ -434,6 +446,15 @@ class TradingTelegramBot:
         if data['active']:
             # Монета активна
             if symbol not in self.active_coins:
+                # Дополнительная защита от дублирования при переключении режимов
+                # Проверяем, не была ли эта монета недавно активна (в течение 30 секунд)
+                if hasattr(self, '_recently_cleared_coins'):
+                    if symbol in self._recently_cleared_coins:
+                        last_cleared = self._recently_cleared_coins[symbol]
+                        if now - last_cleared < 30:
+                            bot_logger.debug(f"[DUPLICATE_PROTECTION] {symbol} была недавно очищена, пропускаем создание дубликата")
+                            return
+                
                 bot_logger.info(f"[NOTIFICATION_START] {symbol} - новая активная монета обнаружена")
                 
                 # Новая активная монета - создаем уведомление
