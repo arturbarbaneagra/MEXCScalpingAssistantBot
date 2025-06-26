@@ -179,14 +179,8 @@ class TradingTelegramBot:
             # Сначала останавливаем циклы
             self.bot_running = False
 
-            # Отписываемся от всех WebSocket подписок
-            try:
-                watchlist = watchlist_manager.get_all()
-                for symbol in watchlist:
-                    await ws_client.unsubscribe_symbol(symbol)
-                bot_logger.info("🔌 Отписались от всех WebSocket подписок")
-            except Exception as e:
-                bot_logger.debug(f"Ошибка отписки от WebSocket: {e}")
+            # WebSocket отключен для стабильности
+            # Используем только HTTP API
 
             # Даем время циклам завершиться
             await asyncio.sleep(0.5)
@@ -246,48 +240,15 @@ class TradingTelegramBot:
                 bot_logger.debug(f"Ошибка закрытия API сессии: {e}")
 
     async def _notification_mode_loop(self):
-        """Оптимизированный цикл уведомлений с WebSocket"""
-        bot_logger.info("Запущен оптимизированный режим уведомлений")
+        """Оптимизированный цикл уведомлений (только HTTP)"""
+        bot_logger.info("Запущен оптимизированный режим уведомлений (HTTP только)")
 
-        # Принудительно используем HTTP с максимальной оптимизацией
+        # Используем только HTTP с максимальной оптимизацией
         # WebSocket отключен для стабильности
         await self._notification_mode_loop_optimized()
 
-        # Подписываемся на все монеты из watchlist
-        watchlist = watchlist_manager.get_all()
-        for symbol in watchlist:
-            try:
-                await ws_client.subscribe_symbol(symbol, self._ws_coin_callback)
-            except Exception as e:
-                bot_logger.error(f"Ошибка подписки на {symbol}: {e}")
-
-        # Основной цикл с минимальными задержками  
-        while self.bot_running and self.bot_mode == 'notification':
-            try:
-                # Получаем batch данные для всех монет
-                watchlist = watchlist_manager.get_all()
-                if not watchlist:
-                    await asyncio.sleep(5)
-                    continue
-
-                # Обрабатываем большими батчами с минимальными задержками
-                batch_size = 20  # Увеличиваем размер батча
-                for batch in self._chunks(list(watchlist), batch_size):
-                    if not self.bot_running or self.bot_mode != 'notification':
-                        break
-
-                    # Параллельно обрабатываем весь батч
-                    await self._process_notification_batch(batch)
-                    
-                    # Минимальная задержка между батчами
-                    await asyncio.sleep(0.1)
-
-                # Значительно уменьшаем интервал цикла
-                await asyncio.sleep(2)  # Было 15 секунд, стало 2
-
-            except Exception as e:
-                bot_logger.error(f"Ошибка в цикле уведомлений: {e}")
-                await asyncio.sleep(1)
+        # Основной цикл заменен на _notification_mode_loop_optimized()
+        # который вызывается выше
 
     async def _process_coin_notification(self, symbol: str, data: Dict):
         """Обрабатывает уведомление для монеты - упрощенная логика как в старом боте"""
@@ -462,24 +423,12 @@ class TradingTelegramBot:
         )
 
     async def _monitoring_mode_loop(self):
-        """Оптимизированный цикл мониторинга с WebSocket"""
-        bot_logger.info("Запущен оптимизированный режим мониторинга с WebSocket")
+        """Оптимизированный цикл мониторинга (только HTTP)"""
+        bot_logger.info("Запущен оптимизированный режим мониторинга (HTTP только)")
 
-        # Запускаем WebSocket клиент если еще не подключен
-        if not ws_client.running:
-            try:
-                await ws_client.connect()
-            except Exception as e:
-                bot_logger.error(f"Ошибка подключения WebSocket для мониторинга: {e}")
-
-        # Подписываемся на все монеты
-        watchlist = watchlist_manager.get_all()
-        for symbol in watchlist:
-            try:
-                await ws_client.subscribe_symbol(symbol)
-            except Exception as e:
-                bot_logger.error(f"Ошибка подписки на {symbol} для мониторинга: {e}")
-
+        # Не используем WebSocket для стабильности
+        # Полагаемся только на оптимизированный HTTP API
+        
         # Отправляем начальное сообщение
         initial_text = "🔄 <b>Инициализация оптимизированного мониторинга...</b>"
         self.monitoring_message_id = await self.send_message(initial_text)
