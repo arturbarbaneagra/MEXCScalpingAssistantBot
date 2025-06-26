@@ -97,7 +97,7 @@ class TradingTelegramBot:
             bot_logger.error(f"Ошибка редактирования сообщения: {e}")
 
     async def delete_message(self, message_id: int) -> bool:
-        """Удаляет сообщение"""
+        """Удаляет сообщение с улучшенной обработкой event loop"""
         if not message_id or not isinstance(message_id, int) or message_id <= 0:
             bot_logger.debug(f"Некорректный ID сообщения: {message_id}")
             return False
@@ -107,35 +107,49 @@ class TradingTelegramBot:
             return False
 
         try:
-            # Проверяем, что мы в правильном event loop
+            # Безопасная проверка event loop
             import asyncio
             try:
+                # Пытаемся получить текущий loop
                 current_loop = asyncio.get_running_loop()
+                # Проверяем, что loop не закрыт
+                if current_loop.is_closed():
+                    bot_logger.debug(f"Event loop закрыт для сообщения {message_id}")
+                    return False
             except RuntimeError:
-                # Если нет активного loop, создаем новый
+                # Если нет активного loop, пропускаем удаление
                 bot_logger.debug(f"Нет активного event loop для удаления сообщения {message_id}")
                 return False
             
+            # Выполняем удаление в правильном контексте
             await self.app.bot.delete_message(chat_id=self.chat_id, message_id=message_id)
             bot_logger.debug(f"Сообщение {message_id} успешно удалено")
             return True
+            
         except Exception as e:
             error_message = str(e).lower()
-            # Игнорируем обычные ошибки удаления и event loop ошибки
-            if any(phrase in error_message for phrase in [
+            # Расширенный список ошибок для игнорирования
+            ignored_errors = [
                 "message to delete not found",
                 "message can't be deleted", 
                 "message is too old",
                 "bad request",
                 "not found",
                 "event loop",
-                "different event loop",
-                "asyncio.locks.event"
-            ]):
-                bot_logger.debug(f"Сообщение {message_id} недоступно для удаления: {e}")
+                "different event loop", 
+                "asyncio.locks.event",
+                "runtimeerror",
+                "is bound to a different event loop",
+                "cannot be called from a running event loop",
+                "event loop is closed"
+            ]
+            
+            if any(phrase in error_message for phrase in ignored_errors):
+                bot_logger.debug(f"Сообщение {message_id} недоступно для удаления: {type(e).__name__}")
+                return False
             else:
-                bot_logger.error(f"Ошибка удаления сообщения {message_id}: {e}")
-            return False
+                bot_logger.warning(f"Необработанная ошибка удаления сообщения {message_id}: {e}")
+                return False
 
     def _chunks(self, lst: List, size: int):
         """Разбивает список на чанки"""
@@ -143,7 +157,7 @@ class TradingTelegramBot:
             yield lst[i:i + size]
 
     async def _stop_current_mode(self):
-        """Останавливает текущий режим работы бота"""
+        """Останавливает текущий режим работы бота с улучшенной обработкой"""
         if self.bot_mode:
             bot_logger.info(f"🛑 Остановка режима: {self.bot_mode}")
 
@@ -151,9 +165,28 @@ class TradingTelegramBot:
             self.bot_running = False
             
             # Даем время циклам завершиться
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.8)
 
             try:
+                # Проверяем event loop перед удалением сообщений
+                import asyncio
+                try:
+                    current_loop = asyncio.get_running_loop()
+                    if current_loop.is_closed():
+                        bot_logger.debug("Event loop закрыт, пропускаем удаление сообщений")
+                        self.monitoring_message_id = None
+                        self.active_coins.clear()
+                        self.bot_mode = None
+                        bot_state_manager.set_last_mode(None)
+                        return
+                except RuntimeError:
+                    bot_logger.debug("Нет активного event loop, пропускаем удаление сообщений")
+                    self.monitoring_message_id = None
+                    self.active_coins.clear()
+                    self.bot_mode = None
+                    bot_state_manager.set_last_mode(None)
+                    return
+
                 # Удаляем сообщение мониторинга если оно есть
                 if self.monitoring_message_id:
                     success = await self.delete_message(self.monitoring_message_id)
@@ -172,11 +205,19 @@ class TradingTelegramBot:
                     if deleted_count > 0:
                         bot_logger.info(f"🗑 Удалено {deleted_count} уведомлений")
                     self.active_coins.clear()
+                    
             except Exception as e:
-                bot_logger.warning(f"Ошибка при очистке сообщений: {e}")
+                error_message = str(e).lower()
+                if "event loop" in error_message or "asyncio" in error_message:
+                    bot_logger.debug(f"Event loop ошибка при остановке: {type(e).__name__}")
+                else:
+                    bot_logger.warning(f"Ошибка при очистке сообщений: {e}")
+                
+                # Принудительная очистка состояния
+                self.monitoring_message_id = None
+                self.active_coins.clear()
 
             self.bot_mode = None
-
             # Сохраняем состояние
             bot_state_manager.set_last_mode(None)
 
