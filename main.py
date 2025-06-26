@@ -55,9 +55,14 @@ def health_check():
     """
 
 @app.route('/health')
-def health():
+async def health():
     """Health check endpoint"""
-    return {'status': 'ok', 'version': '2.0'}
+    try:
+        from health_check import health_checker
+        health_data = await health_checker.full_health_check()
+        return health_data
+    except Exception as e:
+        return {'status': 'error', 'error': str(e), 'version': '2.0'}
 
 def run_flask():
     """Запуск Flask сервера"""

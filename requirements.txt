@@ -5,3 +5,5 @@ requests
 aiohttp
 python-dotenv
 telegram
+psutil
+asyncio

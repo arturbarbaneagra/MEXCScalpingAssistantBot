@@ -352,7 +352,9 @@ class TradingTelegramBot:
         initial_text = "🔄 <b>Инициализация мониторинга...</b>"
         self.monitoring_message_id = await self.send_message(initial_text)
 
+        cycle_count = 0
         while self.bot_running and self.bot_mode == 'monitoring':
+            cycle_count += 1
             watchlist = watchlist_manager.get_all()
             if not watchlist:
                 no_coins_text = "❌ <b>Список отслеживания пуст</b>\nДобавьте монеты для мониторинга."
@@ -399,6 +401,12 @@ class TradingTelegramBot:
                     self.monitoring_message_id = await self.send_message(report)
 
             await asyncio.sleep(config_manager.get('MONITORING_UPDATE_INTERVAL'))
+            
+            # Периодическая очистка памяти каждые 50 циклов
+            if cycle_count % 50 == 0:
+                import gc
+                gc.collect()
+                bot_logger.debug(f"Очистка памяти после {cycle_count} циклов")
 
         # Очищаем при остановке режима мониторинга
         if self.monitoring_message_id:

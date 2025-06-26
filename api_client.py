@@ -113,6 +113,11 @@ class MexcApiClient:
     def get_ticker(self, symbol: str) -> Optional[Dict]:
         """Получает тикер монеты с 1-минутными данными согласно MEXC API"""
         symbol = symbol if symbol.endswith("USDT") else symbol + "USDT"
+        
+        # Валидация входного символа
+        if not symbol or len(symbol.replace("USDT", "")) < 2:
+            bot_logger.warning(f"Некорректный символ: {symbol}")
+            return None
 
         # Получаем последние 3 завершенные 1-минутные свечи согласно документации MEXC
         candle_params = {

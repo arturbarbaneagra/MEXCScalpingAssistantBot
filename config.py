@@ -64,11 +64,19 @@ class ConfigManager:
 
     def set(self, key: str, value: Any) -> None:
         """Устанавливает значение конфигурации"""
-        if key in self.default_config:
-            self.config[key] = value
-            self.save()
-        else:
+        if key not in self.default_config:
             raise KeyError(f"Неизвестный ключ конфигурации: {key}")
+        
+        # Валидация значений
+        if key == 'VOLUME_THRESHOLD' and (not isinstance(value, (int, float)) or value < 0):
+            raise ValueError("VOLUME_THRESHOLD должен быть положительным числом")
+        elif key in ['SPREAD_THRESHOLD', 'NATR_THRESHOLD'] and (not isinstance(value, (int, float)) or value < 0 or value > 100):
+            raise ValueError(f"{key} должен быть числом от 0 до 100")
+        elif key in ['CHECK_BATCH_SIZE', 'MAX_RETRIES'] and (not isinstance(value, int) or value < 1):
+            raise ValueError(f"{key} должен быть положительным целым числом")
+        
+        self.config[key] = value
+        self.save()
 
     def reset_to_default(self) -> None:
         """Сбрасывает конфигурацию к значениям по умолчанию"""
