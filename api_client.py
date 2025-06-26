@@ -362,6 +362,9 @@ class APIClient:
                 'timestamp': time.time()
             }
 
+        except asyncio.CancelledError:
+            bot_logger.debug(f"Запрос для {symbol} был отменен")
+            return None
         except Exception as e:
             bot_logger.error(f"Ошибка получения данных для {symbol}: {e}")
             return None
@@ -399,9 +402,9 @@ class APIClient:
                 await self.session.close()
 
                 # Даем время на завершение всех соединений
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.2)
 
-                # Принудительно завершаем event loop если есть незакрытые соединения
+                # Принудительно завершаем коннектор
                 if hasattr(self.session, '_connector') and self.session._connector:
                     await self.session._connector.close()
 
