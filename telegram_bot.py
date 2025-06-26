@@ -360,14 +360,22 @@ class TradingTelegramBot:
             await asyncio.sleep(config_manager.get('CHECK_FULL_CYCLE_INTERVAL'))
 
     async def _cleanup_stale_processes(self):
-        """Простая очистка зависших процессов как в старом боте"""
+        """Очистка зависших процессов с учетом флага creating"""
         current_time = time.time()
         orphaned_coins = []
+        stale_creating = []
 
-        # Проверяем только на orphaned монеты (без msg_id)
+        # Проверяем на orphaned монеты и зависшие процессы создания
         for symbol, coin_info in list(self.active_coins.items()):
-            if not coin_info.get('msg_id'):
+            # Монеты без msg_id (orphaned)
+            if not coin_info.get('msg_id') and not coin_info.get('creating', False):
                 orphaned_coins.append(symbol)
+            
+            # Зависшие процессы создания (больше 10 секунд в creating)
+            elif coin_info.get('creating', False):
+                start_time = coin_info.get('start', current_time)
+                if current_time - start_time > 10:
+                    stale_creating.append(symbol)
 
         # Очищаем orphaned монеты
         for symbol in orphaned_coins:
@@ -377,6 +385,14 @@ class TradingTelegramBot:
             except Exception as e:
                 bot_logger.error(f"[CLEANUP] Ошибка очистки orphaned {symbol}: {e}")
 
+        # Очищаем зависшие процессы создания
+        for symbol in stale_creating:
+            try:
+                del self.active_coins[symbol]
+                bot_logger.info(f"[CLEANUP] Удален зависший процесс создания {symbol}")
+            except Exception as e:
+                bot_logger.error(f"[CLEANUP] Ошибка очистки зависшего процесса {symbol}: {e}")
+
         # Дополнительная очистка кеша сообщений
         if len(self.message_cache) > 100:
             # Оставляем только последние 50 записей
@@ -385,7 +401,7 @@ class TradingTelegramBot:
             bot_logger.debug(f"[CLEANUP] Очищен кеш сообщений, оставлено 50 записей")
 
     async def _process_coin_notification(self, symbol: str, data: Dict):
-        """Обрабатывает уведомление для монеты - упрощенная версия как в старом боте"""
+        """Обрабатывает уведомление для монеты - исправленная версия без ложных ошибок"""
         now = time.time()
 
         # Проверяем алерты для монеты
@@ -402,21 +418,37 @@ class TradingTelegramBot:
                     f"⇄ Спред: {data['spread']:.2f}%"
                 )
                 
+                # Сначала создаем запись с флагом creating
+                self.active_coins[symbol] = {
+                    'start': now,
+                    'last_active': now,
+                    'data': data,
+                    'creating': True
+                }
+                
+                # Отправляем сообщение
                 msg_id = await self.send_message(message)
                 if msg_id:
-                    self.active_coins[symbol] = {
-                        'start': now,
-                        'last_active': now,
+                    # Успешно отправлено - обновляем запись
+                    self.active_coins[symbol].update({
                         'msg_id': msg_id,
-                        'data': data
-                    }
+                        'creating': False
+                    })
                     self.message_cache[msg_id] = message
                     bot_logger.trade_activity(symbol, "STARTED", f"Volume: ${data['volume']:,.2f}")
                 else:
+                    # Не удалось отправить - удаляем запись
+                    if symbol in self.active_coins:
+                        del self.active_coins[symbol]
                     bot_logger.warning(f"[FAIL] Не удалось отправить уведомление для {symbol}")
             else:
                 # Обновляем данные существующей активной монеты
                 coin_info = self.active_coins[symbol]
+                
+                # Пропускаем обновление если монета еще создается
+                if coin_info.get('creating', False):
+                    return
+                    
                 coin_info['last_active'] = now
                 coin_info['data'] = data
 
@@ -440,6 +472,10 @@ class TradingTelegramBot:
             # Монета неактивна - проверяем на завершение активности
             if symbol in self.active_coins:
                 coin_info = self.active_coins[symbol]
+                
+                # Пропускаем если монета еще создается
+                if coin_info.get('creating', False):
+                    return
                 
                 # Проверяем таймаут неактивности
                 inactivity_timeout = config_manager.get('INACTIVITY_TIMEOUT')
