@@ -6,6 +6,8 @@ from logger import bot_logger
 from config import config_manager
 from cache_manager import cache_manager
 from metrics_manager import metrics_manager
+from circuit_breaker import api_circuit_breakers
+from data_validator import data_validator
 
 class APIClient:
     def __init__(self):
@@ -48,38 +50,62 @@ class APIClient:
         return self.session
 
     async def _make_request(self, endpoint: str, params: Dict = None) -> Optional[Dict]:
-        """Выполняет HTTP запрос с обработкой ошибок и retry логикой"""
+        """Выполняет HTTP запрос с обработкой ошибок, retry логикой и Circuit Breaker"""
         url = f"{self.base_url}{endpoint}"
 
         # Rate limiting
         await self._rate_limit()
 
+        # Определяем Circuit Breaker по endpoint
+        circuit_breaker = None
+        for cb_name, cb in api_circuit_breakers.items():
+            if cb_name in endpoint:
+                circuit_breaker = cb
+                break
+        
         max_retries = config_manager.get('MAX_RETRIES', 2)
+
+        async def _execute_request():
+            """Внутренняя функция для выполнения запроса"""
+            session = await self._get_session()
+            async with session.get(url, params=params) as response:
+                request_time = time.time() - start_time
+                
+                # Логируем запрос и записываем метрики
+                bot_logger.api_request("GET", url, response.status, request_time)
+                metrics_manager.record_api_request(endpoint, request_time, response.status)
+
+                if response.status == 200:
+                    data = await response.json()
+                    return data
+                elif response.status == 429:  # Rate limit
+                    raise Exception(f"Rate limit hit for {endpoint}")
+                else:
+                    raise Exception(f"API error {response.status} for {endpoint}")
 
         for attempt in range(max_retries + 1):
             start_time = time.time()
 
             try:
-                session = await self._get_session()
+                # Используем Circuit Breaker если доступен
+                if circuit_breaker:
+                    return await circuit_breaker.call(_execute_request)
+                else:
+                    return await _execute_request()
 
-                # Используем правильный контекстный менеджер для таймаута
-                async with session.get(url, params=params) as response:
-                    request_time = time.time() - start_time
-
-                    # Логируем запрос и записываем метрики
-                    bot_logger.api_request("GET", url, response.status, request_time)
-                    metrics_manager.record_api_request(endpoint, request_time, response.status)
-
-                    if response.status == 200:
-                        data = await response.json()
-                        return data
-                    elif response.status == 429:  # Rate limit
-                        bot_logger.warning(f"Rate limit hit, waiting...")
-                        await asyncio.sleep(2 ** attempt)
-                        continue
-                    else:
-                        bot_logger.warning(f"API error {response.status} for {endpoint}")
-                        return None
+            except Exception as e:
+                error_msg = str(e).lower()
+                
+                if "rate limit" in error_msg and attempt < max_retries:
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                elif attempt < max_retries:
+                    await asyncio.sleep(1)
+                    # Пересоздаем сессию при ошибке
+                    await self.close()
+                    continue
+                else:
+                    return None
 
             except asyncio.TimeoutError:
                 bot_logger.debug(f"Timeout on attempt {attempt + 1} for {endpoint}")
@@ -349,7 +375,7 @@ class APIClient:
 
             price = float(ticker_data['lastPrice']) if ticker_data else 0
 
-            return {
+            coin_data = {
                 'symbol': symbol,
                 'price': price,
                 'volume': volume_1m_usdt,  # 1-минутный оборот в USDT
@@ -361,6 +387,13 @@ class APIClient:
                 'has_recent_trades': has_recent_trades,
                 'timestamp': time.time()
             }
+            
+            # Валидируем данные перед возвратом
+            if not data_validator.validate_coin_data(coin_data):
+                bot_logger.warning(f"Данные для {symbol} не прошли валидацию")
+                return None
+                
+            return coin_data
 
         except asyncio.CancelledError:
             bot_logger.debug(f"Запрос для {symbol} был отменен")

@@ -41,22 +41,22 @@ def health_check():
         from metrics_manager import metrics_manager
         from cache_manager import cache_manager
         from alert_manager import alert_manager
-        
+
         # Получаем базовую информацию
         status = {
             'bot_running': telegram_bot.bot_running,
             'bot_mode': telegram_bot.bot_mode,
             'watchlist_size': watchlist_manager.size()
         }
-        
+
         # Получаем метрики
         metrics = metrics_manager.get_summary()
         cache_stats = cache_manager.get_stats()
         alerts = alert_manager.get_active_alerts()
-        
+
         # Время работы
         uptime_hours = metrics.get('uptime_seconds', 0) / 3600
-        
+
         # Статус алертов
         alert_status = '🟢 OK'
         if alerts:
@@ -85,40 +85,40 @@ def health_check():
         <body>
             <div class="container">
                 <h1>🤖 Trading Bot Status v2.1</h1>
-                
+
                 <div class="status-grid">
                     <div class="metric-box {'success' if status['bot_running'] else 'critical'}">
                         <strong>Bot Status:</strong> {'🟢 Running' if status['bot_running'] else '🔴 Stopped'}<br>
                         <strong>Mode:</strong> {status['bot_mode'] or 'None'}<br>
                         <strong>Uptime:</strong> {uptime_hours:.1f} hours
                     </div>
-                    
+
                     <div class="metric-box">
                         <strong>Watchlist:</strong> {status['watchlist_size']} coins<br>
                         <strong>Active Coins:</strong> {len(telegram_bot.active_coins)}<br>
                         <strong>Cache Entries:</strong> {cache_stats.get('total_entries', 0)}
                     </div>
                 </div>
-                
+
                 <div class="metric-box">
                     <strong>🚨 Alerts:</strong> {alert_status}<br>
                     {f"Recent alerts: {', '.join([a.get('message', '') for a in alerts[:3]])}" if alerts else "No active alerts"}
                 </div>
-                
+
                 <div class="status-grid">
                     <div class="metric-box">
                         <strong>API Performance:</strong><br>
                         Total requests: {sum(stats.get('total_requests', 0) for stats in metrics.get('api_stats', {}).values())}<br>
                         Memory usage: {cache_stats.get('memory_usage_kb', 0):.1f} KB
                     </div>
-                    
+
                     <div class="metric-box">
                         <strong>System:</strong><br>
                         Version: 2.1<br>
                         Last update: {time.strftime('%H:%M:%S')}
                     </div>
                 </div>
-                
+
                 <p><small>Page auto-refreshes every 30 seconds</small></p>
             </div>
         </body>
@@ -195,7 +195,7 @@ async def main():
     """Основная функция"""
     try:
         bot_logger.info("=" * 50)
-        bot_logger.info("🚀 Запуск торгового бота v2.0")
+        bot_logger.info("🚀 Запуск торгового бота v2.1")
         bot_logger.info("=" * 50)
 
         # Проверяем переменные окружения
@@ -209,15 +209,15 @@ async def main():
 
         # Настраиваем и запускаем Telegram бота
         app = telegram_bot.setup_application()
-        
+
         bot_logger.info("🤖 Telegram бот готов к работе")
         bot_logger.info("=" * 50)
-        
+
         # Запускаем бота с правильным управлением event loop
         async with app:
             await app.start()
             await app.updater.start_polling(drop_pending_updates=True)
-            
+
             # Держим приложение работающим
             try:
                 while True:
@@ -227,7 +227,7 @@ async def main():
             finally:
                 await app.updater.stop()
                 await app.stop()
-        
+
     except KeyboardInterrupt:
         bot_logger.info("🛑 Получен сигнал остановки")
     except Exception as e:
@@ -242,7 +242,7 @@ async def main():
             bot_logger.info("🔒 API клиент закрыт")
         except Exception as e:
             bot_logger.debug(f"Ошибка закрытия API клиента: {type(e).__name__}")
-        
+
         bot_logger.info("👋 Торговый бот остановлен")
 
 if __name__ == "__main__":
