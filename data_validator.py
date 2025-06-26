@@ -186,4 +186,3 @@ class DataValidator:
 
 # Глобальный экземпляр валидатора
 data_validator = DataValidator()
-```
