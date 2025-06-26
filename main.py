@@ -105,8 +105,38 @@ def main():
         if not validate_environment():
             sys.exit(1)
 
-        # Запускаем Flask сервер
-        keep_alive()
+        # Запускаем Flask сервер в отдельном потоке
+        flask_thread = threading.Thread(target=run_flask, daemon=True)
+        flask_thread.start()
+        bot_logger.info("🌐 Flask сервер запущен на порту 8080")
+
+        # Настраиваем и запускаем Telegram бота
+        app = telegram_bot.setup_application()
+        
+        bot_logger.info("🤖 Telegram бот готов к работе")
+        bot_logger.info("=" * 50)
+        
+        # Запускаем бота
+        await app.run_polling(
+            drop_pending_updates=True,
+            close_loop=False,
+            stop_signals=None
+        )
+        
+    except KeyboardInterrupt:
+        bot_logger.info("🛑 Получен сигнал остановки")
+    except Exception as e:
+        bot_logger.critical(f"💥 Критическая ошибка: {e}", exc_info=True)
+        sys.exit(1)
+    finally:
+        # Корректное завершение работы
+        try:
+            await api_client.close()
+            bot_logger.info("🔒 API клиент закрыт")
+        except Exception as e:
+            bot_logger.debug(f"Ошибка закрытия API клиента: {e}")
+        
+        bot_logger.info("👋 Торговый бот остановлен")ive()
 
         # Настраиваем и запускаем Telegram бота
         bot_logger.info("🔧 Настройка Telegram бота...")

@@ -237,6 +237,12 @@ class TradingTelegramBot:
             self.bot_mode = None
             # Сохраняем состояние
             bot_state_manager.set_last_mode(None)
+            
+            # Закрываем API сессию для экономии ресурсов
+            try:
+                await api_client.close()
+            except Exception as e:
+                bot_logger.debug(f"Ошибка закрытия API сессии: {e}")
 
     async def _notification_mode_loop(self):
         """Цикл режима уведомлений"""
@@ -253,21 +259,26 @@ class TradingTelegramBot:
                 if not self.bot_running or self.bot_mode != 'notification':
                     break
 
-                # Получаем данные параллельно
-                tasks = []
-                for symbol in batch:
-                    task = asyncio.create_task(
-                        asyncio.to_thread(api_client.get_coin_data, symbol)
-                    )
-                    tasks.append((symbol, task))
-
-                for symbol, task in tasks:
-                    try:
-                        data = await task
-                        if data:
-                            await self._process_coin_notification(symbol, data)
-                    except Exception as e:
-                        bot_logger.error(f"Ошибка обработки {symbol}: {e}")
+                # Получаем данные параллельно с новым API клиентом
+                symbols_batch = list(batch)
+                try:
+                    results = await api_client.get_multiple_tickers_batch(symbols_batch)
+                    
+                    for symbol, ticker_data in results.items():
+                        if ticker_data:
+                            coin_data = await api_client.get_coin_data(symbol)
+                            if coin_data:
+                                await self._process_coin_notification(symbol, coin_data)
+                except Exception as e:
+                    bot_logger.error(f"Ошибка обработки батча: {e}")
+                    # Fallback на по одному символу
+                    for symbol in symbols_batch:
+                        try:
+                            coin_data = await api_client.get_coin_data(symbol)
+                            if coin_data:
+                                await self._process_coin_notification(symbol, coin_data)
+                        except Exception as e:
+                            bot_logger.error(f"Ошибка обработки {symbol}: {e}")
 
                 await asyncio.sleep(config_manager.get('CHECK_BATCH_INTERVAL'))
 
@@ -366,29 +377,46 @@ class TradingTelegramBot:
             results = []
             failed_coins = []
 
-            # Получаем данные по всем монетам
+            # Получаем данные по всем монетам (оптимизированно)
             batch_size = config_manager.get('CHECK_BATCH_SIZE')
             for batch in self._chunks(sorted(watchlist), batch_size):
                 if not self.bot_running or self.bot_mode != 'monitoring':
                     break
 
-                batch_tasks = []
-                for symbol in batch:
-                    task = asyncio.create_task(
-                        asyncio.to_thread(api_client.get_coin_data, symbol)
-                    )
-                    batch_tasks.append((symbol, task))
-
-                for symbol, task in batch_tasks:
-                    try:
-                        data = await task
-                        if data:
-                            results.append(data)
+                try:
+                    symbols_batch = list(batch)
+                    # Используем новый батч-метод
+                    ticker_results = await api_client.get_multiple_tickers_batch(symbols_batch)
+                    
+                    # Обрабатываем результаты
+                    for symbol in symbols_batch:
+                        ticker_data = ticker_results.get(symbol)
+                        if ticker_data:
+                            try:
+                                coin_data = await api_client.get_coin_data(symbol)
+                                if coin_data:
+                                    results.append(coin_data)
+                                else:
+                                    failed_coins.append(symbol)
+                            except Exception as e:
+                                bot_logger.error(f"Ошибка получения данных для {symbol}: {e}")
+                                failed_coins.append(symbol)
                         else:
                             failed_coins.append(symbol)
-                    except Exception as e:
-                        bot_logger.error(f"Ошибка получения данных для {symbol}: {e}")
-                        failed_coins.append(symbol)
+                            
+                except Exception as e:
+                    bot_logger.error(f"Ошибка обработки батча мониторинга: {e}")
+                    # Fallback на старый метод
+                    for symbol in batch:
+                        try:
+                            coin_data = await api_client.get_coin_data(symbol)
+                            if coin_data:
+                                results.append(coin_data)
+                            else:
+                                failed_coins.append(symbol)
+                        except Exception as e:
+                            bot_logger.error(f"Ошибка получения данных для {symbol}: {e}")
+                            failed_coins.append(symbol)
 
                 await asyncio.sleep(config_manager.get('CHECK_BATCH_INTERVAL'))
 
@@ -615,7 +643,8 @@ class TradingTelegramBot:
                 else:
                     await update.message.reply_text(
                         "✅ <b>Режим уведомлений активирован</b>\n"
-                        "Вы будете получать уведомления об активных монетах.",
+                        "Вы будете получать уведомления об активных монетах.\n"
+                        "🚀 <i>Оптимизирован для скальпинга</i>",
                         reply_markup=self.main_keyboard,
                         parse_mode=ParseMode.HTML
                     )
@@ -672,7 +701,8 @@ class TradingTelegramBot:
                 else:
                     await update.message.reply_text(
                         "✅ <b>Режим мониторинга активирован</b>\n"
-                        "Сводка будет обновляться автоматически.",
+                        "Сводка будет обновляться автоматически.\n"
+                        "🚀 <i>Оптимизирован для скальпинга</i>",
                         reply_markup=self.main_keyboard,
                         parse_mode=ParseMode.HTML
                     )
@@ -896,14 +926,16 @@ class TradingTelegramBot:
         await update.message.reply_text("🔄 Проверяю доступность монеты...")
 
         try:
-            coin_data = await asyncio.to_thread(api_client.get_coin_data, symbol)
+            coin_data = await api_client.get_coin_data(symbol)
 
             if coin_data:
                 watchlist_manager.add(symbol)
                 await update.message.reply_text(
                     f"✅ <b>{symbol}_USDT</b> добавлена в список отслеживания\n"
                     f"💰 Текущая цена: ${coin_data['price']:.6f}\n"
-                    f"📊 Объём: ${coin_data['volume']:,.2f}",
+                    f"📊 1м объём: ${coin_data['volume']:,.2f}\n"
+                    f"🔄 1м изменение: {coin_data['change']:+.2f}%\n"
+                    f"⇄ Спред: {coin_data['spread']:.2f}%",
                     reply_markup=self.main_keyboard,
                     parse_mode=ParseMode.HTML
                 )
