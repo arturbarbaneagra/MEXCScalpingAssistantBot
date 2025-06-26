@@ -158,10 +158,10 @@ async def main():
         try:
             await api_client.close()
             # Даем время на полное закрытие соединений
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.5)
             bot_logger.info("🔒 API клиент закрыт")
         except Exception as e:
-            bot_logger.debug(f"Ошибка закрытия API клиента: {e}")
+            bot_logger.debug(f"Ошибка закрытия API клиента: {type(e).__name__}")
         
         bot_logger.info("👋 Торговый бот остановлен")
 
