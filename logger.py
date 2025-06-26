@@ -58,9 +58,9 @@ class TradingBotLogger:
         if self.logger.isEnabledFor(logging.DEBUG):
             self.logger.debug(message)
     
-    def critical(self, message: str):
+    def critical(self, message: str, exc_info: bool = False):
         """Логирует критическую ошибку"""
-        self.logger.critical(message)
+        self.logger.critical(message, exc_info=exc_info)
     
     def api_request(self, method: str, url: str, status_code: int, response_time: float):
         """Логирует API запрос (безопасно, без токенов)"""

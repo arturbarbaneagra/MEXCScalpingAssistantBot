@@ -6,82 +6,70 @@ from logger import bot_logger
 class ConfigManager:
     def __init__(self, config_file: str = "config.json"):
         self.config_file = config_file
+        self.config: Dict[str, Any] = {}
         self.default_config = {
-            'VOLUME_THRESHOLD': 1000,
-            'SPREAD_THRESHOLD': 0.1,
-            'NATR_THRESHOLD': 0.5,
-            'CHECK_BATCH_SIZE': 8,
-            'CHECK_BATCH_INTERVAL': 1.0,
-            'CHECK_FULL_CYCLE_INTERVAL': 60.0,
-            'INACTIVITY_TIMEOUT': 120,
-            'COIN_DATA_DELAY': 0.3,
-            'MONITORING_UPDATE_INTERVAL': 30,
-            'MAX_API_REQUESTS_PER_SECOND': 6,
-            'MESSAGE_RATE_LIMIT': 2,
-            'MAX_COINS_DISPLAY': 25,
-            'API_TIMEOUT': 15,
-            'MAX_RETRIES': 3
+            "VOLUME_THRESHOLD": 1500,
+            "SPREAD_THRESHOLD": 0.15,
+            "NATR_THRESHOLD": 0.4,
+            "CHECK_BATCH_SIZE": 12,
+            "CHECK_BATCH_INTERVAL": 0.8,
+            "CHECK_FULL_CYCLE_INTERVAL": 45.0,
+            "INACTIVITY_TIMEOUT": 90,
+            "COIN_DATA_DELAY": 0.15,
+            "MONITORING_UPDATE_INTERVAL": 20,
+            "MAX_API_REQUESTS_PER_SECOND": 8,
+            "MESSAGE_RATE_LIMIT": 1.5,
+            "MAX_COINS_DISPLAY": 30,
+            "API_TIMEOUT": 12,
+            "MAX_RETRIES": 2
         }
-        self.config = self.load()
+        self.load()
 
-    def load(self) -> Dict[str, Any]:
+    def load(self):
         """Загружает конфигурацию из файла"""
-        if not os.path.exists(self.config_file):
-            self.save(self.default_config)
-            return self.default_config.copy()
-
         try:
-            with open(self.config_file, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-                # Проверяем и добавляем отсутствующие ключи
-                updated = False
-                for key, value in self.default_config.items():
-                    if key not in config:
-                        config[key] = value
-                        updated = True
+            if os.path.exists(self.config_file):
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    file_config = json.load(f)
+                    # Объединяем с дефолтными значениями
+                    self.config = {**self.default_config, **file_config}
+                    bot_logger.info("Конфигурация загружена из файла")
+            else:
+                self.config = self.default_config.copy()
+                self.save()
+                bot_logger.info("Создана конфигурация по умолчанию")
+        except Exception as e:
+            bot_logger.error(f"Ошибка загрузки конфигурации: {e}")
+            self.config = self.default_config.copy()
 
-                if updated:
-                    self.save(config)
-
-                return config
-        except (json.JSONDecodeError, IOError) as e:
-            bot_logger.error(f"Ошибка загрузки конфига: {e}. Используется конфигурация по умолчанию.")
-            self.save(self.default_config)
-            return self.default_config.copy()
-
-    def save(self, config: Dict[str, Any] = None) -> None:
+    def save(self):
         """Сохраняет конфигурацию в файл"""
-        config_to_save = config if config is not None else self.config
         try:
             with open(self.config_file, 'w', encoding='utf-8') as f:
-                json.dump(config_to_save, f, indent=2, ensure_ascii=False)
-        except IOError as e:
-            bot_logger.error(f"Ошибка сохранения конфига: {e}")
+                json.dump(self.config, f, indent=2, ensure_ascii=False)
+            bot_logger.debug("Конфигурация сохранена")
+        except Exception as e:
+            bot_logger.error(f"Ошибка сохранения конфигурации: {e}")
 
-    def get(self, key: str, default=None):
+    def get(self, key: str, default=None) -> Any:
         """Получает значение конфигурации"""
         return self.config.get(key, default)
 
-    def set(self, key: str, value: Any) -> None:
+    def set(self, key: str, value: Any):
         """Устанавливает значение конфигурации"""
-        if key not in self.default_config:
-            raise KeyError(f"Неизвестный ключ конфигурации: {key}")
-        
-        # Валидация значений
-        if key == 'VOLUME_THRESHOLD' and (not isinstance(value, (int, float)) or value < 0):
-            raise ValueError("VOLUME_THRESHOLD должен быть положительным числом")
-        elif key in ['SPREAD_THRESHOLD', 'NATR_THRESHOLD'] and (not isinstance(value, (int, float)) or value < 0 or value > 100):
-            raise ValueError(f"{key} должен быть числом от 0 до 100")
-        elif key in ['CHECK_BATCH_SIZE', 'MAX_RETRIES'] and (not isinstance(value, int) or value < 1):
-            raise ValueError(f"{key} должен быть положительным целым числом")
-        
         self.config[key] = value
         self.save()
+        bot_logger.debug(f"Параметр {key} установлен в {value}")
 
-    def reset_to_default(self) -> None:
+    def reset_to_defaults(self):
         """Сбрасывает конфигурацию к значениям по умолчанию"""
         self.config = self.default_config.copy()
         self.save()
+        bot_logger.info("Конфигурация сброшена к значениям по умолчанию")
+
+    def get_all(self) -> Dict[str, Any]:
+        """Возвращает всю конфигурацию"""
+        return self.config.copy()
 
 # Глобальный экземпляр менеджера конфигурации
 config_manager = ConfigManager()

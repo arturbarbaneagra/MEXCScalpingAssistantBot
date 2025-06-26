@@ -58,19 +58,33 @@ def health_check():
     """
 
 @app.route('/health')
-async def health():
+def health():
     """Health check endpoint"""
     try:
         from health_check import health_checker
-        health_data = await health_checker.full_health_check()
-        return health_data
+        # Flask не поддерживает async напрямую, используем синхронную версию
+        import asyncio
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            health_data = loop.run_until_complete(health_checker.full_health_check())
+            loop.close()
+            return health_data
+        except Exception as async_error:
+            return {
+                'status': 'error', 
+                'error': f'Async error: {async_error}', 
+                'version': '2.0',
+                'system_basic': health_checker.get_system_info(),
+                'bot_basic': health_checker.get_bot_status()
+            }
     except Exception as e:
         return {'status': 'error', 'error': str(e), 'version': '2.0'}
 
 def run_flask():
     """Запуск Flask сервера"""
     try:
-        app.run(host='0.0.0.0', port=8080, debug=False)
+        app.run(host='0.0.0.0', port=8080, debug=False, threaded=True)
     except Exception as e:
         bot_logger.error(f"Ошибка Flask сервера: {e}")
 
@@ -119,12 +133,20 @@ async def main():
         bot_logger.info("🤖 Telegram бот готов к работе")
         bot_logger.info("=" * 50)
         
-        # Запускаем бота
-        await app.run_polling(
-            drop_pending_updates=True,
-            close_loop=False,
-            stop_signals=None
-        )
+        # Запускаем бота с правильным управлением event loop
+        async with app:
+            await app.start()
+            await app.updater.start_polling(drop_pending_updates=True)
+            
+            # Держим приложение работающим
+            try:
+                while True:
+                    await asyncio.sleep(1)
+            except KeyboardInterrupt:
+                bot_logger.info("🛑 Получен сигнал остановки")
+            finally:
+                await app.updater.stop()
+                await app.stop()
         
     except KeyboardInterrupt:
         bot_logger.info("🛑 Получен сигнал остановки")

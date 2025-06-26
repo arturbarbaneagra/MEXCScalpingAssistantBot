@@ -12,85 +12,102 @@ class HealthChecker:
     def __init__(self):
         self.start_time = time.time()
 
-    async def check_api_health(self) -> Dict[str, Any]:
-        """Проверка состояния API"""
+    def get_system_info(self) -> Dict[str, Any]:
+        """Получает информацию о системе"""
         try:
-            # Проверяем доступность API
-            test_data = await api_client.get_current_price_fast('BTC')
-            
-            return {
-                'status': 'healthy' if test_data else 'degraded',
-                'response_time': time.time(),
-                'api_available': test_data is not None
-            }
-        except Exception as e:
-            return {
-                'status': 'unhealthy',
-                'error': str(e),
-                'api_available': False
-            }
-
-    def check_system_health(self) -> Dict[str, Any]:
-        """Проверка системных ресурсов"""
-        try:
-            # Память
-            memory = psutil.virtual_memory()
-            # CPU
             cpu_percent = psutil.cpu_percent(interval=1)
-            # Диск
+            memory = psutil.virtual_memory()
             disk = psutil.disk_usage('/')
             
             return {
-                'memory': {
-                    'total': memory.total,
-                    'available': memory.available,
-                    'percent': memory.percent
-                },
                 'cpu_percent': cpu_percent,
-                'disk': {
-                    'total': disk.total,
-                    'free': disk.free,
-                    'percent': (disk.used / disk.total) * 100
-                },
+                'memory_total': memory.total,
+                'memory_available': memory.available,
+                'memory_percent': memory.percent,
+                'disk_total': disk.total,
+                'disk_used': disk.used,
+                'disk_percent': (disk.used / disk.total) * 100,
                 'uptime': time.time() - self.start_time
             }
         except Exception as e:
+            bot_logger.error(f"Ошибка получения системной информации: {e}")
+            return {}
+
+    async def check_api_health(self) -> Dict[str, Any]:
+        """Проверяет здоровье API"""
+        try:
+            start_time = time.time()
+            # Проверяем простой запрос к API
+            result = await api_client.get_current_price_fast("BTC")
+            response_time = time.time() - start_time
+            
+            if result:
+                return {
+                    'status': 'healthy',
+                    'response_time': response_time,
+                    'last_check': time.time()
+                }
+            else:
+                return {
+                    'status': 'unhealthy',
+                    'response_time': response_time,
+                    'last_check': time.time(),
+                    'error': 'No response from API'
+                }
+        except Exception as e:
             return {
+                'status': 'error',
                 'error': str(e),
-                'status': 'error'
+                'last_check': time.time()
             }
 
-    async def full_health_check(self) -> Dict[str, Any]:
-        """Полная проверка здоровья системы"""
-        health_data = {
-            'timestamp': time.time(),
-            'version': '2.0',
-            'status': 'healthy'
-        }
-
-        # Проверка API
-        api_health = await self.check_api_health()
-        health_data['api'] = api_health
-
-        # Проверка системы
-        system_health = self.check_system_health()
-        health_data['system'] = system_health
-
-        # Проверка конфигурации
-        health_data['config'] = {
+    def get_bot_status(self) -> Dict[str, Any]:
+        """Получает статус бота"""
+        from telegram_bot import telegram_bot
+        
+        return {
+            'bot_running': telegram_bot.bot_running,
+            'bot_mode': telegram_bot.bot_mode,
+            'active_coins_count': len(telegram_bot.active_coins),
             'watchlist_size': watchlist_manager.size(),
-            'volume_threshold': config_manager.get('VOLUME_THRESHOLD'),
-            'spread_threshold': config_manager.get('SPREAD_THRESHOLD'),
-            'natr_threshold': config_manager.get('NATR_THRESHOLD')
+            'monitoring_message_id': telegram_bot.monitoring_message_id
         }
 
-        # Определяем общий статус
-        if api_health.get('status') == 'unhealthy':
-            health_data['status'] = 'unhealthy'
-        elif api_health.get('status') == 'degraded':
-            health_data['status'] = 'degraded'
+    async def full_health_check(self) -> Dict[str, Any]:
+        """Выполняет полную проверку здоровья"""
+        try:
+            system_info = self.get_system_info()
+            api_health = await self.check_api_health()
+            bot_status = self.get_bot_status()
+            
+            # Определяем общий статус
+            overall_status = 'healthy'
+            if api_health.get('status') != 'healthy':
+                overall_status = 'degraded'
+            if system_info.get('memory_percent', 0) > 90 or system_info.get('cpu_percent', 0) > 90:
+                overall_status = 'degraded'
+            
+            return {
+                'status': overall_status,
+                'timestamp': time.time(),
+                'system': system_info,
+                'api': api_health,
+                'bot': bot_status,
+                'config': {
+                    'volume_threshold': config_manager.get('VOLUME_THRESHOLD'),
+                    'spread_threshold': config_manager.get('SPREAD_THRESHOLD'),
+                    'natr_threshold': config_manager.get('NATR_THRESHOLD')
+                },
+                'version': '2.0'
+            }
+        except Exception as e:
+            bot_logger.error(f"Ошибка проверки здоровья: {e}")
+            return {
+                'status': 'error',
+                'error': str(e),
+                'timestamp': time.time(),
+                'version': '2.0'
+            }
 
-        return health_data
-
-# Глобальный экземпляр
+# Глобальный экземпляр чекера здоровья
 health_checker = HealthChecker()

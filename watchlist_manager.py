@@ -1,4 +1,3 @@
-
 import json
 import os
 from typing import Set
@@ -6,161 +5,77 @@ from datetime import datetime
 from logger import bot_logger
 
 class WatchlistManager:
-    def __init__(self, watchlist_file: str = "watchlist.json"):
-        self.watchlist_file = watchlist_file
-        self.watchlist: Set[str] = set()
-        self.load_watchlist()
-    
-    def load_watchlist(self):
-        """Загружает список отслеживания из файла"""
-        try:
-            if os.path.exists(self.watchlist_file):
-                with open(self.watchlist_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    if isinstance(data, list):
-                        self.watchlist = set(data)
-                    elif isinstance(data, dict) and 'coins' in data:
-                        self.watchlist = set(data['coins'])
-                    else:
-                        self.watchlist = set()
-                bot_logger.info(f"Загружено {len(self.watchlist)} монет для отслеживания")
-            else:
-                bot_logger.info("Файл списка отслеживания не найден, создается новый")
-                self.watchlist = set()
-                self.save_watchlist()
-        except Exception as e:
-            bot_logger.error(f"Ошибка загрузки списка отслеживания: {e}")
-            self.watchlist = set()
-    
-    def save_watchlist(self):
-        """Сохраняет список отслеживания в файл"""
-        try:
-            data = {
-                'coins': list(self.watchlist),
-                'last_updated': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'count': len(self.watchlist)
-            }
-            with open(self.watchlist_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            bot_logger.debug(f"Список отслеживания сохранен ({len(self.watchlist)} монет)")
-        except Exception as e:
-            bot_logger.error(f"Ошибка сохранения списка отслеживания: {e}")
-    
-    def add(self, symbol: str) -> bool:
-        """Добавляет монету в список отслеживания"""
-        if symbol and symbol not in self.watchlist:
-            self.watchlist.add(symbol.upper())
-            self.save_watchlist()
-            bot_logger.info(f"Монета {symbol} добавлена в список отслеживания")
-            return True
-        return False
-    
-    def remove(self, symbol: str) -> bool:
-        """Удаляет монету из списка отслеживания"""
-        if symbol and symbol.upper() in self.watchlist:
-            self.watchlist.remove(symbol.upper())
-            self.save_watchlist()
-            bot_logger.info(f"Монета {symbol} удалена из списка отслеживания")
-            return True
-        return False
-    
-    def contains(self, symbol: str) -> bool:
-        """Проверяет, есть ли монета в списке отслеживания"""
-        return symbol.upper() in self.watchlist if symbol else False
-    
-    def get_all(self) -> Set[str]:
-        """Возвращает все монеты из списка отслеживания"""
-        return self.watchlist.copy()
-    
-    def size(self) -> int:
-        """Возвращает количество монет в списке отслеживания"""
-        return len(self.watchlist)
-    
-    def clear(self):
-        """Очищает список отслеживания"""
-        self.watchlist.clear()
-        self.save_watchlist()
-        bot_logger.info("Список отслеживания очищен")
-
-# Глобальный экземпляр менеджера списка отслеживания
-watchlist_manager = WatchlistManager()
-import json
-import os
-from typing import Set, List
-from logger import bot_logger
-
-class WatchlistManager:
-    def __init__(self, watchlist_file: str = "watchlist.json"):
-        self.watchlist_file = watchlist_file
+    def __init__(self, file_path: str = "watchlist.json"):
+        self.file_path = file_path
         self.watchlist: Set[str] = set()
         self.load()
 
-    def load(self) -> None:
+    def load(self):
         """Загружает список отслеживания из файла"""
-        if not os.path.exists(self.watchlist_file):
-            self.save()
-            return
-
         try:
-            with open(self.watchlist_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                self.watchlist = set(data.get('coins', []))
-                bot_logger.info(f"Загружен список отслеживания: {len(self.watchlist)} монет")
-        except (json.JSONDecodeError, IOError) as e:
+            if os.path.exists(self.file_path):
+                with open(self.file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    self.watchlist = set(data.get('symbols', []))
+                    bot_logger.info(f"Загружено {len(self.watchlist)} монет для отслеживания")
+            else:
+                self.watchlist = set()
+                bot_logger.info("Создан новый список отслеживания")
+        except Exception as e:
             bot_logger.error(f"Ошибка загрузки списка отслеживания: {e}")
             self.watchlist = set()
 
-    def save(self) -> None:
+    def save(self):
         """Сохраняет список отслеживания в файл"""
         try:
-            data = {'coins': sorted(list(self.watchlist))}
-            with open(self.watchlist_file, 'w', encoding='utf-8') as f:
+            data = {
+                'symbols': list(self.watchlist),
+                'updated': datetime.now().isoformat()
+            }
+            with open(self.file_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
-        except IOError as e:
+            bot_logger.debug(f"Список отслеживания сохранен: {len(self.watchlist)} монет")
+        except Exception as e:
             bot_logger.error(f"Ошибка сохранения списка отслеживания: {e}")
 
     def add(self, symbol: str) -> bool:
-        """Добавляет монету в список отслеживания"""
-        symbol = symbol.upper().replace('_USDT', '').replace('USDT', '')
-        
-        if symbol in self.watchlist:
-            return False
-        
-        self.watchlist.add(symbol)
-        self.save()
-        bot_logger.info(f"Добавлена в список отслеживания: {symbol}")
-        return True
+        """Добавляет символ в список отслеживания"""
+        symbol = symbol.upper().replace("_USDT", "").replace("USDT", "")
+        if symbol not in self.watchlist:
+            self.watchlist.add(symbol)
+            self.save()
+            bot_logger.info(f"Добавлена монета: {symbol}")
+            return True
+        return False
 
     def remove(self, symbol: str) -> bool:
-        """Удаляет монету из списка отслеживания"""
-        symbol = symbol.upper().replace('_USDT', '').replace('USDT', '')
-        
-        if symbol not in self.watchlist:
-            return False
-        
-        self.watchlist.remove(symbol)
-        self.save()
-        bot_logger.info(f"Удалена из списка отслеживания: {symbol}")
-        return True
+        """Удаляет символ из списка отслеживания"""
+        symbol = symbol.upper().replace("_USDT", "").replace("USDT", "")
+        if symbol in self.watchlist:
+            self.watchlist.remove(symbol)
+            self.save()
+            bot_logger.info(f"Удалена монета: {symbol}")
+            return True
+        return False
 
     def contains(self, symbol: str) -> bool:
-        """Проверяет наличие монеты в списке"""
-        symbol = symbol.upper().replace('_USDT', '').replace('USDT', '')
+        """Проверяет наличие символа в списке"""
+        symbol = symbol.upper().replace("_USDT", "").replace("USDT", "")
         return symbol in self.watchlist
 
     def get_all(self) -> Set[str]:
-        """Возвращает все монеты в списке отслеживания"""
+        """Возвращает все символы в списке отслеживания"""
         return self.watchlist.copy()
 
     def size(self) -> int:
-        """Возвращает количество монет в списке"""
+        """Возвращает размер списка отслеживания"""
         return len(self.watchlist)
 
-    def clear(self) -> None:
+    def clear(self):
         """Очищает список отслеживания"""
         self.watchlist.clear()
         self.save()
         bot_logger.info("Список отслеживания очищен")
 
-# Глобальный экземпляр
+# Глобальный экземпляр менеджера
 watchlist_manager = WatchlistManager()
