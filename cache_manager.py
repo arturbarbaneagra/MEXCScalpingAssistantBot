@@ -153,7 +153,7 @@ class CacheManager:
             'valid_entries': valid_entries,
             'expired_entries': expired_entries,
             'ticker_cache_size': len(self.ticker_cache),
-            'price_cache_size': len self.price_cache),
+            'price_cache_size': len(self.price_cache),
             'volume_cache_size': len(self.volume_cache),
             'trades_cache_size': len(self.trades_cache),
             'cache_hits': self.cache_hits,
