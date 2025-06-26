@@ -14,7 +14,7 @@ class ConfigManager:
             "CHECK_BATCH_SIZE": 12,
             "CHECK_BATCH_INTERVAL": 0.8,
             "CHECK_FULL_CYCLE_INTERVAL": 45.0,
-            "INACTIVITY_TIMEOUT": 90,
+            "INACTIVITY_TIMEOUT": 30,
             "COIN_DATA_DELAY": 0.15,
             "MONITORING_UPDATE_INTERVAL": 20,
             "MAX_API_REQUESTS_PER_SECOND": 8,

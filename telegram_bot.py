@@ -303,22 +303,27 @@ class TradingTelegramBot:
                     self.active_coins[symbol] = {
                         'start_time': now,
                         'last_active': now,
+                        'last_update': now,
                         'msg_id': msg_id,
                         'data': data
                     }
-                    bot_logger.trade_activity(symbol, "STARTED", f"Volume: ${data['volume']:,.2f}")
+                    bot_logger.trade_activity(symbol, "STARTED", f"Volume: ${data['volume']:,.2f}, Trades: {data['trades']}")
             else:
                 # Обновляем существующую активную монету
-                self.active_coins[symbol]['last_active'] = now
-                self.active_coins[symbol]['data'] = data
-
-                message = self._format_coin_message(data, "🚨 АКТИВНОСТЬ")
-                await self.edit_message(self.active_coins[symbol]['msg_id'], message)
+                coin_info = self.active_coins[symbol]
+                coin_info['last_active'] = now
+                coin_info['data'] = data
+                
+                # Обновляем сообщение каждые 5 секунд чтобы не спамить
+                if now - coin_info.get('last_update', 0) >= 5:
+                    message = self._format_coin_message(data, "🚨 АКТИВНОСТЬ")
+                    await self.edit_message(coin_info['msg_id'], message)
+                    coin_info['last_update'] = now
 
         elif is_currently_active:
-            # Проверяем таймаут неактивности
+            # Проверяем таймаут неактивности (30 секунд)
             inactive_time = now - self.active_coins[symbol]['last_active']
-            if inactive_time > config_manager.get('INACTIVITY_TIMEOUT'):
+            if inactive_time >= 30:  # 30 секунд неактивности
                 await self._end_coin_activity(symbol, now)
 
     async def _end_coin_activity(self, symbol: str, end_time: float):
@@ -330,29 +335,39 @@ class TradingTelegramBot:
         if coin_info['msg_id']:
             await self.delete_message(coin_info['msg_id'])
 
-        # Отправляем сообщение о завершении (если активность была достаточно долгой)
-        if duration >= 60:
+        # Отправляем сообщение о завершении (для любой длительности >= 30 сек)
+        if duration >= 30:
             minutes = int(duration // 60)
             seconds = int(duration % 60)
+            
+            if minutes > 0:
+                duration_text = f"{minutes} мин {seconds} сек"
+            else:
+                duration_text = f"{seconds} сек"
+                
             end_message = (
                 f"✅ <b>{symbol}_USDT завершил активность</b>\n"
-                f"⏱ Длительность: {minutes}м {seconds}с"
+                f"⏱ Длительность: {duration_text}"
             )
             await self.send_message(end_message)
-            bot_logger.trade_activity(symbol, "ENDED", f"Duration: {minutes}m {seconds}s")
+            bot_logger.trade_activity(symbol, "ENDED", f"Duration: {duration_text}")
 
         del self.active_coins[symbol]
 
     def _format_coin_message(self, data: Dict, status: str) -> str:
         """Форматирует сообщение о монете"""
+        # Время последнего обновления
+        update_time = time.strftime("%H:%M:%S", time.localtime())
+        
         return (
             f"{status} <b>{data['symbol']}_USDT</b>\n"
             f"💰 Цена: ${data['price']:.6f}\n"
-            f"🔄 1м изменение: {data['change']:+.2f}%\n"
-            f"📊 1м объём: ${data['volume']:,.2f}\n"
+            f"🔄 24ч изменение: {data['change']:+.2f}%\n"
+            f"📊 24ч объём: ${data['volume']:,.2f}\n"
             f"📈 NATR: {data['natr']:.2f}%\n"
             f"⇄ Спред: {data['spread']:.2f}%\n"
-            f"🔁 1м сделок: {data['trades']}"
+            f"🔁 1м сделок: {data['trades']}\n"
+            f"⏰ Обновлено: {update_time}"
         )
 
     async def _monitoring_mode_loop(self):
@@ -455,7 +470,7 @@ class TradingTelegramBot:
         natr_thresh = config_manager.get('NATR_THRESHOLD')
 
         parts.append(
-            f"<i>1м фильтры: Объём ≥${vol_thresh:,}, "
+            f"<i>Фильтры: Объём ≥${vol_thresh:,}, "
             f"Спред ≥{spread_thresh}%, NATR ≥{natr_thresh}%</i>\n"
         )
 
@@ -470,7 +485,7 @@ class TradingTelegramBot:
                 parts.append(
                     f"• <b>{coin['symbol']}</b> "
                     f"${coin['volume']:,.0f} | {coin['change']:+.1f}% | "
-                    f"S:{coin['spread']:.2f}% | N:{coin['natr']:.2f}%"
+                    f"T:{coin['trades']} | S:{coin['spread']:.2f}% | N:{coin['natr']:.2f}%"
                 )
             parts.append("")
 
@@ -482,7 +497,7 @@ class TradingTelegramBot:
                 parts.append(
                     f"• <b>{coin['symbol']}</b> "
                     f"${coin['volume']:,.0f} | {coin['change']:+.1f}% | "
-                    f"S:{coin['spread']:.2f}% | N:{coin['natr']:.2f}%"
+                    f"T:{coin['trades']} | S:{coin['spread']:.2f}% | N:{coin['natr']:.2f}%"
                 )
 
         # Добавляем статистику
