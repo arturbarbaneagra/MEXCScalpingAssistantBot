@@ -1107,7 +1107,17 @@ class TradingTelegramBot:
             await self._handle_back(update)
             return ConversationHandler.END
 
-        # Нормализуем символ
+        # Валидируем и нормализуем символ
+        from input_validator import input_validator
+        
+        if not input_validator.validate_symbol(text):
+            await update.message.reply_text(
+                "❌ Некорректный символ. Используйте только буквы и цифры (2-10 символов).\n"
+                "Примеры: BTC, ETH, DOGE",
+                reply_markup=self.back_keyboard
+            )
+            return self.ADDING_COIN
+
         symbol = text.upper().replace("_USDT", "").replace("USDT", "")
 
         if not symbol or len(symbol) < 2:
