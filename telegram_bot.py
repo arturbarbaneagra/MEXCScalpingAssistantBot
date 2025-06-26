@@ -451,7 +451,14 @@ class TradingTelegramBot:
             if cycle_count % 50 == 0:
                 import gc
                 gc.collect()
-                bot_logger.debug(f"Очистка памяти после {cycle_count} циклов")
+                
+                # Очищаем кеш и метрики
+                from cache_manager import cache_manager
+                from metrics_manager import metrics_manager
+                cache_manager.clear_expired()
+                metrics_manager.cleanup_old_metrics()
+                
+                bot_logger.debug(f"Очистка памяти, кеша и метрик после {cycle_count} циклов")
 
         # Очищаем при остановке режима мониторинга
         if self.monitoring_message_id:

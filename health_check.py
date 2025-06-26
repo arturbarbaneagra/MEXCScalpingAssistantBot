@@ -7,6 +7,9 @@ from logger import bot_logger
 from config import config_manager
 from watchlist_manager import watchlist_manager
 from api_client import api_client
+from metrics_manager import metrics_manager
+from cache_manager import cache_manager
+from alert_manager import alert_manager
 
 class HealthChecker:
     def __init__(self):
@@ -80,12 +83,23 @@ class HealthChecker:
             api_health = await self.check_api_health()
             bot_status = self.get_bot_status()
             
+            # Проверяем алерты
+            system_alerts = alert_manager.check_system_alerts(system_info)
+            api_alerts = alert_manager.check_api_alerts(metrics_manager.get_api_stats())
+            all_alerts = system_alerts + api_alerts
+            
+            # Обрабатываем алерты
+            if all_alerts:
+                alert_manager.process_alerts(all_alerts)
+            
             # Определяем общий статус
             overall_status = 'healthy'
             if api_health.get('status') != 'healthy':
                 overall_status = 'degraded'
             if system_info.get('memory_percent', 0) > 90 or system_info.get('cpu_percent', 0) > 90:
                 overall_status = 'degraded'
+            if any(alert['severity'] == 'critical' for alert in all_alerts):
+                overall_status = 'critical'
             
             return {
                 'status': overall_status,
@@ -93,12 +107,15 @@ class HealthChecker:
                 'system': system_info,
                 'api': api_health,
                 'bot': bot_status,
+                'metrics': metrics_manager.get_summary(),
+                'cache': cache_manager.get_stats(),
+                'alerts': alert_manager.get_alert_summary(),
                 'config': {
                     'volume_threshold': config_manager.get('VOLUME_THRESHOLD'),
                     'spread_threshold': config_manager.get('SPREAD_THRESHOLD'),
                     'natr_threshold': config_manager.get('NATR_THRESHOLD')
                 },
-                'version': '2.0'
+                'version': '2.1'
             }
         except Exception as e:
             bot_logger.error(f"Ошибка проверки здоровья: {e}")

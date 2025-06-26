@@ -4,6 +4,8 @@ import aiohttp
 from typing import Optional, Dict, List, Any
 from logger import bot_logger
 from config import config_manager
+from cache_manager import cache_manager
+from metrics_manager import metrics_manager
 
 class APIClient:
     def __init__(self):
@@ -64,8 +66,9 @@ class APIClient:
                 async with session.get(url, params=params) as response:
                     request_time = time.time() - start_time
 
-                    # Логируем запрос
+                    # Логируем запрос и записываем метрики
                     bot_logger.api_request("GET", url, response.status, request_time)
+                    metrics_manager.record_api_request(endpoint, request_time, response.status)
 
                     if response.status == 200:
                         data = await response.json()
@@ -110,9 +113,21 @@ class APIClient:
         return None
 
     async def get_ticker_data(self, symbol: str) -> Optional[Dict]:
-        """Получает данные тикера для символа"""
+        """Получает данные тикера для символа с кешированием"""
+        # Проверяем кеш
+        cached_data = cache_manager.get_ticker_cache(symbol)
+        if cached_data:
+            return cached_data
+            
+        # Запрашиваем данные
         params = {'symbol': f"{symbol}USDT"}
-        return await self._make_request("/ticker/24hr", params)
+        data = await self._make_request("/ticker/24hr", params)
+        
+        # Сохраняем в кеш
+        if data:
+            cache_manager.set_ticker_cache(symbol, data)
+            
+        return data
 
     async def get_book_ticker(self, symbol: str) -> Optional[Dict]:
         """Получает данные книги ордеров (bid/ask)"""
@@ -129,11 +144,25 @@ class APIClient:
         return await self._make_request("/klines", params)
 
     async def get_multiple_tickers_batch(self, symbols: List[str]) -> Dict[str, Optional[Dict]]:
-        """Получает данные тикеров для списка символов (оптимизированная версия)"""
+        """Получает данные тикеров для списка символов (оптимизированная версия с кешированием)"""
         results = {}
+        uncached_symbols = []
 
-        # Получаем все тикеры одним запросом
+        # Проверяем кеш для каждого символа
+        for symbol in symbols:
+            cached_data = cache_manager.get_ticker_cache(symbol)
+            if cached_data:
+                results[symbol] = cached_data
+            else:
+                uncached_symbols.append(symbol)
+
+        # Если все данные в кеше, возвращаем результат
+        if not uncached_symbols:
+            return results
+
+        # Получаем некешированные данные
         try:
+            # Попытка получить все тикеры одним запросом
             all_tickers = await self._make_request("/ticker/24hr")
             if all_tickers:
                 # Создаем индекс по символам
@@ -141,19 +170,25 @@ class APIClient:
                              for ticker in all_tickers 
                              if ticker['symbol'].endswith('USDT')}
 
-                # Заполняем результаты
-                for symbol in symbols:
-                    results[symbol] = ticker_dict.get(symbol)
+                # Заполняем результаты и кешируем
+                for symbol in uncached_symbols:
+                    ticker_data = ticker_dict.get(symbol)
+                    results[symbol] = ticker_data
+                    if ticker_data:
+                        cache_manager.set_ticker_cache(symbol, ticker_data)
             else:
-                # Fallback - запрашиваем по одному
-                for symbol in symbols:
-                    results[symbol] = await self.get_ticker_data(symbol)
+                # Fallback - запрашиваем по одному с кешированием
+                for symbol in uncached_symbols:
+                    ticker_data = await self.get_ticker_data(symbol)
+                    results[symbol] = ticker_data
+
         except Exception as e:
             bot_logger.error(f"Ошибка batch запроса тикеров: {e}")
             # Fallback - запрашиваем по одному
-            for symbol in symbols:
+            for symbol in uncached_symbols:
                 try:
-                    results[symbol] = await self.get_ticker_data(symbol)
+                    ticker_data = await self.get_ticker_data(symbol)
+                    results[symbol] = ticker_data
                 except Exception as sym_e:
                     bot_logger.error(f"Ошибка получения тикера {symbol}: {sym_e}")
                     results[symbol] = None
@@ -338,6 +373,24 @@ class APIClient:
         if interval < 0.1:
             await asyncio.sleep(0.1 - interval)
         self.last_request_time = time.time()
+
+    async def get_current_price_fast(self, symbol: str) -> Optional[float]:
+        """Быстрое получение текущей цены монеты с кешированием"""
+        try:
+            # Проверяем кеш цены
+            cached_price = cache_manager.get_price_cache(symbol)
+            if cached_price:
+                return cached_price
+                
+            ticker_data = await self.get_ticker_data(symbol)
+            if ticker_data and 'lastPrice' in ticker_data:
+                price = float(ticker_data['lastPrice'])
+                cache_manager.set_price_cache(symbol, price)
+                return price
+            return None
+        except Exception as e:
+            bot_logger.debug(f"Ошибка получения цены {symbol}: {e}")
+            return None
 
     async def close(self):
         """Правильно закрывает HTTP сессию и коннекторы"""

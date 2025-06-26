@@ -35,27 +35,106 @@ app = Flask(__name__)
 
 @app.route('/')
 def health_check():
-    """Проверка работоспособности бота"""
-    status = {
-        'bot_running': telegram_bot.bot_running,
-        'bot_mode': telegram_bot.bot_mode,
-        'watchlist_size': watchlist_manager.size()
-    }
+    """Проверка работоспособности бота с расширенной информацией"""
+    try:
+        from metrics_manager import metrics_manager
+        from cache_manager import cache_manager
+        from alert_manager import alert_manager
+        
+        # Получаем базовую информацию
+        status = {
+            'bot_running': telegram_bot.bot_running,
+            'bot_mode': telegram_bot.bot_mode,
+            'watchlist_size': watchlist_manager.size()
+        }
+        
+        # Получаем метрики
+        metrics = metrics_manager.get_summary()
+        cache_stats = cache_manager.get_stats()
+        alerts = alert_manager.get_active_alerts()
+        
+        # Время работы
+        uptime_hours = metrics.get('uptime_seconds', 0) / 3600
+        
+        # Статус алертов
+        alert_status = '🟢 OK'
+        if alerts:
+            critical_alerts = [a for a in alerts if a.get('severity') == 'critical']
+            if critical_alerts:
+                alert_status = f'🔴 {len(critical_alerts)} Critical'
+            else:
+                alert_status = f'🟡 {len(alerts)} Warning'
 
-    return f"""
-    <html>
-    <head><title>Trading Bot Status</title></head>
-    <body>
-        <h1>🤖 Trading Bot Status</h1>
-        <p><strong>Status:</strong> {'🟢 Running' if status['bot_running'] else '🔴 Stopped'}</p>
-        <p><strong>Mode:</strong> {status['bot_mode'] or 'None'}</p>
-        <p><strong>Watchlist:</strong> {status['watchlist_size']} coins</p>
-        <p><strong>Version:</strong> 2.0</p>
-        <hr>
-        <small>Last updated: {telegram_bot.last_message_time}</small>
-    </body>
-    </html>
-    """
+        return f"""
+        <html>
+        <head>
+            <title>Trading Bot Status v2.1</title>
+            <meta http-equiv="refresh" content="30">
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }}
+                .container {{ max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; }}
+                .status-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin: 20px 0; }}
+                .metric-box {{ padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #007bff; }}
+                .alert-box {{ padding: 10px; background: #fff3cd; border-radius: 5px; margin: 5px 0; }}
+                .critical {{ border-left-color: #dc3545; background: #f8d7da; }}
+                .warning {{ border-left-color: #ffc107; background: #fff3cd; }}
+                .success {{ border-left-color: #28a745; background: #d4edda; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>🤖 Trading Bot Status v2.1</h1>
+                
+                <div class="status-grid">
+                    <div class="metric-box {'success' if status['bot_running'] else 'critical'}">
+                        <strong>Bot Status:</strong> {'🟢 Running' if status['bot_running'] else '🔴 Stopped'}<br>
+                        <strong>Mode:</strong> {status['bot_mode'] or 'None'}<br>
+                        <strong>Uptime:</strong> {uptime_hours:.1f} hours
+                    </div>
+                    
+                    <div class="metric-box">
+                        <strong>Watchlist:</strong> {status['watchlist_size']} coins<br>
+                        <strong>Active Coins:</strong> {len(telegram_bot.active_coins)}<br>
+                        <strong>Cache Entries:</strong> {cache_stats.get('total_entries', 0)}
+                    </div>
+                </div>
+                
+                <div class="metric-box">
+                    <strong>🚨 Alerts:</strong> {alert_status}<br>
+                    {f"Recent alerts: {', '.join([a.get('message', '') for a in alerts[:3]])}" if alerts else "No active alerts"}
+                </div>
+                
+                <div class="status-grid">
+                    <div class="metric-box">
+                        <strong>API Performance:</strong><br>
+                        Total requests: {sum(stats.get('total_requests', 0) for stats in metrics.get('api_stats', {}).values())}<br>
+                        Memory usage: {cache_stats.get('memory_usage_kb', 0):.1f} KB
+                    </div>
+                    
+                    <div class="metric-box">
+                        <strong>System:</strong><br>
+                        Version: 2.1<br>
+                        Last update: {time.strftime('%H:%M:%S')}
+                    </div>
+                </div>
+                
+                <p><small>Page auto-refreshes every 30 seconds</small></p>
+            </div>
+        </body>
+        </html>
+        """
+    except Exception as e:
+        return f"""
+        <html>
+        <body>
+            <h1>🤖 Trading Bot Status v2.1</h1>
+            <p><strong>Status:</strong> {'🟢 Running' if telegram_bot.bot_running else '🔴 Stopped'}</p>
+            <p><strong>Mode:</strong> {telegram_bot.bot_mode or 'None'}</p>
+            <p><strong>Watchlist:</strong> {watchlist_manager.size()} coins</p>
+            <p><strong>Error:</strong> {str(e)}</p>
+        </body>
+        </html>
+        """
 
 @app.route('/health')
 def health():
