@@ -10,77 +10,87 @@ from api_client import api_client
 
 class HealthChecker:
     def __init__(self):
-        self.last_check = 0
-        self.check_interval = 300  # 5 минут
-        
-    def get_system_health(self) -> Dict[str, Any]:
-        """Получает информацию о состоянии системы"""
-        try:
-            memory = psutil.virtual_memory()
-            cpu_percent = psutil.cpu_percent(interval=1)
-            
-            return {
-                'memory_usage': f"{memory.percent}%",
-                'memory_available': f"{memory.available / 1024 / 1024:.1f} MB",
-                'cpu_usage': f"{cpu_percent}%",
-                'uptime': time.time() - psutil.boot_time()
-            }
-        except Exception as e:
-            bot_logger.error(f"Ошибка получения системной информации: {e}")
-            return {'error': str(e)}
-    
+        self.start_time = time.time()
+
     async def check_api_health(self) -> Dict[str, Any]:
-        """Проверяет доступность API"""
+        """Проверка состояния API"""
         try:
-            start_time = time.time()
-            # Тестовый запрос к API
-            test_data = await asyncio.to_thread(api_client.get_current_price, "BTCUSDT")
-            response_time = time.time() - start_time
+            # Проверяем доступность API
+            test_data = await api_client.get_current_price_fast('BTC')
             
             return {
-                'api_available': test_data is not None,
-                'response_time': f"{response_time:.3f}s",
-                'test_price': test_data if test_data else 'N/A'
+                'status': 'healthy' if test_data else 'degraded',
+                'response_time': time.time(),
+                'api_available': test_data is not None
             }
         except Exception as e:
             return {
-                'api_available': False,
-                'error': str(e)
+                'status': 'unhealthy',
+                'error': str(e),
+                'api_available': False
             }
-    
-    def get_bot_metrics(self) -> Dict[str, Any]:
-        """Получает метрики бота"""
-        return {
-            'watchlist_size': watchlist_manager.size(),
-            'config_loaded': len(config_manager.config) > 0,
-            'log_file_exists': True  # Упрощенная проверка
-        }
-    
+
+    def check_system_health(self) -> Dict[str, Any]:
+        """Проверка системных ресурсов"""
+        try:
+            # Память
+            memory = psutil.virtual_memory()
+            # CPU
+            cpu_percent = psutil.cpu_percent(interval=1)
+            # Диск
+            disk = psutil.disk_usage('/')
+            
+            return {
+                'memory': {
+                    'total': memory.total,
+                    'available': memory.available,
+                    'percent': memory.percent
+                },
+                'cpu_percent': cpu_percent,
+                'disk': {
+                    'total': disk.total,
+                    'free': disk.free,
+                    'percent': (disk.used / disk.total) * 100
+                },
+                'uptime': time.time() - self.start_time
+            }
+        except Exception as e:
+            return {
+                'error': str(e),
+                'status': 'error'
+            }
+
     async def full_health_check(self) -> Dict[str, Any]:
         """Полная проверка здоровья системы"""
-        if time.time() - self.last_check < self.check_interval:
-            return {'status': 'cached', 'message': 'Используется кэшированный результат'}
-        
-        self.last_check = time.time()
-        
-        system_health = self.get_system_health()
-        api_health = await self.check_api_health()
-        bot_metrics = self.get_bot_metrics()
-        
-        # Определяем общий статус
-        overall_status = 'healthy'
-        if not api_health.get('api_available', False):
-            overall_status = 'degraded'
-        if system_health.get('error') or float(system_health.get('memory_usage', '0%').replace('%', '')) > 90:
-            overall_status = 'unhealthy'
-        
-        return {
+        health_data = {
             'timestamp': time.time(),
-            'overall_status': overall_status,
-            'system': system_health,
-            'api': api_health,
-            'bot': bot_metrics
+            'version': '2.0',
+            'status': 'healthy'
         }
+
+        # Проверка API
+        api_health = await self.check_api_health()
+        health_data['api'] = api_health
+
+        # Проверка системы
+        system_health = self.check_system_health()
+        health_data['system'] = system_health
+
+        # Проверка конфигурации
+        health_data['config'] = {
+            'watchlist_size': watchlist_manager.size(),
+            'volume_threshold': config_manager.get('VOLUME_THRESHOLD'),
+            'spread_threshold': config_manager.get('SPREAD_THRESHOLD'),
+            'natr_threshold': config_manager.get('NATR_THRESHOLD')
+        }
+
+        # Определяем общий статус
+        if api_health.get('status') == 'unhealthy':
+            health_data['status'] = 'unhealthy'
+        elif api_health.get('status') == 'degraded':
+            health_data['status'] = 'degraded'
+
+        return health_data
 
 # Глобальный экземпляр
 health_checker = HealthChecker()

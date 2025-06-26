@@ -21,6 +21,7 @@ from logger import bot_logger
 from config import config_manager
 from watchlist_manager import watchlist_manager
 from telegram_bot import telegram_bot
+from api_client import api_client
 
 # Проверяем, что переменные загружены (без вывода значений)
 bot_logger.info("Проверка переменных окружения...")
@@ -139,34 +140,6 @@ async def main():
             bot_logger.debug(f"Ошибка закрытия API клиента: {e}")
         
         bot_logger.info("👋 Торговый бот остановлен")
-
-    except KeyboardInterrupt:
-        bot_logger.info("👋 Получен сигнал остановки")
-    except Exception as e:
-        bot_logger.error(f"💥 Критическая ошибка: {e}", exc_info=True)
-        sys.exit(1)
-    finally:
-        # Graceful shutdown
-        try:
-            if hasattr(telegram_bot, 'bot_running') and telegram_bot.bot_running:
-                import asyncio
-                try:
-                    loop = asyncio.get_event_loop()
-                except RuntimeError:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                
-                try:
-                    loop.run_until_complete(telegram_bot._stop_current_mode())
-                except Exception as shutdown_error:
-                    bot_logger.error(f"Ошибка при остановке режима: {shutdown_error}")
-                finally:
-                    if not loop.is_closed():
-                        loop.close()
-        except Exception as e:
-            bot_logger.error(f"Критическая ошибка при остановке: {e}")
-        
-        bot_logger.info("🛑 Бот остановлен")
 
 if __name__ == "__main__":
     asyncio.run(main())

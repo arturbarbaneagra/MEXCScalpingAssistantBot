@@ -54,3 +54,53 @@ class BotStateManager:
 
 # Глобальный экземпляр менеджера состояния
 bot_state_manager = BotStateManager()
+import json
+import os
+from typing import Optional, Dict, Any
+from logger import bot_logger
+
+class BotStateManager:
+    def __init__(self, state_file: str = "bot_state.json"):
+        self.state_file = state_file
+        self.state = self.load()
+
+    def load(self) -> Dict[str, Any]:
+        """Загружает состояние бота из файла"""
+        if not os.path.exists(self.state_file):
+            return {'last_mode': None, 'last_restart': None}
+
+        try:
+            with open(self.state_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            bot_logger.error(f"Ошибка загрузки состояния бота: {e}")
+            return {'last_mode': None, 'last_restart': None}
+
+    def save(self) -> None:
+        """Сохраняет состояние бота в файл"""
+        try:
+            with open(self.state_file, 'w', encoding='utf-8') as f:
+                json.dump(self.state, f, indent=2, ensure_ascii=False)
+        except IOError as e:
+            bot_logger.error(f"Ошибка сохранения состояния бота: {e}")
+
+    def get_last_mode(self) -> Optional[str]:
+        """Получает последний режим работы бота"""
+        return self.state.get('last_mode')
+
+    def set_last_mode(self, mode: Optional[str]) -> None:
+        """Устанавливает последний режим работы бота"""
+        self.state['last_mode'] = mode
+        self.save()
+
+    def get_last_restart(self) -> Optional[float]:
+        """Получает время последнего перезапуска"""
+        return self.state.get('last_restart')
+
+    def set_last_restart(self, timestamp: float) -> None:
+        """Устанавливает время последнего перезапуска"""
+        self.state['last_restart'] = timestamp
+        self.save()
+
+# Глобальный экземпляр
+bot_state_manager = BotStateManager()

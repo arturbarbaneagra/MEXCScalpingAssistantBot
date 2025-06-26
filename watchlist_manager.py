@@ -84,3 +84,83 @@ class WatchlistManager:
 
 # Глобальный экземпляр менеджера списка отслеживания
 watchlist_manager = WatchlistManager()
+import json
+import os
+from typing import Set, List
+from logger import bot_logger
+
+class WatchlistManager:
+    def __init__(self, watchlist_file: str = "watchlist.json"):
+        self.watchlist_file = watchlist_file
+        self.watchlist: Set[str] = set()
+        self.load()
+
+    def load(self) -> None:
+        """Загружает список отслеживания из файла"""
+        if not os.path.exists(self.watchlist_file):
+            self.save()
+            return
+
+        try:
+            with open(self.watchlist_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                self.watchlist = set(data.get('coins', []))
+                bot_logger.info(f"Загружен список отслеживания: {len(self.watchlist)} монет")
+        except (json.JSONDecodeError, IOError) as e:
+            bot_logger.error(f"Ошибка загрузки списка отслеживания: {e}")
+            self.watchlist = set()
+
+    def save(self) -> None:
+        """Сохраняет список отслеживания в файл"""
+        try:
+            data = {'coins': sorted(list(self.watchlist))}
+            with open(self.watchlist_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except IOError as e:
+            bot_logger.error(f"Ошибка сохранения списка отслеживания: {e}")
+
+    def add(self, symbol: str) -> bool:
+        """Добавляет монету в список отслеживания"""
+        symbol = symbol.upper().replace('_USDT', '').replace('USDT', '')
+        
+        if symbol in self.watchlist:
+            return False
+        
+        self.watchlist.add(symbol)
+        self.save()
+        bot_logger.info(f"Добавлена в список отслеживания: {symbol}")
+        return True
+
+    def remove(self, symbol: str) -> bool:
+        """Удаляет монету из списка отслеживания"""
+        symbol = symbol.upper().replace('_USDT', '').replace('USDT', '')
+        
+        if symbol not in self.watchlist:
+            return False
+        
+        self.watchlist.remove(symbol)
+        self.save()
+        bot_logger.info(f"Удалена из списка отслеживания: {symbol}")
+        return True
+
+    def contains(self, symbol: str) -> bool:
+        """Проверяет наличие монеты в списке"""
+        symbol = symbol.upper().replace('_USDT', '').replace('USDT', '')
+        return symbol in self.watchlist
+
+    def get_all(self) -> Set[str]:
+        """Возвращает все монеты в списке отслеживания"""
+        return self.watchlist.copy()
+
+    def size(self) -> int:
+        """Возвращает количество монет в списке"""
+        return len(self.watchlist)
+
+    def clear(self) -> None:
+        """Очищает список отслеживания"""
+        self.watchlist.clear()
+        self.save()
+        bot_logger.info("Список отслеживания очищен")
+
+# Глобальный экземпляр
+watchlist_manager = WatchlistManager()
