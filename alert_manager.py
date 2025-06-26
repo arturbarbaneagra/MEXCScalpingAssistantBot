@@ -1,14 +1,140 @@
 
 import time
 import asyncio
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Callable
+from enum import Enum
+from dataclasses import dataclass
 from logger import bot_logger
+
+class AlertSeverity(Enum):
+    """Уровни важности алертов"""
+    INFO = "info"
+    WARNING = "warning"
+    CRITICAL = "critical"
+    EMERGENCY = "emergency"
+
+class AlertType(Enum):
+    """Типы алертов"""
+    VOLUME_SPIKE = "volume_spike"
+    PRICE_MOVEMENT = "price_movement"
+    SPREAD_ANOMALY = "spread_anomaly"
+    API_ERROR = "api_error"
+    SYSTEM_PERFORMANCE = "system_performance"
+    UNUSUAL_ACTIVITY = "unusual_activity"
+
+@dataclass
+class AlertCondition:
+    """Условие для срабатывания алерта"""
+    field: str
+    operator: str  # >, <, >=, <=, ==, !=
+    value: float
+    duration: int = 0  # Время в секундах для подтверждения условия
+
+class Alert:
+    """Класс алерта"""
+    
+    def __init__(
+        self,
+        alert_id: str,
+        alert_type: AlertType,
+        severity: AlertSeverity,
+        title: str,
+        message: str,
+        conditions: List[AlertCondition] = None,
+        callback: Optional[Callable] = None,
+        cooldown: int = 300
+    ):
+        self.alert_id = alert_id
+        self.alert_type = alert_type
+        self.severity = severity
+        self.title = title
+        self.message = message
+        self.conditions = conditions or []
+        self.callback = callback
+        self.cooldown = cooldown
+        
+        self.created_at = time.time()
+        self.last_triggered = 0
+        self.trigger_count = 0
+        self.is_active = True
+        self.condition_start_times: Dict[str, float] = {}
+
+    def check_conditions(self, data: Dict) -> bool:
+        """Проверяет условия срабатывания алерта"""
+        if not self.is_active:
+            return False
+            
+        current_time = time.time()
+        
+        if current_time - self.last_triggered < self.cooldown:
+            return False
+            
+        for condition in self.conditions:
+            if not self._check_single_condition(condition, data, current_time):
+                return False
+                
+        return True
+    
+    def _check_single_condition(self, condition: AlertCondition, data: Dict, current_time: float) -> bool:
+        """Проверяет одно условие"""
+        if condition.field not in data:
+            return False
+            
+        value = data[condition.field]
+        condition_key = f"{condition.field}_{condition.operator}_{condition.value}"
+        
+        condition_met = self._evaluate_condition(value, condition.operator, condition.value)
+        
+        if condition_met:
+            if condition.duration > 0:
+                if condition_key not in self.condition_start_times:
+                    self.condition_start_times[condition_key] = current_time
+                    return False
+                elif current_time - self.condition_start_times[condition_key] >= condition.duration:
+                    return True
+                else:
+                    return False
+            else:
+                return True
+        else:
+            if condition_key in self.condition_start_times:
+                del self.condition_start_times[condition_key]
+            return False
+    
+    def _evaluate_condition(self, value: float, operator: str, target: float) -> bool:
+        """Оценивает математическое условие"""
+        if operator == '>':
+            return value > target
+        elif operator == '<':
+            return value < target
+        elif operator == '>=':
+            return value >= target
+        elif operator == '<=':
+            return value <= target
+        elif operator == '==':
+            return abs(value - target) < 0.0001
+        elif operator == '!=':
+            return abs(value - target) >= 0.0001
+        return False
+    
+    def trigger(self):
+        """Срабатывание алерта"""
+        self.last_triggered = time.time()
+        self.trigger_count += 1
+        
+        if self.callback:
+            try:
+                self.callback(self)
+            except Exception as e:
+                bot_logger.error(f"Ошибка в callback алерта {self.alert_id}: {e}")
 
 class AlertManager:
     def __init__(self):
-        self.alerts: Dict[str, Dict] = {}
+        self.alerts: Dict[str, Alert] = {}
+        self.legacy_alerts: Dict[str, Dict] = {}  # Для совместимости
         self.alert_history: List[Dict] = []
-        self.max_history = 100
+        self.max_history = 1000
+        self.notification_callbacks: List[Callable] = []
         
         # Пороги для алертов
         self.thresholds = {
@@ -18,6 +144,9 @@ class AlertManager:
             'api_error_rate': 10,     # %
             'low_disk_space': 90      # %
         }
+        
+        # Настройка продвинутых алертов
+        self._setup_advanced_alerts()
 
     def check_system_alerts(self, system_info: Dict[str, Any]) -> List[Dict]:
         """Проверяет системные алерты"""
