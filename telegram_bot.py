@@ -66,32 +66,43 @@ class TradingTelegramBot:
 
     async def send_message(self, text: str, reply_markup=None, parse_mode=ParseMode.HTML) -> Optional[int]:
         """Отправляет сообщение с улучшенной обработкой ошибок"""
+        bot_logger.debug(f"[SEND_MESSAGE_START] Начало отправки сообщения длиной {len(text)} символов")
+        
         if not self.app or not self.app.bot:
-            bot_logger.debug("Бот не инициализирован для отправки сообщения")
+            bot_logger.debug("[SEND_MESSAGE_ERROR] Бот не инициализирован для отправки сообщения")
             return None
 
         # Проверяем event loop перед отправкой
         try:
             current_loop = asyncio.get_running_loop()
             if current_loop.is_closed():
-                bot_logger.debug("Event loop закрыт, пропускаем отправку сообщения")
+                bot_logger.debug("[SEND_MESSAGE_ERROR] Event loop закрыт, пропускаем отправку сообщения")
                 return None
-        except RuntimeError:
-            bot_logger.debug("Нет активного event loop для отправки сообщения")
+            bot_logger.debug(f"[SEND_MESSAGE_LOOP] Event loop активен: {id(current_loop)}")
+        except RuntimeError as e:
+            bot_logger.debug(f"[SEND_MESSAGE_ERROR] Нет активного event loop: {e}")
             return None
 
+        bot_logger.debug("[SEND_MESSAGE_RATE] Проверяем rate limit")
         await self._rate_limit_message()
 
         try:
+            bot_logger.debug(f"[SEND_MESSAGE_TG] Отправляем через Telegram API в чат {self.chat_id}")
+            
             message = await self.app.bot.send_message(
                 chat_id=self.chat_id,
                 text=text,
                 reply_markup=reply_markup,
                 parse_mode=parse_mode
             )
+            
+            bot_logger.info(f"[SEND_MESSAGE_SUCCESS] Сообщение отправлено успешно, msg_id: {message.message_id}")
             return message.message_id
+            
         except Exception as e:
             error_message = str(e).lower()
+            bot_logger.error(f"[SEND_MESSAGE_EXCEPTION] Исключение при отправке: {type(e).__name__}: {e}")
+            
             # Расширенная обработка различных типов ошибок
             ignored_error_patterns = [
                 "event loop", "different event loop", "asyncio.locks.event",
@@ -423,6 +434,8 @@ class TradingTelegramBot:
         if data['active']:
             # Монета активна
             if symbol not in self.active_coins:
+                bot_logger.info(f"[NOTIFICATION_START] {symbol} - новая активная монета обнаружена")
+                
                 # Новая активная монета - создаем уведомление
                 message = (
                     f"🚨 <b>{symbol}_USDT активен</b>\n"
@@ -430,6 +443,8 @@ class TradingTelegramBot:
                     f"📊 Объём: ${data['volume']:,.2f}  NATR: {data['natr']:.2f}%\n"
                     f"⇄ Спред: {data['spread']:.2f}%"
                 )
+                
+                bot_logger.info(f"[NOTIFICATION_CREATING] {symbol} - создаем запись с флагом creating=True")
                 
                 # Сначала создаем запись с флагом creating
                 self.active_coins[symbol] = {
@@ -440,10 +455,14 @@ class TradingTelegramBot:
                     'creation_attempts': 0
                 }
                 
+                bot_logger.info(f"[NOTIFICATION_SENDING] {symbol} - отправляем сообщение через retry механизм")
+                
                 # Отправляем сообщение с повторными попытками при переходе режимов
                 msg_id = await self._send_notification_with_retry(symbol, message)
                 
                 if msg_id:
+                    bot_logger.info(f"[NOTIFICATION_SUCCESS] {symbol} - получен msg_id: {msg_id}, обновляем запись")
+                    
                     # Успешно отправлено - обновляем запись
                     self.active_coins[symbol].update({
                         'msg_id': msg_id,
@@ -451,7 +470,10 @@ class TradingTelegramBot:
                     })
                     self.message_cache[msg_id] = message
                     bot_logger.trade_activity(symbol, "STARTED", f"Volume: ${data['volume']:,.2f}")
+                    bot_logger.info(f"[NOTIFICATION_COMPLETE] {symbol} - уведомление полностью обработано, creating=False")
                 else:
+                    bot_logger.warning(f"[NOTIFICATION_FAILED] {symbol} - не получен msg_id, удаляем запись")
+                    
                     # Не удалось отправить после всех попыток - удаляем запись
                     if symbol in self.active_coins:
                         del self.active_coins[symbol]
@@ -508,26 +530,42 @@ class TradingTelegramBot:
 
     async def _send_notification_with_retry(self, symbol: str, message: str, max_attempts: int = 3) -> Optional[int]:
         """Отправляет уведомление с повторными попытками при нестабильном event loop"""
+        bot_logger.info(f"[RETRY_START] {symbol} - начало retry отправки, макс попыток: {max_attempts}")
+        
         for attempt in range(max_attempts):
             try:
+                bot_logger.info(f"[RETRY_ATTEMPT] {symbol} - попытка {attempt + 1}/{max_attempts}")
+                
                 # Небольшая задержка между попытками для стабилизации event loop
                 if attempt > 0:
+                    bot_logger.info(f"[RETRY_DELAY] {symbol} - задержка {0.2 * attempt}s перед попыткой {attempt + 1}")
                     await asyncio.sleep(0.2 * attempt)
                 
+                bot_logger.info(f"[RETRY_SENDING] {symbol} - вызываем send_message()")
                 msg_id = await self.send_message(message)
+                
+                bot_logger.info(f"[RETRY_RESPONSE] {symbol} - send_message() вернул: {msg_id}")
+                
                 if msg_id:
                     if attempt > 0:
                         bot_logger.info(f"[RETRY_SUCCESS] {symbol} уведомление отправлено с попытки {attempt + 1}")
+                    else:
+                        bot_logger.info(f"[RETRY_SUCCESS] {symbol} уведомление отправлено с первой попытки")
                     return msg_id
+                else:
+                    bot_logger.warning(f"[RETRY_NULL] {symbol} - send_message() вернул None, попытка {attempt + 1}")
                     
             except Exception as e:
                 error_message = str(e).lower()
+                bot_logger.error(f"[RETRY_EXCEPTION] {symbol} попытка {attempt + 1}: {type(e).__name__}: {e}")
+                
                 if "event loop" in error_message or "asyncio" in error_message:
                     bot_logger.debug(f"[RETRY] {symbol} попытка {attempt + 1}: event loop ошибка")
                     continue
                 else:
                     bot_logger.error(f"[RETRY] {symbol} попытка {attempt + 1}: {e}")
                     
+        bot_logger.warning(f"[RETRY_EXHAUSTED] {symbol} - все {max_attempts} попыток исчерпаны, возвращаем None")
         return None
 
     async def _end_coin_activity(self, symbol: str, end_time: float):
