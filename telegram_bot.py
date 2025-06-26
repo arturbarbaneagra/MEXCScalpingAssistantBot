@@ -65,6 +65,10 @@ class TradingTelegramBot:
 
     async def send_message(self, text: str, reply_markup=None, parse_mode=ParseMode.HTML) -> Optional[int]:
         """Отправляет сообщение с ограничением частоты"""
+        if not self.app or not self.app.bot:
+            bot_logger.error("Бот не инициализирован для отправки сообщения")
+            return None
+
         await self._rate_limit_message()
 
         try:

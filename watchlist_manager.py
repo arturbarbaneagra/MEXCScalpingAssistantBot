@@ -37,7 +37,7 @@ class WatchlistManager:
         try:
             data = {
                 'coins': list(self.watchlist),
-                'last_updated': datetime.now().isoformat(),
+                'last_updated': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 'count': len(self.watchlist)
             }
             with open(self.watchlist_file, 'w', encoding='utf-8') as f:

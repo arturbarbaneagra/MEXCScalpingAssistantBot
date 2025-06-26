@@ -188,12 +188,15 @@ class MexcApiClient:
                 except (ValueError, TypeError):
                     trade_count = 0
 
-            bot_logger.debug(f"{symbol}: price={current_close:.6f}, 1m_change={price_change:+.2f}%, volume=${current_volume:,.0f}")
+            # Рассчитываем объем в базовой валюте для 1-минутного периода
+            volume_usdt = current_volume * current_close if current_volume > 0 else 0.0
+
+            bot_logger.debug(f"{symbol}: price={current_close:.6f}, 1m_change={price_change:+.2f}%, volume=${volume_usdt:,.0f}")
 
             return {
                 'price': current_close,
                 'change': price_change,  # 1-минутное изменение
-                'volume': current_volume * current_close,  # Объем в USDT
+                'volume': volume_usdt,  # Объем в USDT за 1 минуту
                 'count': trade_count,  # Количество сделок за 24ч (для скальпинга)
                 'bid': bid_price,
                 'ask': ask_price

@@ -14,8 +14,11 @@ from dotenv import load_dotenv
 # Загружаем переменные окружения из .env файла в самом начале
 load_dotenv()
 
-# Импортируем логгер до использования
+# Импортируем модули в правильном порядке
 from logger import bot_logger
+from config import config_manager
+from watchlist_manager import watchlist_manager
+from telegram_bot import telegram_bot
 
 # Проверяем, что переменные загружены (без вывода значений)
 bot_logger.info("Проверка переменных окружения...")
@@ -23,9 +26,6 @@ if not os.getenv('TELEGRAM_TOKEN'):
     print("❌ TELEGRAM_TOKEN не найден")
 if not os.getenv('TELEGRAM_CHAT_ID'):
     print("❌ TELEGRAM_CHAT_ID не найден")
-from config import config_manager
-from telegram_bot import telegram_bot
-from watchlist_manager import watchlist_manager
 
 # Flask приложение для keep-alive
 app = Flask(__name__)
@@ -127,14 +127,23 @@ def main():
     finally:
         # Graceful shutdown
         try:
-            if telegram_bot.bot_running:
+            if hasattr(telegram_bot, 'bot_running') and telegram_bot.bot_running:
                 import asyncio
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(telegram_bot._stop_current_mode())
-                loop.close()
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                
+                try:
+                    loop.run_until_complete(telegram_bot._stop_current_mode())
+                except Exception as shutdown_error:
+                    bot_logger.error(f"Ошибка при остановке режима: {shutdown_error}")
+                finally:
+                    if not loop.is_closed():
+                        loop.close()
         except Exception as e:
-            bot_logger.error(f"Ошибка при остановке: {e}")
+            bot_logger.error(f"Критическая ошибка при остановке: {e}")
         
         bot_logger.info("🛑 Бот остановлен")
 
