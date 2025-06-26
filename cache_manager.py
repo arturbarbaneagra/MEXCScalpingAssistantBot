@@ -170,4 +170,3 @@ class CacheManager:
 
 # Глобальный экземпляр кеша
 cache_manager = CacheManager()
-`
