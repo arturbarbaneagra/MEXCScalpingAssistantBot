@@ -270,13 +270,21 @@ class TradingTelegramBot:
                 if batch_results:
                     await asyncio.sleep(config_manager.get('COIN_DATA_DELAY'))
 
-                # Обрабатываем каждую монету в батче
+                # Обрабатываем каждую монету в батче (с защитой от дублирования)
+                processed_symbols = set()
                 for data in batch_results:
                     if not self.bot_running or self.bot_mode != 'notification':
                         break
 
                     try:
                         symbol = data['symbol']
+                        
+                        # Защита от дублирования в одном цикле
+                        if symbol in processed_symbols:
+                            bot_logger.debug(f"Монета {symbol} уже обработана в этом цикле, пропускаем")
+                            continue
+                            
+                        processed_symbols.add(symbol)
                         await self._process_coin_notification(symbol, data)
                     except Exception as e:
                         bot_logger.error(f"Ошибка обработки {symbol}: {e}")
@@ -295,6 +303,12 @@ class TradingTelegramBot:
 
         if data['active']:
             if not is_currently_active:
+                # Дополнительная проверка - убеждаемся что монета действительно не в списке активных
+                # (защита от race condition)
+                if symbol in self.active_coins:
+                    bot_logger.debug(f"Монета {symbol} уже активна, пропускаем создание нового уведомления")
+                    return
+
                 # Новая активная монета
                 message = (
                     f"🚨 <b>{symbol}_USDT активен</b>\n"
@@ -302,29 +316,40 @@ class TradingTelegramBot:
                     f"📊 Объём: ${data['volume']:,.2f}  NATR: {data['natr']:.2f}%\n"
                     f"⇄ Спред: {data['spread']:.2f}%"
                 )
+                
+                # Сначала добавляем в активные (резервируем место), затем отправляем сообщение
+                self.active_coins[symbol] = {
+                    'start': now,
+                    'last_active': now,
+                    'msg_id': None,  # Временно None пока отправляем
+                    'data': data
+                }
+
                 msg_id = await self.send_message(message)
 
                 if msg_id:
-                    self.active_coins[symbol] = {
-                        'start': now,
-                        'last_active': now,
-                        'msg_id': msg_id,
-                        'data': data
-                    }
+                    # Обновляем с реальным ID сообщения
+                    self.active_coins[symbol]['msg_id'] = msg_id
                     bot_logger.trade_activity(symbol, "STARTED", f"Volume: ${data['volume']:,.2f}, Trades: {data['trades']}")
+                else:
+                    # Если не удалось отправить - удаляем из активных
+                    if symbol in self.active_coins:
+                        del self.active_coins[symbol]
             else:
                 # Обновляем данные по активной монете
                 self.active_coins[symbol]['last_active'] = now
                 self.active_coins[symbol]['data'] = data
 
-                # Обновляем сообщение
-                message = (
-                    f"🚨 <b>{symbol}_USDT активен</b>\n"
-                    f"🔄 Изм: {data['change']:+.2f}%  🔁 Сделок: {data['trades']}\n"
-                    f"📊 Объём: ${data['volume']:,.2f}  NATR: {data['natr']:.2f}%\n"
-                    f"⇄ Спред: {data['spread']:.2f}%"
-                )
-                await self.edit_message(self.active_coins[symbol]['msg_id'], message)
+                # Обновляем сообщение только если есть msg_id
+                msg_id = self.active_coins[symbol].get('msg_id')
+                if msg_id:
+                    message = (
+                        f"🚨 <b>{symbol}_USDT активен</b>\n"
+                        f"🔄 Изм: {data['change']:+.2f}%  🔁 Сделок: {data['trades']}\n"
+                        f"📊 Объём: ${data['volume']:,.2f}  NATR: {data['natr']:.2f}%\n"
+                        f"⇄ Спред: {data['spread']:.2f}%"
+                    )
+                    await self.edit_message(msg_id, message)
 
         elif is_currently_active:
             # Проверяем, не прошло ли время неактивности
