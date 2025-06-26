@@ -290,15 +290,21 @@ class APIClient:
     async def get_coin_data(self, symbol: str) -> Optional[Dict]:
         """Получает полные данные по монете для анализа (только 1-минутные данные)"""
         try:
-            # Получаем все необходимые данные параллельно
+            # Получаем данные параллельно (3 запроса вместо 4)
             tasks = [
-                self.get_ticker_data(symbol),  # Только для текущей цены
-                self.get_book_ticker(symbol),
-                self.get_klines(symbol, "1m", 2),
-                self.get_trades_last_minute(symbol)
+                self.get_book_ticker(symbol),          # 1. Спред (bid/ask)
+                self.get_klines(symbol, "1m", 2),      # 2. 1-минутные данные
+                self.get_trades_last_minute(symbol)    # 3. Сделки за минуту
             ]
 
-            ticker_data, book_data, klines_data, trades_1m = await asyncio.gather(*tasks, return_exceptions=True)
+            book_data, klines_data, trades_1m = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Цену берем из klines (более эффективно)
+            ticker_data = None
+            if not isinstance(klines_data, Exception) and klines_data:
+                # Создаем ticker_data из последней свечи
+                last_candle = klines_data[-1]
+                ticker_data = {'lastPrice': last_candle[4]}  # close price
 
             # Проверяем результаты
             if isinstance(ticker_data, Exception) or not ticker_data:
