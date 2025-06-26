@@ -69,6 +69,16 @@ class TradingTelegramBot:
             bot_logger.error("Бот не инициализирован для отправки сообщения")
             return None
 
+        # Проверяем event loop перед отправкой
+        try:
+            current_loop = asyncio.get_running_loop()
+            if current_loop.is_closed():
+                bot_logger.debug("Event loop закрыт, пропускаем отправку сообщения")
+                return None
+        except RuntimeError:
+            bot_logger.debug("Нет активного event loop для отправки сообщения")
+            return None
+
         await self._rate_limit_message()
 
         try:
@@ -80,8 +90,17 @@ class TradingTelegramBot:
             )
             return message.message_id
         except Exception as e:
-            bot_logger.error(f"Ошибка отправки сообщения: {e}")
-            return None
+            error_message = str(e).lower()
+            # Специальная обработка event loop ошибок
+            if any(phrase in error_message for phrase in [
+                "event loop", "different event loop", "asyncio.locks.event",
+                "is bound to a different event loop", "runtimeerror"
+            ]):
+                bot_logger.debug(f"Event loop ошибка при отправке сообщения: {type(e).__name__}")
+                return None
+            else:
+                bot_logger.error(f"Ошибка отправки сообщения: {e}")
+                return None
 
     async def edit_message(self, message_id: int, text: str, reply_markup=None):
         """Редактирует сообщение"""
