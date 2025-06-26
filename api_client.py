@@ -328,11 +328,10 @@ class APIClient:
 
             bot_logger.info(f"{symbol}: Точные данные - volume={volume_1m_usdt:.2f} USDT, trades={trades_count}")
 
-            # Рассчитываем спред
+            # Рассчитываем спред (стандартная формула относительно bid цены)
             bid_price = float(book_data['bidPrice'])
             ask_price = float(book_data['askPrice'])
-            mid_price = (bid_price + ask_price) / 2
-            spread = ((ask_price - bid_price) / mid_price) * 100 if mid_price > 0 else 0
+            spread = ((ask_price - bid_price) / bid_price) * 100 if bid_price > 0 else 0
 
             # Проверяем активность только по 1-минутным данным
             vol_thresh = config_manager.get('VOLUME_THRESHOLD')
