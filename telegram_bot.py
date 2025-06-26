@@ -364,18 +364,23 @@ class TradingTelegramBot:
         current_time = time.time()
         orphaned_coins = []
         stale_creating = []
+        invalid_coins = []
 
         # Проверяем на orphaned монеты и зависшие процессы создания
         for symbol, coin_info in list(self.active_coins.items()):
-            # Монеты без msg_id (orphaned)
+            # Монеты без msg_id (orphaned) - НО НЕ В ПРОЦЕССЕ СОЗДАНИЯ
             if not coin_info.get('msg_id') and not coin_info.get('creating', False):
                 orphaned_coins.append(symbol)
             
-            # Зависшие процессы создания (больше 10 секунд в creating)
+            # Зависшие процессы создания (больше 8 секунд в creating)
             elif coin_info.get('creating', False):
                 start_time = coin_info.get('start', current_time)
-                if current_time - start_time > 10:
+                if current_time - start_time > 8:
                     stale_creating.append(symbol)
+            
+            # Монеты с невалидными msg_id
+            elif coin_info.get('msg_id') and not isinstance(coin_info.get('msg_id'), int):
+                invalid_coins.append(symbol)
 
         # Очищаем orphaned монеты
         for symbol in orphaned_coins:
@@ -392,6 +397,14 @@ class TradingTelegramBot:
                 bot_logger.info(f"[CLEANUP] Удален зависший процесс создания {symbol}")
             except Exception as e:
                 bot_logger.error(f"[CLEANUP] Ошибка очистки зависшего процесса {symbol}: {e}")
+
+        # Очищаем монеты с невалидными msg_id
+        for symbol in invalid_coins:
+            try:
+                del self.active_coins[symbol]
+                bot_logger.info(f"[CLEANUP] Удалена монета с невалидным msg_id {symbol}")
+            except Exception as e:
+                bot_logger.error(f"[CLEANUP] Ошибка очистки невалидной монеты {symbol}: {e}")
 
         # Дополнительная очистка кеша сообщений
         if len(self.message_cache) > 100:
@@ -423,11 +436,13 @@ class TradingTelegramBot:
                     'start': now,
                     'last_active': now,
                     'data': data,
-                    'creating': True
+                    'creating': True,
+                    'creation_attempts': 0
                 }
                 
-                # Отправляем сообщение
-                msg_id = await self.send_message(message)
+                # Отправляем сообщение с повторными попытками при переходе режимов
+                msg_id = await self._send_notification_with_retry(symbol, message)
+                
                 if msg_id:
                     # Успешно отправлено - обновляем запись
                     self.active_coins[symbol].update({
@@ -437,22 +452,27 @@ class TradingTelegramBot:
                     self.message_cache[msg_id] = message
                     bot_logger.trade_activity(symbol, "STARTED", f"Volume: ${data['volume']:,.2f}")
                 else:
-                    # Не удалось отправить - удаляем запись
+                    # Не удалось отправить после всех попыток - удаляем запись
                     if symbol in self.active_coins:
                         del self.active_coins[symbol]
-                    bot_logger.warning(f"[FAIL] Не удалось отправить уведомление для {symbol}")
+                    bot_logger.warning(f"[FAIL] Не удалось отправить уведомление для {symbol} после повторных попыток")
             else:
                 # Обновляем данные существующей активной монеты
                 coin_info = self.active_coins[symbol]
                 
                 # Пропускаем обновление если монета еще создается
                 if coin_info.get('creating', False):
+                    # Проверяем, не зависла ли монета в создании
+                    creation_time = coin_info.get('start', now)
+                    if now - creation_time > 10:  # Больше 10 секунд в creating
+                        bot_logger.warning(f"[CREATING_TIMEOUT] {symbol} зависла в создании, сбрасываем")
+                        del self.active_coins[symbol]
                     return
                     
                 coin_info['last_active'] = now
                 coin_info['data'] = data
 
-                # Обновляем сообщение
+                # Обновляем сообщение только если есть валидный msg_id
                 msg_id = coin_info.get('msg_id')
                 if msg_id and isinstance(msg_id, int) and msg_id > 0:
                     new_message = (
@@ -468,6 +488,10 @@ class TradingTelegramBot:
                         await self.edit_message(msg_id, new_message)
                         self.message_cache[msg_id] = new_message
                         bot_logger.debug(f"[UPDATE] {symbol} сообщение обновлено")
+                else:
+                    # Если нет msg_id, значит что-то пошло не так - пересоздаем уведомление
+                    bot_logger.warning(f"[RECOVER] {symbol} без msg_id, пересоздаем уведомление")
+                    del self.active_coins[symbol]
         else:
             # Монета неактивна - проверяем на завершение активности
             if symbol in self.active_coins:
@@ -481,6 +505,30 @@ class TradingTelegramBot:
                 inactivity_timeout = config_manager.get('INACTIVITY_TIMEOUT')
                 if now - coin_info['last_active'] > inactivity_timeout:
                     await self._end_coin_activity(symbol, now)
+
+    async def _send_notification_with_retry(self, symbol: str, message: str, max_attempts: int = 3) -> Optional[int]:
+        """Отправляет уведомление с повторными попытками при нестабильном event loop"""
+        for attempt in range(max_attempts):
+            try:
+                # Небольшая задержка между попытками для стабилизации event loop
+                if attempt > 0:
+                    await asyncio.sleep(0.2 * attempt)
+                
+                msg_id = await self.send_message(message)
+                if msg_id:
+                    if attempt > 0:
+                        bot_logger.info(f"[RETRY_SUCCESS] {symbol} уведомление отправлено с попытки {attempt + 1}")
+                    return msg_id
+                    
+            except Exception as e:
+                error_message = str(e).lower()
+                if "event loop" in error_message or "asyncio" in error_message:
+                    bot_logger.debug(f"[RETRY] {symbol} попытка {attempt + 1}: event loop ошибка")
+                    continue
+                else:
+                    bot_logger.error(f"[RETRY] {symbol} попытка {attempt + 1}: {e}")
+                    
+        return None
 
     async def _end_coin_activity(self, symbol: str, end_time: float):
         """Завершает активность монеты - упрощенная версия как в старом боте"""
@@ -877,6 +925,9 @@ class TradingTelegramBot:
             self._force_clear_state()
             await asyncio.sleep(0.5)
 
+        # Предварительная очистка зависших процессов
+        await self._cleanup_stale_processes()
+
         # Отправляем подтверждение СНАЧАЛА
         try:
             await update.message.reply_text(
@@ -889,8 +940,8 @@ class TradingTelegramBot:
         except Exception as e:
             bot_logger.error(f"Ошибка отправки подтверждения активации: {e}")
 
-        # Небольшая пауза после отправки подтверждения
-        await asyncio.sleep(0.3)
+        # Небольшая пауза после отправки подтверждения для стабилизации event loop
+        await asyncio.sleep(0.5)
 
         # Запускаем новый режим
         self.bot_mode = 'notification'
