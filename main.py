@@ -195,12 +195,19 @@ async def main():
             sys.exit(1)
 
         # Инициализируем состояние бота
-        from bot_state import bot_state_manager
-        bot_state_manager.increment_session()
+        try:
+            from bot_state import bot_state_manager
+            bot_state_manager.increment_session()
+        except ImportError:
+            bot_logger.warning("bot_state_manager не найден, продолжаем без него")
 
         # Запускаем автоматическое обслуживание
-        from auto_maintenance import auto_maintenance
-        maintenance_task = asyncio.create_task(auto_maintenance.start_maintenance_loop())
+        try:
+            from auto_maintenance import auto_maintenance
+            maintenance_task = asyncio.create_task(auto_maintenance.start_maintenance_loop())
+        except ImportError:
+            bot_logger.warning("auto_maintenance не найден, продолжаем без него")
+            maintenance_task = None
 
         # Запускаем Flask сервер
         flask_thread = threading.Thread(target=run_flask, daemon=True)
@@ -233,15 +240,21 @@ async def main():
                 
                 # Останавливаем автоматическое обслуживание
                 try:
-                    auto_maintenance.stop_maintenance()
-                    maintenance_task.cancel()
+                    if 'auto_maintenance' in locals():
+                        auto_maintenance.stop_maintenance()
+                    if maintenance_task:
+                        maintenance_task.cancel()
                     bot_logger.debug("Автоматическое обслуживание остановлено")
                 except Exception as e:
                     bot_logger.debug(f"Ошибка остановки обслуживания: {e}")
 
                 # Сохраняем время работы
-                uptime = time.time() - start_time
-                bot_state_manager.add_uptime(uptime)
+                try:
+                    uptime = time.time() - start_time
+                    if 'bot_state_manager' in locals():
+                        bot_state_manager.add_uptime(uptime)
+                except Exception as e:
+                    bot_logger.debug(f"Ошибка сохранения времени работы: {e}")
 
                 # Останавливаем Telegram бота
                 try:

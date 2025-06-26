@@ -165,3 +165,66 @@ class AutoMaintenance:
 
 # Глобальный экземпляр автообслуживания
 auto_maintenance = AutoMaintenance()
+"""
+Модуль автоматического обслуживания торгового бота
+"""
+
+import asyncio
+import time
+import gc
+from typing import Optional
+from logger import bot_logger
+
+class AutoMaintenance:
+    def __init__(self):
+        self.running = False
+        self.task: Optional[asyncio.Task] = None
+
+    async def start_maintenance_loop(self):
+        """Запускает цикл автоматического обслуживания"""
+        self.running = True
+        bot_logger.info("🔧 Автоматическое обслуживание запущено")
+
+        try:
+            while self.running:
+                await self._perform_maintenance()
+                await asyncio.sleep(300)  # Каждые 5 минут
+        except asyncio.CancelledError:
+            bot_logger.info("🔧 Автоматическое обслуживание отменено")
+        except Exception as e:
+            bot_logger.error(f"Ошибка автоматического обслуживания: {e}")
+
+    async def _perform_maintenance(self):
+        """Выполняет задачи обслуживания"""
+        try:
+            # Очистка памяти
+            gc.collect()
+            
+            # Очистка кеша (если есть)
+            try:
+                from cache_manager import cache_manager
+                cache_manager.cleanup_expired()
+            except ImportError:
+                pass
+
+            # Проверка метрик
+            try:
+                from metrics_manager import metrics_manager
+                metrics_manager.cleanup_old_metrics()
+            except ImportError:
+                pass
+
+            bot_logger.debug("🔧 Автоматическое обслуживание выполнено")
+
+        except Exception as e:
+            bot_logger.error(f"Ошибка обслуживания: {e}")
+
+    def stop_maintenance(self):
+        """Останавливает автоматическое обслуживание"""
+        self.running = False
+        if self.task:
+            self.task.cancel()
+        bot_logger.info("🔧 Автоматическое обслуживание остановлено")
+
+# Глобальный экземпляр
+auto_maintenance = AutoMaintenance()

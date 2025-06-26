@@ -727,7 +727,8 @@ class TradingTelegramBot:
             )
         return ConversationHandler.END
 
-    async def volume_setting_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):text = update.message.text.strip()
+    async def volume_setting_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        text = update.message.text.strip()
         if text == "🔙 Назад":
             await self._handle_settings(update)
             return ConversationHandler.END

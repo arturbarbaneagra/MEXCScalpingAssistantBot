@@ -101,3 +101,75 @@ class BotStateManager:
 
 # Глобальный экземпляр менеджера состояния
 bot_state_manager = BotStateManager()
+"""
+Модуль управления состоянием торгового бота
+"""
+
+import json
+import os
+import time
+from typing import Dict, Any, Optional
+from logger import bot_logger
+
+class BotStateManager:
+    def __init__(self):
+        self.state_file = "bot_state.json"
+        self.state = self._load_state()
+
+    def _load_state(self) -> Dict[str, Any]:
+        """Загружает состояние из файла"""
+        try:
+            if os.path.exists(self.state_file):
+                with open(self.state_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except Exception as e:
+            bot_logger.debug(f"Ошибка загрузки состояния: {e}")
+        
+        return {
+            'session_count': 0,
+            'total_uptime': 0,
+            'last_mode': None,
+            'last_startup': None
+        }
+
+    def _save_state(self):
+        """Сохраняет состояние в файл"""
+        try:
+            with open(self.state_file, 'w', encoding='utf-8') as f:
+                json.dump(self.state, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            bot_logger.error(f"Ошибка сохранения состояния: {e}")
+
+    def increment_session(self):
+        """Увеличивает счетчик сессий"""
+        self.state['session_count'] += 1
+        self.state['last_startup'] = time.time()
+        self._save_state()
+        bot_logger.info(f"Сессия #{self.state['session_count']} запущена")
+
+    def add_uptime(self, uptime_seconds: float):
+        """Добавляет время работы"""
+        self.state['total_uptime'] += uptime_seconds
+        self._save_state()
+        bot_logger.info(f"Добавлено {uptime_seconds:.1f}с времени работы")
+
+    def set_last_mode(self, mode: Optional[str]):
+        """Устанавливает последний режим работы"""
+        self.state['last_mode'] = mode
+        self._save_state()
+
+    def get_last_mode(self) -> Optional[str]:
+        """Возвращает последний режим работы"""
+        return self.state.get('last_mode')
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Возвращает статистику"""
+        return {
+            'session_count': self.state['session_count'],
+            'total_uptime_hours': self.state['total_uptime'] / 3600,
+            'last_mode': self.state['last_mode'],
+            'last_startup': self.state.get('last_startup')
+        }
+
+# Глобальный экземпляр
+bot_state_manager = BotStateManager()
