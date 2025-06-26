@@ -360,7 +360,7 @@ class TradingTelegramBot:
             await asyncio.sleep(config_manager.get('CHECK_FULL_CYCLE_INTERVAL'))
 
     async def _cleanup_stale_processes(self):
-        """Очистка зависших процессов создания уведомлений"""
+        """Усиленная очистка зависших процессов создания уведомлений"""
         current_time = time.time()
         stale_coins = []
         creating_coins = []
@@ -369,7 +369,7 @@ class TradingTelegramBot:
         for symbol, coin_info in list(self.active_coins.items()):
             if coin_info.get('creating', False):
                 creation_time = coin_info.get('creation_time', current_time)
-                if current_time - creation_time > 20:  # Сократили таймаут до 20 секунд
+                if current_time - creation_time > 15:  # Уменьшили таймаут до 15 секунд
                     stale_coins.append(symbol)
                 else:
                     creating_coins.append(symbol)
@@ -391,6 +391,12 @@ class TradingTelegramBot:
                         bot_logger.info(f"[CLEANUP] Удален зависший процесс для {symbol}")
                 except Exception as e:
                     bot_logger.error(f"[CLEANUP] Ошибка очистки {symbol}: {e}")
+                    # Принудительное удаление в случае ошибки
+                    try:
+                        if symbol in self.active_coins:
+                            del self.active_coins[symbol]
+                    except:
+                        pass
 
         # Очищаем orphaned монеты
         if orphaned_coins:
@@ -401,6 +407,34 @@ class TradingTelegramBot:
                     bot_logger.info(f"[CLEANUP] Удалена orphaned монета {symbol}")
                 except Exception as e:
                     bot_logger.error(f"[CLEANUP] Ошибка очистки orphaned {symbol}: {e}")
+
+        # Очищаем старые блокировки
+        if hasattr(self, '_notification_locks'):
+            expired_locks = []
+            for symbol, lock_time in list(self._notification_locks.items()):
+                if current_time - lock_time > 5.0:  # Блокировки старше 5 секунд
+                    expired_locks.append(symbol)
+            
+            for symbol in expired_locks:
+                try:
+                    del self._notification_locks[symbol]
+                    bot_logger.debug(f"[CLEANUP] Очищена устаревшая блокировка для {symbol}")
+                except:
+                    pass
+
+        # Очищаем старые метки времени обработки
+        if hasattr(self, '_processing_timestamps'):
+            expired_timestamps = []
+            for symbol, timestamp in list(self._processing_timestamps.items()):
+                if current_time - timestamp > 10.0:  # Метки старше 10 секунд
+                    expired_timestamps.append(symbol)
+            
+            for symbol in expired_timestamps:
+                try:
+                    del self._processing_timestamps[symbol]
+                    bot_logger.debug(f"[CLEANUP] Очищена устаревшая метка времени для {symbol}")
+                except:
+                    pass
 
         # Информация о текущем состоянии
         if creating_coins:
@@ -419,19 +453,34 @@ class TradingTelegramBot:
             bot_logger.debug(f"[CLEANUP] Очищен кеш сообщений, оставлено 50 записей")
 
     async def _process_coin_notification(self, symbol: str, data: Dict):
-        """Обрабатывает уведомление для монеты с полной защитой от дублирования"""
+        """Обрабатывает уведомление для монеты с усиленной защитой от дублирования"""
         now = time.time()
 
-        # Глобальная блокировка для предотвращения race condition
+        # Усиленная система блокировок
         if not hasattr(self, '_notification_locks'):
             self._notification_locks = {}
+        if not hasattr(self, '_processing_timestamps'):
+            self._processing_timestamps = {}
         
-        if symbol in self._notification_locks:
-            bot_logger.debug(f"[SKIP] {symbol} уже обрабатывается в другом потоке")
+        # Проверяем, не обрабатывали ли мы эту монету недавно (защита от спама)
+        last_processed = self._processing_timestamps.get(symbol, 0)
+        if now - last_processed < 0.5:  # Минимальный интервал 0.5 секунды
+            bot_logger.debug(f"[COOLDOWN] {symbol} обработана недавно, пропускаем")
             return
             
-        # Устанавливаем блокировку
+        # Проверяем блокировку
+        if symbol in self._notification_locks:
+            lock_time = self._notification_locks[symbol]
+            if now - lock_time < 2.0:  # Блокировка на 2 секунды
+                bot_logger.debug(f"[LOCKED] {symbol} заблокована другим процессом")
+                return
+            else:
+                # Старая блокировка, удаляем
+                del self._notification_locks[symbol]
+            
+        # Устанавливаем блокировку и отметку времени
         self._notification_locks[symbol] = now
+        self._processing_timestamps[symbol] = now
 
         try:
             # Проверяем алерты для монеты
@@ -443,14 +492,24 @@ class TradingTelegramBot:
                     # Монета уже активна - только обновляем данные
                     coin_info = self.active_coins[symbol]
 
-                    # НЕ обновляем монеты в процессе создания
+                    # Строгая проверка процесса создания
                     if coin_info.get('creating', False):
                         creation_time = coin_info.get('creation_time', now)
-                        if now - creation_time > 20:  # Увеличили таймаут
+                        if now - creation_time > 15:  # Уменьшили таймаут
                             bot_logger.warning(f"[TIMEOUT_UPDATE] Принудительная очистка зависшего процесса {symbol}")
-                            del self.active_coins[symbol]
+                            try:
+                                # Попытаемся удалить сообщение если есть msg_id
+                                msg_id = coin_info.get('msg_id')
+                                if msg_id and isinstance(msg_id, int) and msg_id > 0:
+                                    await self.delete_message(msg_id)
+                                del self.active_coins[symbol]
+                            except Exception as e:
+                                bot_logger.error(f"[CLEANUP_ERROR] Ошибка очистки {symbol}: {e}")
+                                # Принудительное удаление
+                                if symbol in self.active_coins:
+                                    del self.active_coins[symbol]
                         else:
-                            bot_logger.debug(f"[SKIP] {symbol} в процессе создания")
+                            bot_logger.debug(f"[SKIP] {symbol} в процессе создания ({now - creation_time:.1f}s)")
                         return
 
                     # Обновляем данные существующей активной монеты
@@ -475,6 +534,11 @@ class TradingTelegramBot:
                             bot_logger.debug(f"[UPDATE] {symbol} сообщение обновлено")
 
                 else:
+                    # ТРОЙНАЯ ПРОВЕРКА: убеждаемся что монеты действительно нет в активных
+                    if symbol in self.active_coins:
+                        bot_logger.debug(f"[RACE_DETECTED] {symbol} появилась в активных во время обработки")
+                        return
+
                     # Новая активность - создаем уведомление
                     current_time = time.time()
                     unique_id = f"{symbol}_{current_time}_{id(asyncio.current_task())}"
@@ -490,7 +554,7 @@ class TradingTelegramBot:
                         'creation_time': current_time
                     }
 
-                    bot_logger.info(f"[CREATE] Создание уведомления для {symbol}")
+                    bot_logger.info(f"[CREATE] Создание уведомления для {symbol} с ID {unique_id}")
 
                     # Формируем и отправляем сообщение
                     message = (
@@ -502,6 +566,16 @@ class TradingTelegramBot:
 
                     try:
                         msg_id = await self.send_message(message)
+
+                        # Проверяем, что монета все еще в процессе создания и принадлежит нам
+                        if symbol not in self.active_coins:
+                            bot_logger.warning(f"[RACE_LOST] {symbol} исчезла во время создания")
+                            return
+                            
+                        current_coin_info = self.active_coins[symbol]
+                        if current_coin_info.get('lock_id') != unique_id:
+                            bot_logger.warning(f"[LOCK_MISMATCH] {symbol} обрабатывается другим процессом")
+                            return
 
                         if msg_id and isinstance(msg_id, int) and msg_id > 0:
                             # Успешно отправили
@@ -515,12 +589,12 @@ class TradingTelegramBot:
                         else:
                             # Не удалось отправить
                             bot_logger.warning(f"[FAIL] Не удалось отправить уведомление для {symbol}")
-                            if symbol in self.active_coins:
+                            if symbol in self.active_coins and self.active_coins[symbol].get('lock_id') == unique_id:
                                 del self.active_coins[symbol]
 
                     except Exception as e:
                         bot_logger.error(f"[ERROR] Ошибка создания уведомления для {symbol}: {e}")
-                        if symbol in self.active_coins:
+                        if symbol in self.active_coins and self.active_coins[symbol].get('lock_id') == unique_id:
                             del self.active_coins[symbol]
 
             else:
@@ -531,9 +605,17 @@ class TradingTelegramBot:
                     # НЕ завершаем активность для монет в процессе создания
                     if coin_info.get('creating', False):
                         creation_time = coin_info.get('creation_time', now)
-                        if now - creation_time > 20:
+                        if now - creation_time > 15:
                             bot_logger.warning(f"[TIMEOUT] Принудительное завершение создания {symbol}")
-                            del self.active_coins[symbol]
+                            try:
+                                msg_id = coin_info.get('msg_id')
+                                if msg_id and isinstance(msg_id, int) and msg_id > 0:
+                                    await self.delete_message(msg_id)
+                                del self.active_coins[symbol]
+                            except Exception as e:
+                                bot_logger.error(f"[TIMEOUT_CLEANUP_ERROR] {symbol}: {e}")
+                                if symbol in self.active_coins:
+                                    del self.active_coins[symbol]
                         return
 
                     # Проверяем таймаут неактивности
@@ -542,7 +624,8 @@ class TradingTelegramBot:
                         await self._end_coin_activity(symbol, now)
 
         finally:
-            # Снимаем блокировку
+            # Снимаем блокировку через небольшую задержку
+            await asyncio.sleep(0.1)
             if symbol in self._notification_locks:
                 del self._notification_locks[symbol]
 
