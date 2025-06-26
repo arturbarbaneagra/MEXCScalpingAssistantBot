@@ -564,8 +564,8 @@ class TradingTelegramBot:
         # Останавливаем текущий режим (включая удаление сообщений)
         await self._stop_current_mode()
 
-        # Небольшая задержка для стабилизации
-        await asyncio.sleep(0.3)
+        # Увеличиваем задержку для полной стабилизации event loop
+        await asyncio.sleep(1.0)
 
         # Дополнительно очищаем сообщение мониторинга, если оно есть
         if self.monitoring_message_id:
@@ -577,14 +577,20 @@ class TradingTelegramBot:
         self.bot_mode = 'notification'
         self.bot_running = True
         bot_state_manager.set_last_mode('notification')
+        
+        # Отправляем сообщение ПЕРЕД запуском loop чтобы избежать конфликта
+        try:
+            await update.message.reply_text(
+                "✅ <b>Режим уведомлений активирован</b>\n"
+                "Вы будете получать уведомления об активных монетах.",
+                reply_markup=self.main_keyboard,
+                parse_mode=ParseMode.HTML
+            )
+        except Exception as e:
+            bot_logger.error(f"Ошибка отправки подтверждения: {e}")
+        
+        # Запускаем loop после отправки подтверждения
         self.start_monitoring_loop()
-
-        await update.message.reply_text(
-            "✅ <b>Режим уведомлений активирован</b>\n"
-            "Вы будете получать уведомления об активных монетах.",
-            reply_markup=self.main_keyboard,
-            parse_mode=ParseMode.HTML
-        )
 
     async def _handle_monitoring_mode(self, update: Update):
         """Обработка режима мониторинга"""
@@ -598,8 +604,8 @@ class TradingTelegramBot:
         # Останавливаем текущий режим (включая удаление сообщений)
         await self._stop_current_mode()
 
-        # Небольшая задержка для стабилизации
-        await asyncio.sleep(0.3)
+        # Увеличиваем задержку для полной стабилизации event loop
+        await asyncio.sleep(1.0)
 
         # Дополнительно очищаем активные уведомления, если они есть
         if self.active_coins:
@@ -613,14 +619,20 @@ class TradingTelegramBot:
         self.bot_mode = 'monitoring'
         self.bot_running = True
         bot_state_manager.set_last_mode('monitoring')
+        
+        # Отправляем сообщение ПЕРЕД запуском loop чтобы избежать конфликта
+        try:
+            await update.message.reply_text(
+                "✅ <b>Режим мониторинга активирован</b>\n"
+                "Сводка будет обновляться автоматически.",
+                reply_markup=self.main_keyboard,
+                parse_mode=ParseMode.HTML
+            )
+        except Exception as e:
+            bot_logger.error(f"Ошибка отправки подтверждения: {e}")
+        
+        # Запускаем loop после отправки подтверждения
         self.start_monitoring_loop()
-
-        await update.message.reply_text(
-            "✅ <b>Режим мониторинга активирован</b>\n"
-            "Сводка будет обновляться автоматически.",
-            reply_markup=self.main_keyboard,
-            parse_mode=ParseMode.HTML
-        )
 
     async def _handle_stop(self, update: Update):
         """Обработка остановки бота"""
