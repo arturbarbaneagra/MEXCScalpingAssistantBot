@@ -9,7 +9,7 @@ class ConfigManager:
         self.config: Dict[str, Any] = {}
         self.default_config = {
             "VOLUME_THRESHOLD": 1500,
-            "SPREAD_THRESHOLD": 0.2,
+            "SPREAD_THRESHOLD": 0.1,
             "NATR_THRESHOLD": 0.4,
             "CHECK_BATCH_SIZE": 8,
             "CHECK_BATCH_INTERVAL": 0.6,
