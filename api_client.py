@@ -174,6 +174,14 @@ class APIClient:
         except (IndexError, ValueError, TypeError):
             return 0.0
 
+    async def get_recent_trades(self, symbol: str, limit: int = 5) -> Optional[List]:
+        """Получает последние сделки для символа"""
+        params = {
+            'symbol': f"{symbol}USDT",
+            'limit': limit
+        }
+        return await self._make_request("/trades", params)
+
     async def get_coin_data(self, symbol: str) -> Optional[Dict]:
         """Получает полные данные монеты включая количество сделок"""
         try:
@@ -181,9 +189,10 @@ class APIClient:
             ticker_task = self.get_ticker_data(symbol)
             book_task = self.get_book_ticker(symbol)
             klines_task = self.get_klines(symbol)
+            trades_task = self.get_recent_trades(symbol, 1)  # Получаем последнюю сделку для проверки активности
 
-            ticker_data, book_data, klines_data = await asyncio.gather(
-                ticker_task, book_task, klines_task, return_exceptions=True
+            ticker_data, book_data, klines_data, trades_data = await asyncio.gather(
+                ticker_task, book_task, klines_task, trades_task, return_exceptions=True
             )
 
             # Проверяем результаты
@@ -199,16 +208,25 @@ class APIClient:
             change_24h = float(ticker_data['priceChangePercent'])
             volume_24h = float(ticker_data['quoteVolume'])
 
-            # ВАЖНО: Получаем количество сделок за 1 минуту из ticker_data!
-            trades_1m = int(ticker_data.get('count', 0))  # count = количество сделок за 24ч
-
-            # Для получения более точных данных за 1м, используем приблизительный расчет
-            # Но ticker/24hr не дает 1м данные, поэтому используем klines
+            # Получаем количество сделок за 1 минуту из klines (правильно)
+            trades_1m = 0
             if klines_data and len(klines_data) > 0:
                 # Последняя минутная свеча содержит количество сделок
                 last_candle = klines_data[-1]
-                if len(last_candle) > 8:
-                    trades_1m = int(last_candle[8])  # 8-й элемент = count (количество сделок)
+                if len(last_candle) > 8 and last_candle[8] is not None:
+                    try:
+                        trades_1m = int(float(last_candle[8]))  # 8-й элемент = count (количество сделок за 1м)
+                    except (ValueError, TypeError):
+                        trades_1m = 0
+
+            # Если klines не дают данные о сделках, используем приблизительный расчет из 24ч данных
+            if trades_1m == 0 and ticker_data.get('count'):
+                try:
+                    trades_24h = int(float(ticker_data['count']))
+                    # Приблизительно рассчитываем сделки за минуту (24ч / 1440 минут)
+                    trades_1m = max(1, trades_24h // 1440)
+                except (ValueError, TypeError):
+                    trades_1m = 0
 
             bid_price = float(book_data['bidPrice'])
             ask_price = float(book_data['askPrice'])
@@ -225,10 +243,22 @@ class APIClient:
             spread_threshold = config_manager.get('SPREAD_THRESHOLD')
             natr_threshold = config_manager.get('NATR_THRESHOLD')
 
+            # Дополнительная проверка активности по недавним сделкам
+            has_recent_trades = False
+            if trades_data and isinstance(trades_data, list) and len(trades_data) > 0:
+                # Проверяем, есть ли сделки в последние 5 минут
+                current_time = time.time() * 1000  # Переводим в миллисекунды
+                for trade in trades_data:
+                    trade_time = int(trade.get('time', 0))
+                    if current_time - trade_time < 300000:  # 5 минут в миллисекундах
+                        has_recent_trades = True
+                        break
+
             is_active = (
                 volume_24h >= vol_threshold and
                 spread >= spread_threshold and
-                natr >= natr_threshold
+                natr >= natr_threshold and
+                trades_1m > 0  # Должны быть сделки
             )
 
             return {
@@ -240,6 +270,7 @@ class APIClient:
                 'spread': round(spread, 2),
                 'natr': natr,
                 'active': is_active,
+                'has_recent_trades': has_recent_trades,
                 'timestamp': time.time()
             }
 

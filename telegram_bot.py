@@ -293,7 +293,7 @@ class TradingTelegramBot:
         now = time.time()
         is_currently_active = symbol in self.active_coins
 
-        if data['active']:
+        if data['active'] and data['trades'] > 0:  # Проверяем наличие сделок
             if not is_currently_active:
                 # Новая активная монета
                 message = self._format_coin_message(data, "🚨 АКТИВНОСТЬ")
@@ -305,7 +305,8 @@ class TradingTelegramBot:
                         'last_active': now,
                         'last_update': now,
                         'msg_id': msg_id,
-                        'data': data
+                        'data': data,
+                        'inactive_checks': 0  # Счетчик проверок неактивности
                     }
                     bot_logger.trade_activity(symbol, "STARTED", f"Volume: ${data['volume']:,.2f}, Trades: {data['trades']}")
             else:
@@ -313,17 +314,21 @@ class TradingTelegramBot:
                 coin_info = self.active_coins[symbol]
                 coin_info['last_active'] = now
                 coin_info['data'] = data
+                coin_info['inactive_checks'] = 0  # Сбрасываем счетчик неактивности
                 
-                # Обновляем сообщение каждые 5 секунд чтобы не спамить
-                if now - coin_info.get('last_update', 0) >= 5:
+                # Обновляем сообщение каждые 10 секунд для актуальных данных
+                if now - coin_info.get('last_update', 0) >= 10:
                     message = self._format_coin_message(data, "🚨 АКТИВНОСТЬ")
                     await self.edit_message(coin_info['msg_id'], message)
                     coin_info['last_update'] = now
 
         elif is_currently_active:
-            # Проверяем таймаут неактивности (30 секунд)
-            inactive_time = now - self.active_coins[symbol]['last_active']
-            if inactive_time >= 30:  # 30 секунд неактивности
+            # Увеличиваем счетчик неактивности
+            coin_info = self.active_coins[symbol]
+            coin_info['inactive_checks'] = coin_info.get('inactive_checks', 0) + 1
+            
+            # Проверяем таймаут неактивности (3 проверки подряд без активности = ~30-45 секунд)
+            if coin_info['inactive_checks'] >= 3:
                 await self._end_coin_activity(symbol, now)
 
     async def _end_coin_activity(self, symbol: str, end_time: float):
@@ -359,14 +364,22 @@ class TradingTelegramBot:
         # Время последнего обновления
         update_time = time.strftime("%H:%M:%S", time.localtime())
         
+        # Индикатор активности сделок
+        trades_indicator = "🟢" if data['trades'] > 0 else "🔴"
+        
+        # Индикатор недавних сделок
+        recent_trades_indicator = ""
+        if data.get('has_recent_trades'):
+            recent_trades_indicator = " 🔥"
+        
         return (
-            f"{status} <b>{data['symbol']}_USDT</b>\n"
+            f"{status} <b>{data['symbol']}_USDT</b>{recent_trades_indicator}\n"
             f"💰 Цена: ${data['price']:.6f}\n"
             f"🔄 24ч изменение: {data['change']:+.2f}%\n"
             f"📊 24ч объём: ${data['volume']:,.2f}\n"
             f"📈 NATR: {data['natr']:.2f}%\n"
             f"⇄ Спред: {data['spread']:.2f}%\n"
-            f"🔁 1м сделок: {data['trades']}\n"
+            f"{trades_indicator} 1м сделок: {data['trades']}\n"
             f"⏰ Обновлено: {update_time}"
         )
 
@@ -482,10 +495,11 @@ class TradingTelegramBot:
         if active_coins:
             parts.append("<b>🟢 АКТИВНЫЕ:</b>")
             for coin in active_coins[:10]:  # Показываем только первые 10
+                trades_icon = "🔥" if coin.get('has_recent_trades') else "📊"
                 parts.append(
                     f"• <b>{coin['symbol']}</b> "
                     f"${coin['volume']:,.0f} | {coin['change']:+.1f}% | "
-                    f"T:{coin['trades']} | S:{coin['spread']:.2f}% | N:{coin['natr']:.2f}%"
+                    f"{trades_icon}T:{coin['trades']} | S:{coin['spread']:.2f}% | N:{coin['natr']:.2f}%"
                 )
             parts.append("")
 
@@ -494,10 +508,11 @@ class TradingTelegramBot:
         if inactive_coins:
             parts.append("<b>🔴 НЕАКТИВНЫЕ (топ по объёму):</b>")
             for coin in inactive_coins[:8]:  # Показываем больше неактивных
+                trades_status = "✅" if coin['trades'] > 0 else "❌"
                 parts.append(
                     f"• <b>{coin['symbol']}</b> "
                     f"${coin['volume']:,.0f} | {coin['change']:+.1f}% | "
-                    f"T:{coin['trades']} | S:{coin['spread']:.2f}% | N:{coin['natr']:.2f}%"
+                    f"{trades_status}T:{coin['trades']} | S:{coin['spread']:.2f}% | N:{coin['natr']:.2f}%"
                 )
 
         # Добавляем статистику
