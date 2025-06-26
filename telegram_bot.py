@@ -580,14 +580,29 @@ class TradingTelegramBot:
         
         # Отправляем сообщение ПЕРЕД запуском loop чтобы избежать конфликта
         try:
-            await update.message.reply_text(
-                "✅ <b>Режим уведомлений активирован</b>\n"
-                "Вы будете получать уведомления об активных монетах.",
-                reply_markup=self.main_keyboard,
-                parse_mode=ParseMode.HTML
-            )
+            # Дополнительная проверка event loop перед отправкой
+            try:
+                current_loop = asyncio.get_running_loop()
+                if current_loop.is_closed():
+                    bot_logger.debug("Event loop закрыт, пропускаем отправку подтверждения")
+                else:
+                    await update.message.reply_text(
+                        "✅ <b>Режим уведомлений активирован</b>\n"
+                        "Вы будете получать уведомления об активных монетах.",
+                        reply_markup=self.main_keyboard,
+                        parse_mode=ParseMode.HTML
+                    )
+            except RuntimeError as loop_error:
+                if "event loop" in str(loop_error).lower():
+                    bot_logger.debug(f"Event loop ошибка при отправке подтверждения: {type(loop_error).__name__}")
+                else:
+                    raise
         except Exception as e:
-            bot_logger.error(f"Ошибка отправки подтверждения: {e}")
+            error_msg = str(e).lower()
+            if "event loop" in error_msg or "asyncio" in error_msg:
+                bot_logger.debug(f"Event loop конфликт при активации уведомлений: {type(e).__name__}")
+            else:
+                bot_logger.error(f"Ошибка отправки подтверждения: {e}")
         
         # Запускаем loop после отправки подтверждения
         self.start_monitoring_loop()
@@ -622,14 +637,29 @@ class TradingTelegramBot:
         
         # Отправляем сообщение ПЕРЕД запуском loop чтобы избежать конфликта
         try:
-            await update.message.reply_text(
-                "✅ <b>Режим мониторинга активирован</b>\n"
-                "Сводка будет обновляться автоматически.",
-                reply_markup=self.main_keyboard,
-                parse_mode=ParseMode.HTML
-            )
+            # Дополнительная проверка event loop перед отправкой
+            try:
+                current_loop = asyncio.get_running_loop()
+                if current_loop.is_closed():
+                    bot_logger.debug("Event loop закрыт, пропускаем отправку подтверждения")
+                else:
+                    await update.message.reply_text(
+                        "✅ <b>Режим мониторинга активирован</b>\n"
+                        "Сводка будет обновляться автоматически.",
+                        reply_markup=self.main_keyboard,
+                        parse_mode=ParseMode.HTML
+                    )
+            except RuntimeError as loop_error:
+                if "event loop" in str(loop_error).lower():
+                    bot_logger.debug(f"Event loop ошибка при отправке подтверждения: {type(loop_error).__name__}")
+                else:
+                    raise
         except Exception as e:
-            bot_logger.error(f"Ошибка отправки подтверждения: {e}")
+            error_msg = str(e).lower()
+            if "event loop" in error_msg or "asyncio" in error_msg:
+                bot_logger.debug(f"Event loop конфликт при активации мониторинга: {type(e).__name__}")
+            else:
+                bot_logger.error(f"Ошибка отправки подтверждения: {e}")
         
         # Запускаем loop после отправки подтверждения
         self.start_monitoring_loop()
