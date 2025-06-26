@@ -248,7 +248,7 @@ class TradingTelegramBot:
                 bot_logger.debug(f"Ошибка закрытия API сессии: {e}")
 
     async def _notification_mode_loop(self):
-        """Цикл режима уведомлений"""
+        """Цикл режима уведомлений - упрощенная версия по образцу старого бота"""
         bot_logger.info("Запущен режим уведомлений")
 
         while self.bot_running and self.bot_mode == 'notification':
@@ -262,117 +262,88 @@ class TradingTelegramBot:
                 if not self.bot_running or self.bot_mode != 'notification':
                     break
 
-                # Получаем данные параллельно с новым API клиентом
-                symbols_batch = list(batch)
-                try:
-                    results = await api_client.get_multiple_tickers_batch(symbols_batch)
+                # Обрабатываем каждую монету в батче
+                for symbol in batch:
+                    if not self.bot_running or self.bot_mode != 'notification':
+                        break
+                        
+                    try:
+                        coin_data = await api_client.get_coin_data(symbol)
+                        if coin_data:
+                            await self._process_coin_notification(symbol, coin_data)
+                    except Exception as e:
+                        bot_logger.error(f"Ошибка обработки {symbol}: {e}")
                     
-                    for symbol, ticker_data in results.items():
-                        if ticker_data:
-                            coin_data = await api_client.get_coin_data(symbol)
-                            if coin_data:
-                                await self._process_coin_notification(symbol, coin_data)
-                except Exception as e:
-                    bot_logger.error(f"Ошибка обработки батча: {e}")
-                    # Fallback на по одному символу
-                    for symbol in symbols_batch:
-                        try:
-                            coin_data = await api_client.get_coin_data(symbol)
-                            if coin_data:
-                                await self._process_coin_notification(symbol, coin_data)
-                        except Exception as e:
-                            bot_logger.error(f"Ошибка обработки {symbol}: {e}")
+                    await asyncio.sleep(config_manager.get('COIN_DATA_DELAY'))
 
                 await asyncio.sleep(config_manager.get('CHECK_BATCH_INTERVAL'))
 
-            try:
-                await asyncio.sleep(config_manager.get('CHECK_FULL_CYCLE_INTERVAL'))
-            except Exception as e:
-                bot_logger.error(f"Ошибка в цикле уведомлений: {e}")
-                await asyncio.sleep(5)  # Пауза при ошибке
+            await asyncio.sleep(config_manager.get('CHECK_FULL_CYCLE_INTERVAL'))
 
     async def _process_coin_notification(self, symbol: str, data: Dict):
-        """Обрабатывает уведомление для монеты"""
+        """Обрабатывает уведомление для монеты - упрощенная логика как в старом боте"""
         now = time.time()
         is_currently_active = symbol in self.active_coins
 
-        if data['active'] and data['trades'] > 0:  # Проверяем наличие сделок
+        if data['active']:
             if not is_currently_active:
                 # Новая активная монета
-                message = self._format_coin_message(data, "🚨 АКТИВНОСТЬ")
+                message = (
+                    f"🚨 <b>{symbol}_USDT активен</b>\n"
+                    f"🔄 Изм: {data['change']:+.2f}%  🔁 Сделок: {data['trades']}\n"
+                    f"📊 Объём: ${data['volume']:,.2f}  NATR: {data['natr']:.2f}%\n"
+                    f"⇄ Спред: {data['spread']:.2f}%"
+                )
                 msg_id = await self.send_message(message)
-
+                
                 if msg_id:
                     self.active_coins[symbol] = {
-                        'start_time': now,
+                        'start': now,
                         'last_active': now,
-                        'last_update': now,
                         'msg_id': msg_id,
-                        'data': data,
-                        'inactive_duration': 0  # Счетчик времени неактивности
+                        'data': data
                     }
                     bot_logger.trade_activity(symbol, "STARTED", f"Volume: ${data['volume']:,.2f}, Trades: {data['trades']}")
             else:
-                # Обновляем существующую активную монету
-                coin_info = self.active_coins[symbol]
-                coin_info['last_active'] = now
-                coin_info['data'] = data
-                coin_info['inactive_duration'] = 0  # Сбрасываем время неактивности
+                # Обновляем данные по активной монете
+                self.active_coins[symbol]['last_active'] = now
+                self.active_coins[symbol]['data'] = data
                 
-                # Обновляем сообщение каждые 10 секунд для актуальных данных
-                if now - coin_info.get('last_update', 0) >= 10:
-                    message = self._format_coin_message(data, "🚨 АКТИВНОСТЬ")
-                    await self.edit_message(coin_info['msg_id'], message)
-                    coin_info['last_update'] = now
-
+                # Обновляем сообщение
+                message = (
+                    f"🚨 <b>{symbol}_USDT активен</b>\n"
+                    f"🔄 Изм: {data['change']:+.2f}%  🔁 Сделок: {data['trades']}\n"
+                    f"📊 Объём: ${data['volume']:,.2f}  NATR: {data['natr']:.2f}%\n"
+                    f"⇄ Спред: {data['spread']:.2f}%"
+                )
+                await self.edit_message(self.active_coins[symbol]['msg_id'], message)
+                
         elif is_currently_active:
-            # Увеличиваем время неактивности
-            coin_info = self.active_coins[symbol]
-            time_since_last_active = now - coin_info['last_active']
-            coin_info['inactive_duration'] = time_since_last_active
-            
-            # Проверяем таймаут неактивности (30 секунд)
-            if coin_info['inactive_duration'] >= 30:
+            # Проверяем, не прошло ли время неактивности
+            inactivity_timeout = config_manager.get('INACTIVITY_TIMEOUT')
+            if now - self.active_coins[symbol]['last_active'] > inactivity_timeout:
                 await self._end_coin_activity(symbol, now)
 
     async def _end_coin_activity(self, symbol: str, end_time: float):
-        """Завершает активность монеты"""
+        """Завершает активность монеты - как в старом боте"""
         coin_info = self.active_coins[symbol]
-        duration = end_time - coin_info['start_time']
+        duration = end_time - coin_info['start']
 
-        # Сначала удаляем сообщение об активности
-        if coin_info.get('msg_id'):
-            delete_success = await self.delete_message(coin_info['msg_id'])
-            if delete_success:
-                bot_logger.info(f"Удалено сообщение активности для {symbol}")
+        # Удаляем сообщение об активности
+        msg_id = coin_info.get('msg_id')
+        if msg_id:
+            await self.delete_message(msg_id)
 
-        # Отправляем сообщение о завершении для любой активности >= 10 секунд
-        if duration >= 10:
-            minutes = int(duration // 60)
-            seconds = int(duration % 60)
-            
-            if minutes > 0:
-                duration_text = f"{minutes} мин {seconds} сек"
-            else:
-                duration_text = f"{seconds} сек"
-                
+        # Отправляем сообщение о завершении только если активность была >= 60 секунд
+        if duration >= 60:
+            duration_min = int(duration // 60)
+            duration_sec = int(duration % 60)
             end_message = (
                 f"✅ <b>{symbol}_USDT завершил активность</b>\n"
-                f"⏱ Длительность: {duration_text}"
+                f"⏱ Длительность: {duration_min} мин {duration_sec} сек"
             )
-            
-            # Отправляем сообщение о завершении
-            completion_msg_id = await self.send_message(end_message)
-            if completion_msg_id:
-                bot_logger.trade_activity(symbol, "ENDED", f"Duration: {duration_text}")
-                
-                # Автоматически удаляем сообщение о завершении через 15 секунд
-                async def auto_delete_completion():
-                    await asyncio.sleep(15)
-                    await self.delete_message(completion_msg_id)
-                
-                # Запускаем автоудаление в фоне
-                asyncio.create_task(auto_delete_completion())
+            await self.send_message(end_message)
+            bot_logger.trade_activity(symbol, "ENDED", f"Duration: {duration_min}m {duration_sec}s")
 
         # Удаляем из активных монет
         del self.active_coins[symbol]
