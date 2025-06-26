@@ -54,10 +54,9 @@ def health_check():
         cache_stats = cache_manager.get_stats()
         alerts = alert_manager.get_active_alerts()
 
-        # Получаем продвинутые алерты
-        from advanced_alerts import advanced_alert_manager
-        advanced_alerts = advanced_alert_manager.get_active_alerts()
-        alert_stats = advanced_alert_manager.get_alert_stats()
+        # Получаем алерты из единой системы
+        advanced_alerts = alert_manager.get_active_alerts()
+        alert_stats = alert_manager.get_alert_stats()
 
         # Получаем оценку производительности
         try:

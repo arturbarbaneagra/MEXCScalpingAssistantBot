@@ -100,6 +100,41 @@ class CacheManager:
         total = self.cache_hits + self.cache_misses
         return (self.cache_hits / total * 100) if total > 0 else 0
 
+    def clear_expired(self):
+        """Очищает устаревшие записи из кеша"""
+        current_time = time.time()
+        expired_keys = []
+        
+        # Собираем устаревшие ключи
+        for key, timestamp in self.cache_timestamps.items():
+            if current_time - timestamp > self.ttl:
+                expired_keys.append(key)
+        
+        # Удаляем устаревшие записи
+        for key in expired_keys:
+            del self.cache_timestamps[key]
+            
+            # Определяем тип кеша и удаляем соответствующую запись
+            if key.startswith('ticker_'):
+                symbol = key.replace('ticker_', '')
+                if symbol in self.ticker_cache:
+                    del self.ticker_cache[symbol]
+            elif key.startswith('price_'):
+                symbol = key.replace('price_', '')
+                if symbol in self.price_cache:
+                    del self.price_cache[symbol]
+            elif key.startswith('volume_'):
+                symbol = key.replace('volume_', '')
+                if symbol in self.volume_cache:
+                    del self.volume_cache[symbol]
+            elif key.startswith('trades_'):
+                symbol = key.replace('trades_', '')
+                if symbol in self.trades_cache:
+                    del self.trades_cache[symbol]
+        
+        if expired_keys:
+            bot_logger.debug(f"Очищено {len(expired_keys)} устаревших записей кеша")
+
     def get_stats(self) -> Dict[str, Any]:
         """Возвращает статистику кеша"""
         current_time = time.time()

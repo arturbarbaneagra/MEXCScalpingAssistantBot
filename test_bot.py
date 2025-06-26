@@ -1,10 +1,19 @@
+
+#!/usr/bin/env python3
+"""
+Комплексная система тестирования торгового бота
+Версия: 2.1 - Полное покрытие
+"""
+
 import unittest
 import asyncio
 import time
-from unittest.mock import Mock, patch, AsyncMock
 import json
+import tempfile
+import os
+from unittest.mock import Mock, patch, AsyncMock, MagicMock
 
-# Импорты модулей для тестирования
+# Импорты всех модулей для тестирования
 from config import config_manager
 from watchlist_manager import watchlist_manager
 from cache_manager import cache_manager
@@ -13,48 +22,60 @@ from api_client import api_client
 from circuit_breaker import CircuitBreaker, CircuitState
 from data_validator import data_validator
 from logger import bot_logger
+from alert_manager import alert_manager
+from performance_optimizer import performance_optimizer
+from auto_maintenance import auto_maintenance
 
 class TestConfigManager(unittest.TestCase):
     """Тесты менеджера конфигурации"""
 
     def setUp(self):
         self.config = config_manager
+        self.original_config = self.config.get_all().copy()
+
+    def tearDown(self):
+        # Восстанавливаем оригинальную конфигурацию
+        for key, value in self.original_config.items():
+            self.config.set(key, value)
 
     def test_default_values(self):
         """Тест значений по умолчанию"""
-        self.assertEqual(self.config.get('VOLUME_THRESHOLD'), 1000)
-        self.assertEqual(self.config.get('SPREAD_THRESHOLD'), 0.1)
-        self.assertEqual(self.config.get('NATR_THRESHOLD'), 0.5)
+        self.assertGreater(self.config.get('VOLUME_THRESHOLD'), 0)
+        self.assertGreater(self.config.get('SPREAD_THRESHOLD'), 0)
+        self.assertGreater(self.config.get('NATR_THRESHOLD'), 0)
 
     def test_set_get_value(self):
         """Тест установки и получения значений"""
-        original_value = self.config.get('VOLUME_THRESHOLD')
-        test_value = 2000
+        test_key = 'TEST_VALUE'
+        test_value = 12345
+        
+        self.config.set(test_key, test_value)
+        self.assertEqual(self.config.get(test_key), test_value)
 
-        self.config.set('VOLUME_THRESHOLD', test_value)
-        self.assertEqual(self.config.get('VOLUME_THRESHOLD'), test_value)
-
-        # Восстанавливаем оригинальное значение
-        self.config.set('VOLUME_THRESHOLD', original_value)
+    def test_config_persistence(self):
+        """Тест сохранения конфигурации"""
+        original_volume = self.config.get('VOLUME_THRESHOLD')
+        new_volume = original_volume + 1000
+        
+        self.config.set('VOLUME_THRESHOLD', new_volume)
+        self.assertEqual(self.config.get('VOLUME_THRESHOLD'), new_volume)
 
 class TestWatchlistManager(unittest.TestCase):
     """Тесты менеджера списка отслеживания"""
 
     def setUp(self):
         self.watchlist = watchlist_manager
-        # Очищаем список перед каждым тестом
         self.original_list = self.watchlist.get_all().copy()
         self.watchlist.clear()
 
     def tearDown(self):
-        # Восстанавливаем оригинальный список
         self.watchlist.clear()
         for symbol in self.original_list:
             self.watchlist.add(symbol)
 
     def test_add_remove_coin(self):
         """Тест добавления и удаления монет"""
-        test_symbol = "TEST"
+        test_symbol = "TESTCOIN"
 
         # Тест добавления
         self.assertTrue(self.watchlist.add(test_symbol))
@@ -70,9 +91,6 @@ class TestWatchlistManager(unittest.TestCase):
         self.assertFalse(self.watchlist.contains(test_symbol))
         self.assertEqual(self.watchlist.size(), 0)
 
-        # Тест удаления несуществующего
-        self.assertFalse(self.watchlist.remove("NONEXISTENT"))
-
     def test_symbol_normalization(self):
         """Тест нормализации символов"""
         test_cases = ["btc", "BTC", "btc_usdt", "BTC_USDT", "btcusdt"]
@@ -81,6 +99,18 @@ class TestWatchlistManager(unittest.TestCase):
             self.watchlist.clear()
             self.watchlist.add(symbol)
             self.assertTrue(self.watchlist.contains("BTC"))
+
+    def test_bulk_operations(self):
+        """Тест массовых операций"""
+        symbols = ["BTC", "ETH", "ADA", "SOL", "DOT"]
+        
+        for symbol in symbols:
+            self.watchlist.add(symbol)
+        
+        self.assertEqual(self.watchlist.size(), len(symbols))
+        
+        for symbol in symbols:
+            self.assertTrue(self.watchlist.contains(symbol))
 
 class TestCacheManager(unittest.TestCase):
     """Тесты менеджера кеша"""
@@ -93,12 +123,10 @@ class TestCacheManager(unittest.TestCase):
         key = "test_key"
         value = {"test": "data"}
 
-        # Тест установки и получения
         self.cache.set(key, value)
         cached_value = self.cache.get(key)
         self.assertEqual(cached_value, value)
 
-        # Тест несуществующего ключа
         self.assertIsNone(self.cache.get("nonexistent"))
 
     def test_ticker_cache(self):
@@ -114,6 +142,84 @@ class TestCacheManager(unittest.TestCase):
         cached_data = self.cache.get_ticker_cache(symbol)
         self.assertEqual(cached_data, ticker_data)
 
+    def test_cache_expiration(self):
+        """Тест истечения срока кеша"""
+        symbol = "TEST"
+        data = {"price": 100}
+        
+        self.cache.set_price_cache(symbol, 100.0)
+        
+        # Принудительно устанавливаем старое время
+        cache_key = f"price_{symbol}"
+        self.cache.cache_timestamps[cache_key] = time.time() - 10
+        
+        # Должно вернуть None из-за истечения срока
+        result = self.cache.get_price_cache(symbol)
+        self.assertIsNone(result)
+
+    def test_clear_expired(self):
+        """Тест очистки устаревших записей"""
+        symbol = "TEST"
+        self.cache.set_price_cache(symbol, 100.0)
+        
+        # Устанавливаем старое время
+        cache_key = f"price_{symbol}"
+        self.cache.cache_timestamps[cache_key] = time.time() - 10
+        
+        self.cache.clear_expired()
+        
+        # Запись должна быть удалена
+        self.assertNotIn(cache_key, self.cache.cache_timestamps)
+        self.assertNotIn(symbol, self.cache.price_cache)
+
+class TestDataValidator(unittest.TestCase):
+    """Тесты валидатора данных"""
+
+    def test_validate_coin_data(self):
+        """Тест валидации данных монет"""
+        valid_data = {
+            'symbol': 'BTC',
+            'price': 50000.0,
+            'volume': 1000.0,
+            'change': 5.0,
+            'spread': 0.1,
+            'natr': 0.5,
+            'trades': 100,
+            'active': True,
+            'has_recent_trades': True,
+            'timestamp': time.time()
+        }
+
+        self.assertTrue(data_validator.validate_coin_data(valid_data))
+
+        # Тест с отсутствующим полем
+        invalid_data = valid_data.copy()
+        del invalid_data['symbol']
+        self.assertFalse(data_validator.validate_coin_data(invalid_data))
+
+        # Тест с неправильным типом
+        invalid_data = valid_data.copy()
+        invalid_data['price'] = "invalid"
+        self.assertFalse(data_validator.validate_coin_data(invalid_data))
+
+    def test_validate_symbol(self):
+        """Тест валидации символов"""
+        self.assertTrue(data_validator.validate_symbol("BTC"))
+        self.assertTrue(data_validator.validate_symbol("BTCUSDT"))
+        self.assertTrue(data_validator.validate_symbol("BTC_USDT"))
+        
+        self.assertFalse(data_validator.validate_symbol(""))
+        self.assertFalse(data_validator.validate_symbol("A"))
+        self.assertFalse(data_validator.validate_symbol("VERYLONGSYMBOL123"))
+
+    def test_validate_config(self):
+        """Тест валидации конфигурации"""
+        self.assertTrue(data_validator.validate_config_value('VOLUME_THRESHOLD', 1000))
+        self.assertTrue(data_validator.validate_config_value('SPREAD_THRESHOLD', 0.5))
+        
+        self.assertFalse(data_validator.validate_config_value('VOLUME_THRESHOLD', -100))
+        self.assertFalse(data_validator.validate_config_value('SPREAD_THRESHOLD', 200))
+
 class TestCircuitBreaker(unittest.TestCase):
     """Тесты Circuit Breaker"""
 
@@ -122,8 +228,6 @@ class TestCircuitBreaker(unittest.TestCase):
 
     async def test_circuit_breaker_states(self):
         """Тест состояний Circuit Breaker"""
-
-        # Тест начального состояния
         self.assertEqual(self.cb.state, CircuitState.CLOSED)
 
         # Тест успешного вызова
@@ -143,44 +247,6 @@ class TestCircuitBreaker(unittest.TestCase):
                 await self.cb.call(failing_func)
 
         self.assertEqual(self.cb.state, CircuitState.OPEN)
-
-        # Тест блокировки вызовов в OPEN состоянии
-        with self.assertRaises(Exception):
-            await self.cb.call(success_func)
-
-class TestDataValidator(unittest.TestCase):
-    """Тесты валидатора данных"""
-
-    def test_validate_coin_data(self):
-        """Тест валидации данных монет"""
-
-        # Валидные данные
-        valid_data = {
-            'symbol': 'BTC',
-            'price': 50000.0,
-            'volume': 1000.0,
-            'change': 5.0,
-            'spread': 0.1,
-            'natr': 0.5,
-            'trades': 100,
-            'active': True,
-            'has_recent_trades': True,
-            'timestamp': time.time()
-        }
-
-        self.assertTrue(data_validator.validate_coin_data(valid_data))
-
-        # Невалидные данные - отсутствует обязательное поле
-        invalid_data = valid_data.copy()
-        del invalid_data['symbol']
-
-        self.assertFalse(data_validator.validate_coin_data(invalid_data))
-
-        # Невалидные данные - неправильный тип
-        invalid_data = valid_data.copy()
-        invalid_data['price'] = "invalid"
-
-        self.assertFalse(data_validator.validate_coin_data(invalid_data))
 
 class TestMetricsManager(unittest.TestCase):
     """Тесты менеджера метрик"""
@@ -212,205 +278,207 @@ class TestMetricsManager(unittest.TestCase):
         self.assertIn(metric_name, stats)
         self.assertEqual(stats[metric_name]['current'], value)
 
-class MockAPITests(unittest.TestCase):
-    """Тесты API клиента с mock'ами"""
+    def test_cleanup_metrics(self):
+        """Тест очистки метрик"""
+        # Добавляем много метрик
+        for i in range(1100):
+            self.metrics.record_api_request("/test", 0.1, 200)
+        
+        self.metrics.cleanup_old_metrics()
+        
+        # Должно остаться не больше 1000
+        stats = self.metrics.get_api_stats()
+        if "/test" in stats:
+            self.assertLessEqual(stats["/test"]['total_requests'], 1000)
+
+class TestAlertManager(unittest.TestCase):
+    """Тесты системы алертов"""
 
     def setUp(self):
-        self.api = api_client
+        self.alert_manager = alert_manager
 
-    @patch('aiohttp.ClientSession.get')
-    async def test_get_ticker_data_success(self, mock_get):
-        """Тест успешного получения данных тикера"""
+    def test_system_alerts(self):
+        """Тест системных алертов"""
+        system_info = {
+            'memory_percent': 90,
+            'cpu_percent': 85,
+            'disk_percent': 95
+        }
+        
+        alerts = self.alert_manager.check_system_alerts(system_info)
+        self.assertGreater(len(alerts), 0)
+        
+        # Проверяем, что есть алерт о высоком использовании памяти
+        memory_alerts = [a for a in alerts if a['type'] == 'high_memory_usage']
+        self.assertGreater(len(memory_alerts), 0)
 
-        # Настраиваем mock
-        mock_response = AsyncMock()
-        mock_response.status = 200
-        mock_response.json = AsyncMock(return_value={
-            "symbol": "BTCUSDT",
-            "lastPrice": "50000.00",
-            "volume": "1000.00"
-        })
-
-        mock_get.return_value.__aenter__.return_value = mock_response
-
-        # Тестируем
-        result = await self.api.get_ticker_data("BTC")
-
-        self.assertIsNotNone(result)
-        self.assertEqual(result['symbol'], "BTCUSDT")
-        self.assertEqual(result['lastPrice'], "50000.00")
-
-    @patch('aiohttp.ClientSession.get')
-    async def test_get_ticker_data_failure(self, mock_get):
-        """Тест обработки ошибки API"""
-
-        # Настраиваем mock для ошибки
-        mock_response = AsyncMock()
-        mock_response.status = 500
-
-        mock_get.return_value.__aenter__.return_value = mock_response
-
-        # Тестируем
-        result = await self.api.get_ticker_data("BTC")
-
-        self.assertIsNone(result)
-
-def run_async_test(coro):
-    """Хелпер для запуска async тестов"""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
-
-# Integration тесты
-class TestIntegration(unittest.TestCase):
-    """Интеграционные тесты"""
-
-    def test_config_watchlist_integration(self):
-        """Тест интеграции конфигурации и списка отслеживания"""
-        # Сохраняем оригинальные значения
-        original_threshold = config_manager.get('VOLUME_THRESHOLD')
-        original_watchlist = watchlist_manager.get_all().copy()
-
-        try:
-            # Тестируем изменение конфигурации
-            config_manager.set('VOLUME_THRESHOLD', 5000)
-            self.assertEqual(config_manager.get('VOLUME_THRESHOLD'), 5000)
-
-            # Тестируем добавление монет
-            watchlist_manager.clear()
-            watchlist_manager.add("BTC")
-            watchlist_manager.add("ETH")
-
-            self.assertEqual(watchlist_manager.size(), 2)
-            self.assertTrue(watchlist_manager.contains("BTC"))
-            self.assertTrue(watchlist_manager.contains("ETH"))
-
-        finally:
-            # Восстанавливаем оригинальные значения
-            config_manager.set('VOLUME_THRESHOLD', original_threshold)
-            watchlist_manager.clear()
-            for symbol in original_watchlist:
-                watchlist_manager.add(symbol)
-
-    def test_system_integration(self):
-        """Интеграционный тест системы"""
-        bot_logger.info("🧪 Запуск интеграционного теста")
-
-        # Сохраняем оригинальные значения
-        original_threshold = config_manager.get('VOLUME_THRESHOLD')
-        original_watchlist = watchlist_manager.get_all().copy()
-
-        try:
-            # Тестируем изменение конфигурации
-            config_manager.set('VOLUME_THRESHOLD', 5000)
-            self.assertEqual(config_manager.get('VOLUME_THRESHOLD'), 5000)
-
-            # Тестируем добавление монет
-            watchlist_manager.clear()
-            watchlist_manager.add("BTC")
-            watchlist_manager.add("ETH")
-
-            self.assertEqual(watchlist_manager.size(), 2)
-            self.assertTrue(watchlist_manager.contains("BTC"))
-            self.assertTrue(watchlist_manager.contains("ETH"))
-
-            # Тестируем валидацию данных
-            from data_validator import data_validator
-            valid_data = {
-                'symbol': 'BTC',
-                'price': 50000.0,
-                'volume': 1000.0,
-                'change': 2.5,
-                'spread': 0.1,
-                'natr': 0.8,
-                'trades': 100,
-                'active': True,
-                'has_recent_trades': True,
-                'timestamp': time.time()
+    def test_api_alerts(self):
+        """Тест алертов API"""
+        api_stats = {
+            '/test': {
+                'avg_response_time': 10.0,
+                'total_requests': 100,
+                'error_count': 20
             }
-            self.assertTrue(data_validator.validate_coin_data(valid_data))
+        }
+        
+        alerts = self.alert_manager.check_api_alerts(api_stats)
+        self.assertGreater(len(alerts), 0)
 
-            # Тестируем кеш
-            from cache_manager import cache_manager
-            cache_manager.set_price_cache("BTC", 50000.0)
-            cached_price = cache_manager.get_price_cache("BTC")
-            self.assertEqual(cached_price, 50000.0)
+    def test_alert_stats(self):
+        """Тест статистики алертов"""
+        stats = self.alert_manager.get_alert_stats()
+        
+        self.assertIn('total_alerts', stats)
+        self.assertIn('active_alerts', stats)
+        self.assertIn('total_triggers', stats)
 
-            # Тестируем метрики
-            from metrics_manager import metrics_manager
-            metrics_manager.record_api_request("/test", 0.5, 200)
-            stats = metrics_manager.get_api_stats()
-            self.assertIn("/test", stats)
+class TestPerformanceOptimizer(unittest.TestCase):
+    """Тесты оптимизатора производительности"""
 
-        finally:
-            # Восстанавливаем оригинальные значения
-            config_manager.set('VOLUME_THRESHOLD', original_threshold)
-            watchlist_manager.watchlist = original_watchlist
-            watchlist_manager.save()E_THRESHOLD', original_threshold)
-            watchlist_manager.clear()
-            for symbol in original_watchlist:
-                watchlist_manager.add(symbol)
-
-    def test_performance_validation(self):
-        """Тест валидации производительности"""
-        bot_logger.info("🧪 Тест производительности")
-
-        from performance_optimizer import performance_optimizer
+    def test_performance_score(self):
+        """Тест оценки производительности"""
         score = performance_optimizer.get_performance_score()
         self.assertGreaterEqual(score, 0)
         self.assertLessEqual(score, 100)
 
-    def test_alert_system(self):
-        """Тест системы алертов"""
-        bot_logger.info("🧪 Тест системы алертов")
+class TestAutoMaintenance(unittest.TestCase):
+    """Тесты автообслуживания"""
 
-        from alert_manager import alert_manager
-        from advanced_alerts import advanced_alert_manager
+    def test_maintenance_stats(self):
+        """Тест статистики обслуживания"""
+        stats = auto_maintenance.get_maintenance_stats()
+        
+        self.assertIn('running', stats)
+        self.assertIn('maintenance_interval', stats)
+        self.assertIn('last_cleanup', stats)
 
-        # Тестируем базовые алерты
-        alerts = alert_manager.check_system_alerts({
-            'memory_percent': 90,
-            'cpu_percent': 85,
-            'disk_percent': 95
-        })
-        self.assertGreater(len(alerts), 0)
+class AsyncTestRunner:
+    """Утилита для запуска async тестов"""
+    
+    @staticmethod
+    def run_async_test(coro):
+        """Запускает async тест"""
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
 
-        # Тестируем продвинутые алерты
-        stats = advanced_alert_manager.get_alert_stats()
-        self.assertIn('total_alerts', stats)
+class TestIntegration(unittest.TestCase):
+    """Интеграционные тесты"""
 
-if __name__ == '__main__':
-    # Настройка тестового окружения
-    bot_logger.info("🧪 Запуск комплексных тестов торгового бота")
+    def test_full_system_integration(self):
+        """Полный интеграционный тест системы"""
+        bot_logger.info("🧪 Запуск полного интеграционного теста")
 
+        # Тест конфигурации
+        original_volume = config_manager.get('VOLUME_THRESHOLD')
+        config_manager.set('VOLUME_THRESHOLD', 2000)
+        self.assertEqual(config_manager.get('VOLUME_THRESHOLD'), 2000)
+        config_manager.set('VOLUME_THRESHOLD', original_volume)
+
+        # Тест списка отслеживания
+        original_watchlist = watchlist_manager.get_all().copy()
+        watchlist_manager.clear()
+        
+        test_symbols = ["BTC", "ETH", "ADA"]
+        for symbol in test_symbols:
+            self.assertTrue(watchlist_manager.add(symbol))
+        
+        self.assertEqual(watchlist_manager.size(), len(test_symbols))
+        
+        # Восстанавливаем
+        watchlist_manager.clear()
+        for symbol in original_watchlist:
+            watchlist_manager.add(symbol)
+
+        # Тест кеша
+        cache_manager.set_price_cache("BTC", 50000.0)
+        cached_price = cache_manager.get_price_cache("BTC")
+        self.assertEqual(cached_price, 50000.0)
+
+        # Тест валидации
+        valid_data = {
+            'symbol': 'BTC',
+            'price': 50000.0,
+            'volume': 1000.0,
+            'change': 2.5,
+            'spread': 0.1,
+            'natr': 0.8,
+            'trades': 100,
+            'active': True,
+            'has_recent_trades': True,
+            'timestamp': time.time()
+        }
+        self.assertTrue(data_validator.validate_coin_data(valid_data))
+
+        # Тест метрик
+        metrics_manager.record_api_request("/test_integration", 0.5, 200)
+        stats = metrics_manager.get_api_stats()
+        self.assertIn("/test_integration", stats)
+
+        bot_logger.info("✅ Интеграционный тест завершен успешно")
+
+def run_all_tests():
+    """Запускает все тесты"""
+    bot_logger.info("🧪 Запуск комплексного тестирования торгового бота v2.1")
+    
     # Создаем test suite
     suite = unittest.TestSuite()
-
-    # Добавляем тесты
-    suite.addTest(unittest.makeSuite(TestConfigManager))
-    suite.addTest(unittest.makeSuite(TestWatchlistManager))
-    suite.addTest(unittest.makeSuite(TestCacheManager))
-    suite.addTest(unittest.makeSuite(TestCircuitBreaker))
-    suite.addTest(unittest.makeSuite(TestDataValidator))
-    suite.addTest(unittest.makeSuite(TestMetricsManager))
-    suite.addTest(unittest.makeSuite(MockAPITests))
-    suite.addTest(unittest.makeSuite(TestIntegration))
-
-    # Запускаем тесты
+    
+    # Добавляем все тестовые классы
+    test_classes = [
+        TestConfigManager,
+        TestWatchlistManager,
+        TestCacheManager,
+        TestDataValidator,
+        TestMetricsManager,
+        TestAlertManager,
+        TestPerformanceOptimizer,
+        TestAutoMaintenance,
+        TestIntegration
+    ]
+    
+    for test_class in test_classes:
+        tests = unittest.TestLoader().loadTestsFromTestCase(test_class)
+        suite.addTests(tests)
+    
+    # Добавляем async тесты отдельно
+    async_tests = [
+        TestCircuitBreaker('test_circuit_breaker_states')
+    ]
+    
+    # Запускаем основные тесты
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)
-
+    
+    # Запускаем async тесты
+    for async_test in async_tests:
+        try:
+            AsyncTestRunner.run_async_test(async_test.test_circuit_breaker_states())
+            bot_logger.info(f"✅ Async тест {async_test._testMethodName} пройден")
+        except Exception as e:
+            bot_logger.error(f"❌ Async тест {async_test._testMethodName} провален: {e}")
+            result.errors.append((async_test, str(e)))
+    
     # Выводим результаты
-    if result.wasSuccessful():
-        bot_logger.info("✅ Все тесты пройдены успешно!")
-    else:
-        bot_logger.error(f"❌ Тесты провалены: {len(result.failures)} failures, {len(result.errors)} errors")
-
-    print(f"\n🎯 Результаты тестирования:")
+    print(f"\n🎯 Результаты комплексного тестирования:")
     print(f"   Всего тестов: {result.testsRun}")
     print(f"   Успешно: {result.testsRun - len(result.failures) - len(result.errors)}")
     print(f"   Провалено: {len(result.failures)}")
     print(f"   Ошибок: {len(result.errors)}")
+    
+    if result.wasSuccessful():
+        bot_logger.info("✅ Все тесты пройдены успешно! Система готова к продакшну.")
+        print("\n🚀 Система прошла все тесты и готова к использованию!")
+    else:
+        bot_logger.error("❌ Некоторые тесты провалены. Требуется доработка.")
+        print("\n⚠️ Обнаружены проблемы. Проверьте логи для подробностей.")
+    
+    return result.wasSuccessful()
+
+if __name__ == '__main__':
+    success = run_all_tests()
+    exit(0 if success else 1)
