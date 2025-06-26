@@ -1480,7 +1480,7 @@ class TradingTelegramBot:
 
             if isinstance(error, Conflict):
                 bot_logger.warning("Конфликт Telegram API - возможно запущен другой экземпляр бота")
-                await asyncio.sleep(5)```python
+                await asyncio.sleep(5)
                 return
             elif isinstance(error, (NetworkError, TimedOut)):
                 bot_logger.warning(f"Сетевая ошибка Telegram: {error}")
