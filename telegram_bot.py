@@ -376,7 +376,7 @@ class TradingTelegramBot:
             f"{status} <b>{data['symbol']}_USDT</b>{recent_trades_indicator}\n"
             f"💰 Цена: ${data['price']:.6f}\n"
             f"🔄 24ч изменение: {data['change']:+.2f}%\n"
-            f"📊 24ч объём: ${data['volume']:,.2f}\n"
+            f"📊 1м оборот: ${data['volume']:,.2f}\n"
             f"📈 NATR: {data['natr']:.2f}%\n"
             f"⇄ Спред: {data['spread']:.2f}%\n"
             f"{trades_indicator} 1м сделок: {data['trades']}\n"
@@ -483,7 +483,7 @@ class TradingTelegramBot:
         natr_thresh = config_manager.get('NATR_THRESHOLD')
 
         parts.append(
-            f"<i>Фильтры: Объём ≥${vol_thresh:,}, "
+            f"<i>Фильтры: 1м оборот ≥${vol_thresh:,}, "
             f"Спред ≥{spread_thresh}%, NATR ≥{natr_thresh}%</i>\n"
         )
 
