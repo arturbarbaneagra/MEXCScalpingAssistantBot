@@ -58,6 +58,13 @@ def health_check():
         from advanced_alerts import advanced_alert_manager
         advanced_alerts = advanced_alert_manager.get_active_alerts()
         alert_stats = advanced_alert_manager.get_alert_stats()
+        
+        # Получаем оценку производительности
+        try:
+            from performance_optimizer import performance_optimizer
+            performance_score = performance_optimizer.get_performance_score()
+        except:
+            performance_score = 100.0
 
         # Время работы
         uptime_hours = metrics.get('uptime_seconds', 0) / 3600
@@ -115,6 +122,7 @@ def health_check():
                     <div class="metric-box">
                         <strong>API Performance:</strong><br>
                         Total requests: {sum(stats.get('total_requests', 0) for stats in metrics.get('api_stats', {}).values())}<br>
+                        Performance score: {performance_score:.0f}/100<br>
                         Memory usage: {cache_stats.get('memory_usage_kb', 0):.1f} KB
                     </div>
 

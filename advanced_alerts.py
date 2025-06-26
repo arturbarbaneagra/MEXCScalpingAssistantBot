@@ -191,16 +191,46 @@ class AdvancedAlertManager:
         performance_alert = Alert(
             alert_id="system_performance",
             alert_type=AlertType.SYSTEM_PERFORMANCE,
-            severity=AlertSeverity.CRITICAL,
+            severity=AlertSeverity.WARNING,  # Понижаем до WARNING
             title="🔧 Проблемы производительности",
             message="Обнаружены проблемы с производительностью системы",
-            cooldown=600  # 10 минут
+            conditions=[
+                AlertCondition("avg_response_time", ">", 2.0, duration=120),  # 2 минуты подтверждения
+                AlertCondition("memory_percent", ">", 85, duration=300)  # 5 минут подтверждения
+            ],
+            cooldown=900  # 15 минут
+        )
+        
+        # Алерт критических проблем
+        critical_performance_alert = Alert(
+            alert_id="critical_performance",
+            alert_type=AlertType.SYSTEM_PERFORMANCE,
+            severity=AlertSeverity.CRITICAL,
+            title="🚨 Критические проблемы",
+            message="Система работает на пределе возможностей",
+            conditions=[
+                AlertCondition("memory_percent", ">", 95, duration=60),  # 1 минута
+                AlertCondition("cpu_percent", ">", 95, duration=60)  # 1 минута
+            ],
+            cooldown=300  # 5 минут
+        )
+        
+        # Алерт успешной работы
+        health_alert = Alert(
+            alert_id="system_healthy",
+            alert_type=AlertType.SYSTEM_PERFORMANCE,
+            severity=AlertSeverity.INFO,
+            title="✅ Система работает отлично",
+            message="Все показатели в норме",
+            cooldown=3600  # 1 час
         )
         
         self.add_alert(volume_spike_alert)
         self.add_alert(price_movement_alert)
         self.add_alert(spread_alert)
         self.add_alert(performance_alert)
+        self.add_alert(critical_performance_alert)
+        self.add_alert(health_alert)
         
     def add_alert(self, alert: Alert):
         """Добавляет алерт"""
