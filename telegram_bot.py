@@ -749,7 +749,7 @@ class TradingTelegramBot:
                     raise
         except Exception as e:
             error_msg = str(e).lower()
-            if "event loop" in error_msg or "asyncio" in error_msg:```python
+            if "event loop" in error_msg or "asyncio" in error_msg:
                 bot_logger.debug(f"Event loop конфликт при активации уведомлений: {type(e).__name__}")
             else:
                 bot_logger.error(f"Ошибка отправки подтверждения: {e}")
