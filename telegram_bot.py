@@ -741,8 +741,7 @@ class TradingTelegramBot:
             for coin in inactive_coins[:8]:  # Показываем больше неактивных
                 trades_status = "✅" if coin['trades'] > 0 else "❌"
                 parts.append(
-                    f"```text
-• <b>{coin['symbol']}</b> "
+                    f"• <b>{coin['symbol']}</b> "
                     f"${coin['volume']:,.0f} | {coin['change']:+.1f}% | "
                     f"{trades_status}T:{coin['trades']} | S:{coin['spread']:.2f}% | N:{coin['natr']:.2f}%"
                 )
