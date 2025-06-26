@@ -309,7 +309,7 @@ class TradingTelegramBot:
                         'last_update': now,
                         'msg_id': msg_id,
                         'data': data,
-                        'inactive_checks': 0  # Счетчик проверок неактивности
+                        'inactive_duration': 0  # Счетчик времени неактивности
                     }
                     bot_logger.trade_activity(symbol, "STARTED", f"Volume: ${data['volume']:,.2f}, Trades: {data['trades']}")
             else:
@@ -317,7 +317,7 @@ class TradingTelegramBot:
                 coin_info = self.active_coins[symbol]
                 coin_info['last_active'] = now
                 coin_info['data'] = data
-                coin_info['inactive_checks'] = 0  # Сбрасываем счетчик неактивности
+                coin_info['inactive_duration'] = 0  # Сбрасываем время неактивности
                 
                 # Обновляем сообщение каждые 10 секунд для актуальных данных
                 if now - coin_info.get('last_update', 0) >= 10:
@@ -326,12 +326,13 @@ class TradingTelegramBot:
                     coin_info['last_update'] = now
 
         elif is_currently_active:
-            # Увеличиваем счетчик неактивности
+            # Увеличиваем время неактивности
             coin_info = self.active_coins[symbol]
-            coin_info['inactive_checks'] = coin_info.get('inactive_checks', 0) + 1
+            time_since_last_active = now - coin_info['last_active']
+            coin_info['inactive_duration'] = time_since_last_active
             
-            # Проверяем таймаут неактивности (3 проверки подряд без активности = ~30-45 секунд)
-            if coin_info['inactive_checks'] >= 3:
+            # Проверяем таймаут неактивности (30 секунд)
+            if coin_info['inactive_duration'] >= 30:
                 await self._end_coin_activity(symbol, now)
 
     async def _end_coin_activity(self, symbol: str, end_time: float):
@@ -339,12 +340,14 @@ class TradingTelegramBot:
         coin_info = self.active_coins[symbol]
         duration = end_time - coin_info['start_time']
 
-        # Удаляем сообщение об активности
-        if coin_info['msg_id']:
-            await self.delete_message(coin_info['msg_id'])
+        # Сначала удаляем сообщение об активности
+        if coin_info.get('msg_id'):
+            delete_success = await self.delete_message(coin_info['msg_id'])
+            if delete_success:
+                bot_logger.info(f"Удалено сообщение активности для {symbol}")
 
-        # Отправляем сообщение о завершении (для любой длительности >= 30 сек)
-        if duration >= 30:
+        # Отправляем сообщение о завершении для любой активности >= 10 секунд
+        if duration >= 10:
             minutes = int(duration // 60)
             seconds = int(duration % 60)
             
@@ -357,9 +360,21 @@ class TradingTelegramBot:
                 f"✅ <b>{symbol}_USDT завершил активность</b>\n"
                 f"⏱ Длительность: {duration_text}"
             )
-            await self.send_message(end_message)
-            bot_logger.trade_activity(symbol, "ENDED", f"Duration: {duration_text}")
+            
+            # Отправляем сообщение о завершении
+            completion_msg_id = await self.send_message(end_message)
+            if completion_msg_id:
+                bot_logger.trade_activity(symbol, "ENDED", f"Duration: {duration_text}")
+                
+                # Автоматически удаляем сообщение о завершении через 15 секунд
+                async def auto_delete_completion():
+                    await asyncio.sleep(15)
+                    await self.delete_message(completion_msg_id)
+                
+                # Запускаем автоудаление в фоне
+                asyncio.create_task(auto_delete_completion())
 
+        # Удаляем из активных монет
         del self.active_coins[symbol]
 
     def _format_coin_message(self, data: Dict, status: str) -> str:
@@ -378,9 +393,9 @@ class TradingTelegramBot:
         return (
             f"{status} <b>{data['symbol']}_USDT</b>{recent_trades_indicator}\n"
             f"💰 Цена: ${data['price']:.6f}\n"
-            f"🔄 24ч изменение: {data['change']:+.2f}%\n"
+            f"🔄 1м изменение: {data['change']:+.2f}%\n"
             f"📊 1м оборот: ${data['volume']:,.2f}\n"
-            f"📈 NATR: {data['natr']:.2f}%\n"
+            f"📈 1м NATR: {data['natr']:.2f}%\n"
             f"⇄ Спред: {data['spread']:.2f}%\n"
             f"{trades_indicator} 1м сделок: {data['trades']}\n"
             f"⏰ Обновлено: {update_time}"
