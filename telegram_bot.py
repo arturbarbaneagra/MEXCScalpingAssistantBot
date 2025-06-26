@@ -262,19 +262,24 @@ class TradingTelegramBot:
                 if not self.bot_running or self.bot_mode != 'notification':
                     break
 
+                # Обрабатываем батч монет (BATCH-режим для максимальной скорости)
+                batch_data = await api_client.get_batch_coin_data(batch)
+                batch_results = [data for data in batch_data.values() if data is not None]
+
+                # Минимальная задержка только между батчами
+                if batch_results:
+                    await asyncio.sleep(config_manager.get('COIN_DATA_DELAY'))
+
                 # Обрабатываем каждую монету в батче
-                for symbol in batch:
+                for data in batch_results:
                     if not self.bot_running or self.bot_mode != 'notification':
                         break
 
                     try:
-                        coin_data = await api_client.get_coin_data(symbol)
-                        if coin_data:
-                            await self._process_coin_notification(symbol, coin_data)
+                        symbol = data['symbol']
+                        await self._process_coin_notification(symbol, data)
                     except Exception as e:
                         bot_logger.error(f"Ошибка обработки {symbol}: {e}")
-
-                    await asyncio.sleep(config_manager.get('COIN_DATA_DELAY'))
 
                 await asyncio.sleep(config_manager.get('CHECK_BATCH_INTERVAL'))
 
@@ -416,22 +421,45 @@ class TradingTelegramBot:
             return False
         return True
 
-    async def _fetch_monitoring_data(self) -> tuple:
-        """Получает данные для мониторинга"""
-        watchlist = watchlist_manager.get_all()
+    async def _fetch_monitoring_data(self):
+        """Получает данные для мониторинга (BATCH-оптимизированная версия)"""
+        watchlist = list(watchlist_manager.get_all())
         results = []
         failed_coins = []
 
-        batch_size = config_manager.get('CHECK_BATCH_SIZE')
-        for batch in self._chunks(sorted(watchlist), batch_size):
+        # Обрабатываем порциями для максимальной скорости
+        batch_size = config_manager.get('CHECK_BATCH_SIZE', 15)
+
+        for batch in self._chunks(watchlist, batch_size):
             if not self.bot_running or self.bot_mode != 'monitoring':
                 break
 
-            batch_results, batch_failures = await self._process_monitoring_batch(batch)
-            results.extend(batch_results)
-            failed_coins.extend(batch_failures)
+            try:
+                # Получаем данные всего батча за один раз
+                batch_data = await api_client.get_batch_coin_data(batch)
 
-            await asyncio.sleep(config_manager.get('CHECK_BATCH_INTERVAL'))
+                for symbol, coin_data in batch_data.items():
+                    if coin_data:
+                        results.append(coin_data)
+                    else:
+                        failed_coins.append(symbol)
+
+            except Exception as e:
+                bot_logger.error(f"Ошибка batch получения данных: {e}")
+                # Fallback - по одной монете
+                for symbol in batch:
+                    try:
+                        coin_data = await api_client.get_coin_data(symbol)
+                        if coin_data:
+                            results.append(coin_data)
+                        else:
+                            failed_coins.append(symbol)
+                    except Exception as sym_e:
+                        bot_logger.error(f"Ошибка получения данных {symbol}: {sym_e}")
+                        failed_coins.append(symbol)
+
+            # Пауза между батчами (значительно уменьшена)
+            await asyncio.sleep(config_manager.get('CHECK_BATCH_INTERVAL', 0.4))
 
         return results, failed_coins
 
@@ -721,7 +749,7 @@ class TradingTelegramBot:
                     raise
         except Exception as e:
             error_msg = str(e).lower()
-            if "event loop" in error_msg or "asyncio" in error_msg:
+            if "event loop" in error_msg or "asyncio" in error_msg:```python
                 bot_logger.debug(f"Event loop конфликт при активации уведомлений: {type(e).__name__}")
             else:
                 bot_logger.error(f"Ошибка отправки подтверждения: {e}")

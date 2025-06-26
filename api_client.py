@@ -170,25 +170,11 @@ class APIClient:
         return await self._make_request("/klines", params)
 
     async def get_multiple_tickers_batch(self, symbols: List[str]) -> Dict[str, Optional[Dict]]:
-        """Получает данные тикеров для списка символов (оптимизированная версия с кешированием)"""
+        """Получает данные тикеров для списка символов (ультра оптимизированная версия)"""
         results = {}
-        uncached_symbols = []
-
-        # Проверяем кеш для каждого символа
-        for symbol in symbols:
-            cached_data = cache_manager.get_ticker_cache(symbol)
-            if cached_data:
-                results[symbol] = cached_data
-            else:
-                uncached_symbols.append(symbol)
-
-        # Если все данные в кеше, возвращаем результат
-        if not uncached_symbols:
-            return results
-
-        # Получаем некешированные данные
+        
         try:
-            # Попытка получить все тикеры одним запросом
+            # Сразу получаем ВСЕ тикеры одним запросом (самый быстрый способ)
             all_tickers = await self._make_request("/ticker/24hr")
             if all_tickers:
                 # Создаем индекс по символам
@@ -196,29 +182,156 @@ class APIClient:
                              for ticker in all_tickers 
                              if ticker['symbol'].endswith('USDT')}
 
-                # Заполняем результаты и кешируем
-                for symbol in uncached_symbols:
+                # Заполняем результаты для запрошенных символов
+                for symbol in symbols:
                     ticker_data = ticker_dict.get(symbol)
                     results[symbol] = ticker_data
+                    # Кешируем все полученные данные
                     if ticker_data:
                         cache_manager.set_ticker_cache(symbol, ticker_data)
             else:
-                # Fallback - запрашиваем по одному с кешированием
-                for symbol in uncached_symbols:
-                    ticker_data = await self.get_ticker_data(symbol)
-                    results[symbol] = ticker_data
+                # Fallback - используем кеш и индивидуальные запросы
+                for symbol in symbols:
+                    cached_data = cache_manager.get_ticker_cache(symbol)
+                    if cached_data:
+                        results[symbol] = cached_data
+                    else:
+                        ticker_data = await self.get_ticker_data(symbol)
+                        results[symbol] = ticker_data
 
         except Exception as e:
-            bot_logger.error(f"Ошибка batch запроса тикеров: {e}")
-            # Fallback - запрашиваем по одному
-            for symbol in uncached_symbols:
+            bot_logger.error(f"Ошибка batch запроса всех тикеров: {e}")
+            # Fallback - индивидуальные запросы с кешем
+            for symbol in symbols:
                 try:
-                    ticker_data = await self.get_ticker_data(symbol)
-                    results[symbol] = ticker_data
+                    cached_data = cache_manager.get_ticker_cache(symbol)
+                    if cached_data:
+                        results[symbol] = cached_data
+                    else:
+                        ticker_data = await self.get_ticker_data(symbol)
+                        results[symbol] = ticker_data
                 except Exception as sym_e:
                     bot_logger.error(f"Ошибка получения тикера {symbol}: {sym_e}")
                     results[symbol] = None
 
+        return results
+
+    async def get_batch_coin_data(self, symbols: List[str]) -> Dict[str, Optional[Dict]]:
+        """Получает данные для группы монет с максимальной оптимизацией"""
+        results = {}
+        
+        try:
+            # 1. Получаем все book tickers одним запросом
+            book_tickers_task = self._make_request("/ticker/bookTicker")
+            
+            # 2. Создаем задачи для klines и trades параллельно
+            klines_tasks = {}
+            trades_tasks = {}
+            
+            for symbol in symbols:
+                klines_tasks[symbol] = self.get_klines(symbol, "1m", 2)
+                trades_tasks[symbol] = self.get_trades_last_minute(symbol)
+            
+            # 3. Выполняем все запросы параллельно
+            book_tickers_data = await book_tickers_task
+            klines_results = await asyncio.gather(*klines_tasks.values(), return_exceptions=True)
+            trades_results = await asyncio.gather(*trades_tasks.values(), return_exceptions=True)
+            
+            # 4. Создаем индекс book tickers
+            book_ticker_dict = {}
+            if book_tickers_data:
+                for book_ticker in book_tickers_data:
+                    if book_ticker['symbol'].endswith('USDT'):
+                        symbol = book_ticker['symbol'].replace('USDT', '')
+                        book_ticker_dict[symbol] = book_ticker
+            
+            # 5. Собираем результаты
+            klines_dict = dict(zip(symbols, klines_results))
+            trades_dict = dict(zip(symbols, trades_results))
+            
+            for symbol in symbols:
+                try:
+                    # Получаем данные для символа
+                    book_data = book_ticker_dict.get(symbol)
+                    klines_data = klines_dict.get(symbol)
+                    trades_1m = trades_dict.get(symbol)
+                    
+                    if not book_data or isinstance(klines_data, Exception) or not klines_data:
+                        results[symbol] = None
+                        continue
+                    
+                    # Обрабатываем данные
+                    last_candle = klines_data[-1]
+                    price = float(last_candle[4])  # close price
+                    volume_1m_usdt = float(last_candle[7])  # quote volume
+                    
+                    open_price = float(last_candle[1])
+                    close_price = float(last_candle[4])
+                    high_price = float(last_candle[2])
+                    low_price = float(last_candle[3])
+                    
+                    # Изменение за 1 минуту
+                    change_1m = ((close_price - open_price) / open_price) * 100 if open_price > 0 else 0
+                    
+                    # NATR
+                    if open_price > 0:
+                        true_range = max(
+                            high_price - low_price,
+                            abs(high_price - open_price),
+                            abs(low_price - open_price)
+                        )
+                        natr = (true_range / open_price) * 100
+                    else:
+                        natr = 0
+                    
+                    # Спред
+                    bid_price = float(book_data['bidPrice'])
+                    ask_price = float(book_data['askPrice'])
+                    spread = ((ask_price - bid_price) / bid_price) * 100 if bid_price > 0 else 0
+                    
+                    # Количество сделок
+                    trades_count = trades_1m if isinstance(trades_1m, int) else 0
+                    
+                    # Проверяем активность
+                    vol_thresh = config_manager.get('VOLUME_THRESHOLD')
+                    spread_thresh = config_manager.get('SPREAD_THRESHOLD')
+                    natr_thresh = config_manager.get('NATR_THRESHOLD')
+                    
+                    is_active = (
+                        volume_1m_usdt >= vol_thresh and
+                        spread >= spread_thresh and
+                        natr >= natr_thresh
+                    )
+                    
+                    coin_data = {
+                        'symbol': symbol,
+                        'price': price,
+                        'volume': volume_1m_usdt,
+                        'change': change_1m,
+                        'spread': spread,
+                        'natr': natr,
+                        'trades': trades_count,
+                        'active': is_active,
+                        'has_recent_trades': trades_count > 0,
+                        'timestamp': time.time()
+                    }
+                    
+                    # Валидируем данные
+                    if data_validator.validate_coin_data(coin_data):
+                        results[symbol] = coin_data
+                    else:
+                        results[symbol] = None
+                        
+                except Exception as e:
+                    bot_logger.error(f"Ошибка обработки данных для {symbol}: {e}")
+                    results[symbol] = None
+            
+        except Exception as e:
+            bot_logger.error(f"Ошибка batch получения данных: {e}")
+            # Fallback - используем старый метод
+            for symbol in symbols:
+                results[symbol] = await self.get_coin_data(symbol)
+        
         return results
 
     def _calculate_natr(self, klines: List) -> float:
