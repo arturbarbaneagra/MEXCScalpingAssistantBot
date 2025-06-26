@@ -6,6 +6,8 @@
 
 import os
 import sys
+import asyncio
+import threading
 from datetime import datetime
 from flask import Flask
 from threading import Thread
@@ -94,7 +96,7 @@ def validate_environment():
 
     return True
 
-def main():
+async def main():
     """Основная функция"""
     try:
         bot_logger.info("=" * 50)
@@ -136,23 +138,7 @@ def main():
         except Exception as e:
             bot_logger.debug(f"Ошибка закрытия API клиента: {e}")
         
-        bot_logger.info("👋 Торговый бот остановлен")ive()
-
-        # Настраиваем и запускаем Telegram бота
-        bot_logger.info("🔧 Настройка Telegram бота...")
-        application = telegram_bot.setup_application()
-
-        bot_logger.info("✅ Бот успешно запущен!")
-        bot_logger.info(f"📊 Загружено {watchlist_manager.size()} монет для отслеживания")
-        bot_logger.info("🔄 Ожидание команд...")
-
-        # Запускаем polling
-        application.run_polling(
-            drop_pending_updates=True,
-            poll_interval=1.0,
-            timeout=20,
-            close_loop=False
-        )
+        bot_logger.info("👋 Торговый бот остановлен")
 
     except KeyboardInterrupt:
         bot_logger.info("👋 Получен сигнал остановки")
@@ -183,4 +169,4 @@ def main():
         bot_logger.info("🛑 Бот остановлен")
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
