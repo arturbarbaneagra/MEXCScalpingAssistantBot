@@ -1,3 +1,4 @@
+# Applying the provided changes to the original code, focusing on adding trades cache functionality.
 import time
 import asyncio
 from typing import Dict, Optional, Any, Tuple
@@ -104,16 +105,16 @@ class CacheManager:
         """Очищает устаревшие записи из кеша"""
         current_time = time.time()
         expired_keys = []
-        
+
         # Собираем устаревшие ключи
         for key, timestamp in self.cache_timestamps.items():
             if current_time - timestamp > self.ttl:
                 expired_keys.append(key)
-        
+
         # Удаляем устаревшие записи
         for key in expired_keys:
             del self.cache_timestamps[key]
-            
+
             # Определяем тип кеша и удаляем соответствующую запись
             if key.startswith('ticker_'):
                 symbol = key.replace('ticker_', '')
@@ -131,7 +132,7 @@ class CacheManager:
                 symbol = key.replace('trades_', '')
                 if symbol in self.trades_cache:
                     del self.trades_cache[symbol]
-        
+
         if expired_keys:
             bot_logger.debug(f"Очищено {len(expired_keys)} устаревших записей кеша")
 
@@ -152,7 +153,7 @@ class CacheManager:
             'valid_entries': valid_entries,
             'expired_entries': expired_entries,
             'ticker_cache_size': len(self.ticker_cache),
-            'price_cache_size': len(self.price_cache),
+            'price_cache_size': len self.price_cache),
             'volume_cache_size': len(self.volume_cache),
             'trades_cache_size': len(self.trades_cache),
             'cache_hits': self.cache_hits,
@@ -169,3 +170,4 @@ class CacheManager:
 
 # Глобальный экземпляр кеша
 cache_manager = CacheManager()
+`

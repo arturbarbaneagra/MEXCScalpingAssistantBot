@@ -372,11 +372,17 @@ class APIClient:
         return await self._make_request("/trades", params)
 
     async def get_trades_last_minute(self, symbol: str) -> int:
-        """Получает количество сделок за последнюю минуту"""
+        """Получает количество сделок за последнюю минуту с кешированием"""
         try:
+            # Проверяем кеш сделок
+            cached_trades = cache_manager.get_trades_cache(symbol)
+            if cached_trades is not None:
+                return cached_trades
+
             # Получаем последние сделки
-            trades = await self.get_recent_trades(symbol, 1000)
+            trades = await self.get_recent_trades(symbol, 500)  # Уменьшили лимит
             if not trades:
+                cache_manager.set_trades_cache(symbol, 0)
                 return 0
 
             current_time = time.time() * 1000  # в миллисекундах
@@ -393,11 +399,14 @@ class APIClient:
                         # Сделки идут по убыванию времени, можно прерывать
                         break
 
+            # Кешируем результат
+            cache_manager.set_trades_cache(symbol, trades_count)
             bot_logger.debug(f"{symbol}: Сделок за последнюю минуту: {trades_count}")
             return trades_count
 
         except Exception as e:
             bot_logger.error(f"Ошибка получения сделок для {symbol}: {e}")
+            cache_manager.set_trades_cache(symbol, 0)
             return 0
 
     async def get_coin_data(self, symbol: str) -> Optional[Dict]:
