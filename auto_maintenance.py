@@ -203,7 +203,7 @@ class AutoMaintenance:
             # Очистка кеша (если есть)
             try:
                 from cache_manager import cache_manager
-                cache_manager.cleanup_expired()
+                cache_manager.clear_expired()
             except ImportError:
                 pass
 
@@ -211,8 +211,10 @@ class AutoMaintenance:
             try:
                 from metrics_manager import metrics_manager
                 metrics_manager.cleanup_old_metrics()
-            except ImportError:
-                pass
+            except (ImportError, AttributeError) as e:
+                bot_logger.debug(f"Metrics manager недоступен: {e}")
+            except Exception as e:
+                bot_logger.debug(f"Ошибка очистки метрик: {e}")
 
             bot_logger.debug("🔧 Автоматическое обслуживание выполнено")
 
