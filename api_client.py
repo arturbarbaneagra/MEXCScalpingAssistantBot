@@ -197,10 +197,13 @@ class APIClient:
 
             # Проверяем результаты
             if isinstance(ticker_data, Exception) or not ticker_data:
+                bot_logger.debug(f"Ошибка получения ticker для {symbol}: {ticker_data}")
                 return None
             if isinstance(book_data, Exception) or not book_data:
+                bot_logger.debug(f"Ошибка получения book для {symbol}: {book_data}")
                 return None
             if isinstance(klines_data, Exception) or not klines_data:
+                bot_logger.debug(f"Ошибка получения klines для {symbol}: {klines_data}")
                 return None
 
             # Извлекаем основные данные
@@ -211,37 +214,43 @@ class APIClient:
             volume_1m_usdt = 0.0  # Оборот в USDT за 1 минуту
             trades_1m = 0        # Количество сделок за 1 минуту
             
-            if klines_data and len(klines_data) > 0:
-                # Последняя завершенная минутная свеча
+            # Детальная отладка klines данных
+            if klines_data and isinstance(klines_data, list) and len(klines_data) > 0:
                 last_candle = klines_data[-1]
+                bot_logger.debug(f"{symbol} kline структура: {last_candle[:10] if len(last_candle) > 10 else last_candle}")
+                
                 try:
-                    # Структура kline: [timestamp, open, high, low, close, volume, close_time, quote_volume, count, ...]
-                    # quote_volume (индекс 7) - это оборот в USDT
-                    # count (индекс 8) - количество сделок
-                    if len(last_candle) > 8:
-                        volume_1m_usdt = float(last_candle[7])  # Quote asset volume (USDT)
-                        trades_1m = int(float(last_candle[8]))  # Number of trades
-                    
-                    bot_logger.debug(f"{symbol}: 1m volume={volume_1m_usdt:.2f} USDT, trades={trades_1m}")
+                    # Структура kline согласно MEXC API:
+                    # [timestamp, open, high, low, close, volume, close_time, quote_volume, count, taker_buy_base_asset_volume, taker_buy_quote_asset_volume]
+                    if len(last_candle) >= 9:
+                        volume_1m_usdt = float(last_candle[7])  # quote_volume (оборот в USDT)
+                        trades_1m = int(float(last_candle[8]))  # count (количество сделок)
+                        
+                        bot_logger.info(f"{symbol}: 1m volume={volume_1m_usdt:.2f} USDT, trades={trades_1m}, candle_len={len(last_candle)}")
+                    else:
+                        bot_logger.warning(f"{symbol}: Недостаточно данных в kline: {len(last_candle)} элементов")
+                        
                 except (ValueError, TypeError, IndexError) as e:
-                    bot_logger.warning(f"Ошибка парсинга kline для {symbol}: {e}")
+                    bot_logger.error(f"Ошибка парсинга kline для {symbol}: {e}, данные: {last_candle}")
                     volume_1m_usdt = 0.0
                     trades_1m = 0
+            else:
+                bot_logger.warning(f"{symbol}: Нет klines данных")
 
-            # Если данные из klines не получены, пытаемся рассчитать приблизительно
+            # Fallback расчет если основные данные не получены
             if volume_1m_usdt == 0 and ticker_data.get('quoteVolume'):
                 try:
                     volume_24h = float(ticker_data['quoteVolume'])
-                    # Очень приблизительная оценка: 24ч объем / 1440 минут
-                    volume_1m_usdt = volume_24h / 1440
+                    volume_1m_usdt = volume_24h / 1440  # Приблизительно
+                    bot_logger.debug(f"{symbol}: Fallback volume from 24h: {volume_1m_usdt:.2f}")
                 except (ValueError, TypeError):
                     volume_1m_usdt = 0.0
 
             if trades_1m == 0 and ticker_data.get('count'):
                 try:
                     trades_24h = int(float(ticker_data['count']))
-                    # Приблизительная оценка: 24ч сделки / 1440 минут
-                    trades_1m = max(0, trades_24h // 1440)
+                    trades_1m = max(1, trades_24h // 1440)  # Минимум 1 если есть торговля
+                    bot_logger.debug(f"{symbol}: Fallback trades from 24h: {trades_1m}")
                 except (ValueError, TypeError):
                     trades_1m = 0
 
@@ -255,17 +264,18 @@ class APIClient:
             # Вычисляем NATR
             natr = self._calculate_natr(klines_data) if klines_data else 0.0
 
-            # Проверяем недавние сделки для дополнительной валидации активности
+            # Проверяем недавние сделки из trades endpoint
             has_recent_trades = False
-            if trades_data and isinstance(trades_data, list) and len(trades_data) > 0:
-                # Проверяем, есть ли сделки в последние 2 минуты
-                current_time = time.time() * 1000  # Переводим в миллисекунды
-                recent_count = 0
+            recent_trades_count = 0
+            if trades_data and isinstance(trades_data, list):
+                current_time = time.time() * 1000
                 for trade in trades_data:
-                    trade_time = int(trade.get('time', 0))
-                    if current_time - trade_time < 120000:  # 2 минуты в миллисекундах
-                        recent_count += 1
-                has_recent_trades = recent_count >= 3  # Минимум 3 сделки за 2 минуты
+                    if isinstance(trade, dict) and 'time' in trade:
+                        trade_time = int(trade['time'])
+                        if current_time - trade_time < 120000:  # 2 минуты
+                            recent_trades_count += 1
+                has_recent_trades = recent_trades_count >= 2
+                bot_logger.debug(f"{symbol}: Recent trades in 2min: {recent_trades_count}")
 
             # Определяем активность на основе фильтров
             from config import config_manager
@@ -277,31 +287,36 @@ class APIClient:
                 volume_1m_usdt >= vol_threshold and
                 spread >= spread_threshold and
                 natr >= natr_threshold and
-                trades_1m > 0  # Должны быть сделки
+                trades_1m > 0
             )
 
-            return {
+            result = {
                 'symbol': symbol,
                 'price': price,
                 'change': change_24h,
-                'volume': volume_1m_usdt,  # Теперь это оборот в USDT за 1 минуту
-                'trades': trades_1m,       # Количество сделок за 1 минуту
+                'volume': volume_1m_usdt,
+                'trades': trades_1m,
                 'spread': round(spread, 2),
                 'natr': natr,
                 'active': is_active,
                 'has_recent_trades': has_recent_trades,
                 'timestamp': time.time()
             }
+            
+            bot_logger.debug(f"{symbol} итоговые данные: volume={volume_1m_usdt:.2f}, trades={trades_1m}, active={is_active}")
+            return result
 
         except Exception as e:
-            bot_logger.error(f"Ошибка получения данных для {symbol}: {e}")
+            bot_logger.error(f"Критическая ошибка получения данных для {symbol}: {e}", exc_info=True)
             return None
 
     async def close(self):
-        """Закрывает сессию"""
+        """Закрывает сессию правильно"""
         if self.session and not self.session.closed:
             try:
                 await self.session.close()
+                # Даем время на завершение всех соединений
+                await asyncio.sleep(0.1)
                 bot_logger.debug("API сессия закрыта")
             except Exception as e:
                 bot_logger.debug(f"Ошибка закрытия API сессии: {e}")

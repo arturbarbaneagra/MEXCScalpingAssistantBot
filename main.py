@@ -157,6 +157,8 @@ async def main():
         # Корректное завершение работы
         try:
             await api_client.close()
+            # Даем время на полное закрытие соединений
+            await asyncio.sleep(0.3)
             bot_logger.info("🔒 API клиент закрыт")
         except Exception as e:
             bot_logger.debug(f"Ошибка закрытия API клиента: {e}")

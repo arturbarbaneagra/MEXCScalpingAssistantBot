@@ -238,9 +238,12 @@ class TradingTelegramBot:
             # Сохраняем состояние
             bot_state_manager.set_last_mode(None)
             
-            # Закрываем API сессию для экономии ресурсов
+            # Правильно закрываем API сессию
             try:
                 await api_client.close()
+                # Дополнительная пауза для завершения всех соединений
+                await asyncio.sleep(0.2)
+                bot_logger.debug("API сессия корректно закрыта")
             except Exception as e:
                 bot_logger.debug(f"Ошибка закрытия API сессии: {e}")
 
