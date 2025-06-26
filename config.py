@@ -11,14 +11,14 @@ class ConfigManager:
             "VOLUME_THRESHOLD": 1500,
             "SPREAD_THRESHOLD": 0.1,
             "NATR_THRESHOLD": 0.4,
-            "CHECK_BATCH_SIZE": 30,  # Еще больше увеличили
-            "CHECK_BATCH_INTERVAL": 0.05,  # Минимальный интервал
-            "CHECK_FULL_CYCLE_INTERVAL": 0.5,  # Максимально уменьшили
+            "CHECK_BATCH_SIZE": 20,  # Увеличили размер батча
+            "CHECK_BATCH_INTERVAL": 0.1,  # Уменьшили интервал
+            "CHECK_FULL_CYCLE_INTERVAL": 2.0,  # Значительно уменьшили
             "INACTIVITY_TIMEOUT": 30,
-            "COIN_DATA_DELAY": 0.02,  # Минимальная задержка
-            "MONITORING_UPDATE_INTERVAL": 1,  # Уменьшили до 1 секунды
-            "MAX_API_REQUESTS_PER_SECOND": 25,  # Максимальный лимит
-            "MESSAGE_RATE_LIMIT": 0.5,  # Минимальное ограничение
+            "COIN_DATA_DELAY": 0.05,  # Уменьшили задержку
+            "MONITORING_UPDATE_INTERVAL": 5,  # Уменьшили с 20 до 5
+            "MAX_API_REQUESTS_PER_SECOND": 15,  # Увеличили лимит
+            "MESSAGE_RATE_LIMIT": 1.0,  # Уменьшили ограничение
             "MAX_COINS_DISPLAY": 30,
             "API_TIMEOUT": 8,  # Уменьшили timeout
             "MAX_RETRIES": 2,

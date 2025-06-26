@@ -1,3 +1,4 @@
+
 import asyncio
 import json
 import time
@@ -17,7 +18,7 @@ class WebSocketClient:
         self.reconnect_attempts = 0
         self.max_reconnect_attempts = 10
         self.last_ping = 0
-
+        
     async def connect(self):
         """Подключение к WebSocket"""
         try:
@@ -30,14 +31,14 @@ class WebSocketClient:
             self.running = True
             self.reconnect_attempts = 0
             bot_logger.info("🔌 WebSocket подключен")
-
+            
             # Запускаем обработчики
             await asyncio.gather(
                 self._message_handler(),
                 self._ping_handler(),
                 return_exceptions=True
             )
-
+            
         except Exception as e:
             bot_logger.error(f"Ошибка WebSocket подключения: {e}")
             await self._handle_reconnect()
@@ -53,7 +54,7 @@ class WebSocketClient:
                     continue
                 except Exception as e:
                     bot_logger.debug(f"Ошибка обработки сообщения: {e}")
-
+                    
         except websockets.exceptions.ConnectionClosed:
             bot_logger.warning("WebSocket соединение закрыто")
             if self.running:
@@ -67,12 +68,12 @@ class WebSocketClient:
         """Обрабатывает входящие данные"""
         if 'channel' in data and 'data' in data:
             channel = data['channel']
-
+            
             # Обработка тикеров
             if channel.startswith('spot@public.miniTicker.v3.api@'):
                 symbol = channel.split('@')[-1].replace('USDT', '')
                 ticker_data = data['data']
-
+                
                 # Кешируем данные
                 cache_manager.set_ticker_cache(symbol, {
                     'symbol': ticker_data['s'],
@@ -81,16 +82,16 @@ class WebSocketClient:
                     'volume': ticker_data['v'],
                     'quoteVolume': ticker_data['qv']
                 })
-
+                
                 # Вызываем callback если есть
                 if symbol in self.callbacks:
                     await self.callbacks[symbol](symbol, ticker_data)
-
+            
             # Обработка book ticker
             elif channel.startswith('spot@public.bookTicker.v3.api@'):
                 symbol = channel.split('@')[-1].replace('USDT', '')
                 book_data = data['data']
-
+                
                 cache_manager.set_book_ticker_cache(symbol, {
                     'symbol': book_data['s'],
                     'bidPrice': book_data['b'],
@@ -113,20 +114,20 @@ class WebSocketClient:
         """Подписывается на данные символа"""
         if callback:
             self.callbacks[symbol] = callback
-
+            
         # Подписываемся на miniTicker для основных данных
         mini_ticker_channel = f"spot@public.miniTicker.v3.api@{symbol}USDT"
-
+        
         # Подписываемся на bookTicker для спреда
         book_ticker_channel = f"spot@public.bookTicker.v3.api@{symbol}USDT"
-
+        
         for channel in [mini_ticker_channel, book_ticker_channel]:
             if channel not in self.subscriptions:
                 subscribe_msg = {
                     "method": "SUBSCRIPTION",
                     "params": [channel]
                 }
-
+                
                 try:
                     await self.websocket.send(json.dumps(subscribe_msg))
                     self.subscriptions.add(channel)
@@ -140,20 +141,20 @@ class WebSocketClient:
             f"spot@public.miniTicker.v3.api@{symbol}USDT",
             f"spot@public.bookTicker.v3.api@{symbol}USDT"
         ]
-
+        
         for channel in channels_to_remove:
             if channel in self.subscriptions:
                 unsubscribe_msg = {
                     "method": "UNSUBSCRIPTION", 
                     "params": [channel]
                 }
-
+                
                 try:
                     await self.websocket.send(json.dumps(unsubscribe_msg))
                     self.subscriptions.remove(channel)
                 except Exception as e:
                     bot_logger.error(f"Ошибка отписки от {channel}: {e}")
-
+        
         if symbol in self.callbacks:
             del self.callbacks[symbol]
 
@@ -163,21 +164,21 @@ class WebSocketClient:
             bot_logger.error("Превышено максимальное количество попыток переподключения")
             self.running = False
             return
-
+            
         self.reconnect_attempts += 1
         wait_time = min(2 ** self.reconnect_attempts, 60)
-
+        
         bot_logger.info(f"Переподключение через {wait_time}s (попытка {self.reconnect_attempts})")
         await asyncio.sleep(wait_time)
-
+        
         if self.running:
             # Сохраняем текущие подписки
             old_subscriptions = self.subscriptions.copy()
             old_callbacks = self.callbacks.copy()
-
+            
             # Переподключаемся
             await self.connect()
-
+            
             # Восстанавливаем подписки
             for channel in old_subscriptions:
                 if 'miniTicker' in channel:

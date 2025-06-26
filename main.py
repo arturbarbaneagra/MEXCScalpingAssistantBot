@@ -1,8 +1,7 @@
-
 #!/usr/bin/env python3
 """
 Торговый бот для мониторинга криптовалют на MEXC
-Версия: 2.1 - Ультра-быстрая
+Версия: 2.0
 """
 
 import os
@@ -15,47 +14,61 @@ from flask import Flask
 from threading import Thread
 from dotenv import load_dotenv
 
-# Загружаем переменные окружения
+# Загружаем переменные окружения из .env файла в самом начале
 load_dotenv()
 
-# Импортируем модули
+# Импортируем модули в правильном порядке
 from logger import bot_logger
 from config import config_manager
 from watchlist_manager import watchlist_manager
 from telegram_bot import telegram_bot
 from api_client import api_client
-from optimized_api_client import optimized_api_client
 
-# Проверяем переменные окружения
+# Проверяем, что переменные загружены (без вывода значений)
 bot_logger.info("Проверка переменных окружения...")
 if not os.getenv('TELEGRAM_TOKEN'):
     print("❌ TELEGRAM_TOKEN не найден")
 if not os.getenv('TELEGRAM_CHAT_ID'):
     print("❌ TELEGRAM_CHAT_ID не найден")
 
-# Flask приложение
+# Flask приложение для keep-alive
 app = Flask(__name__)
 
 @app.route('/')
 def health_check():
-    """Проверка работоспособности бота"""
+    """Проверка работоспособности бота с расширенной информацией"""
     try:
         from metrics_manager import metrics_manager
         from cache_manager import cache_manager
         from alert_manager import alert_manager
 
+        # Получаем базовую информацию
         status = {
             'bot_running': telegram_bot.bot_running,
             'bot_mode': telegram_bot.bot_mode,
             'watchlist_size': watchlist_manager.size()
         }
 
+        # Получаем метрики
         metrics = metrics_manager.get_summary()
         cache_stats = cache_manager.get_stats()
         alerts = alert_manager.get_active_alerts()
 
+        # Получаем алерты из единой системы
+        advanced_alerts = alert_manager.get_active_alerts()
+        alert_stats = alert_manager.get_alert_stats()
+
+        # Получаем оценку производительности
+        try:
+            from performance_optimizer import performance_optimizer
+            performance_score = performance_optimizer.get_performance_score()
+        except:
+            performance_score = 100.0
+
+        # Время работы
         uptime_hours = metrics.get('uptime_seconds', 0) / 3600
 
+        # Статус алертов
         alert_status = '🟢 OK'
         if alerts:
             critical_alerts = [a for a in alerts if a.get('severity') == 'critical']
@@ -67,25 +80,26 @@ def health_check():
         return f"""
         <html>
         <head>
-            <title>🚀 Ultra-Fast Trading Bot v2.1</title>
-            <meta http-equiv="refresh" content="15">
+            <title>Trading Bot Status v2.1</title>
+            <meta http-equiv="refresh" content="30">
             <style>
-                body {{ font-family: Arial, sans-serif; margin: 20px; background: #0a0a0a; color: #00ff00; }}
-                .container {{ max-width: 900px; margin: 0 auto; background: #1a1a1a; padding: 20px; border-radius: 10px; border: 2px solid #00ff00; }}
+                body {{ font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }}
+                .container {{ max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; }}
                 .status-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin: 20px 0; }}
-                .metric-box {{ padding: 15px; background: #2a2a2a; border-radius: 8px; border-left: 4px solid #00ff00; }}
-                .speed-indicator {{ color: #ff6600; font-weight: bold; }}
-                h1 {{ color: #00ff00; text-shadow: 0 0 10px #00ff00; }}
+                .metric-box {{ padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #007bff; }}
+                .alert-box {{ padding: 10px; background: #fff3cd; border-radius: 5px; margin: 5px 0; }}
+                .critical {{ border-left-color: #dc3545; background: #f8d7da; }}
+                .warning {{ border-left-color: #ffc107; background: #fff3cd; }}
+                .success {{ border-left-color: #28a745; background: #d4edda; }}
             </style>
         </head>
         <body>
             <div class="container">
-                <h1>🚀 Ultra-Fast Trading Bot v2.1</h1>
-                <div class="speed-indicator">⚡ MAXIMUM SPEED MODE ACTIVE ⚡</div>
+                <h1>🤖 Trading Bot Status v2.1</h1>
 
                 <div class="status-grid">
-                    <div class="metric-box">
-                        <strong>Bot Status:</strong> {'🚀 Ultra-Fast Running' if status['bot_running'] else '🔴 Stopped'}<br>
+                    <div class="metric-box {'success' if status['bot_running'] else 'critical'}">
+                        <strong>Bot Status:</strong> {'🟢 Running' if status['bot_running'] else '🔴 Stopped'}<br>
                         <strong>Mode:</strong> {status['bot_mode'] or 'None'}<br>
                         <strong>Uptime:</strong> {uptime_hours:.1f} hours
                     </div>
@@ -99,26 +113,26 @@ def health_check():
 
                 <div class="metric-box">
                     <strong>🚨 Alerts:</strong> {alert_status}<br>
-                    <strong>Speed:</strong> Update every 0.3-0.5 seconds<br>
-                    <strong>Memory:</strong> {cache_stats.get('memory_usage_kb', 0):.1f} KB
+                    {f"Recent alerts: {', '.join([a.get('message', '')[:50] + '...' if len(a.get('message', '')) > 50 else a.get('message', '') for a in alerts[:2]])}" if alerts else "No active alerts"}<br>
+                    <strong>Advanced:</strong> {len(advanced_alerts)} active, {alert_stats.get('total_triggers', 0)} total triggers
                 </div>
 
                 <div class="status-grid">
                     <div class="metric-box">
                         <strong>API Performance:</strong><br>
                         Total requests: {sum(stats.get('total_requests', 0) for stats in metrics.get('api_stats', {}).values())}<br>
-                        Ultra-fast processing enabled
+                        Performance score: {performance_score:.0f}/100<br>
+                        Memory usage: {cache_stats.get('memory_usage_kb', 0):.1f} KB
                     </div>
 
                     <div class="metric-box">
                         <strong>System:</strong><br>
-                        Version: 2.1 Ultra-Fast<br>
-                        Last update: {time.strftime('%H:%M:%S')}<br>
-                        Mode: High Performance
+                        Version: 2.1<br>
+                        Last update: {time.strftime('%H:%M:%S')}
                     </div>
                 </div>
 
-                <p style="color: #ff6600;"><small>⚡ Ultra-fast updates every 15 seconds</small></p>
+                <p><small>Page auto-refreshes every 30 seconds</small></p>
             </div>
         </body>
         </html>
@@ -126,12 +140,12 @@ def health_check():
     except Exception as e:
         return f"""
         <html>
-        <body style="background: #0a0a0a; color: #00ff00; font-family: Arial;">
-            <h1>🚀 Ultra-Fast Trading Bot v2.1</h1>
-            <p><strong>Status:</strong> {'🚀 Ultra-Fast Running' if telegram_bot.bot_running else '🔴 Stopped'}</p>
+        <body>
+            <h1>🤖 Trading Bot Status v2.1</h1>
+            <p><strong>Status:</strong> {'🟢 Running' if telegram_bot.bot_running else '🔴 Stopped'}</p>
             <p><strong>Mode:</strong> {telegram_bot.bot_mode or 'None'}</p>
             <p><strong>Watchlist:</strong> {watchlist_manager.size()} coins</p>
-            <p style="color: #ff6600;"><strong>Error:</strong> {str(e)}</p>
+            <p><strong>Error:</strong> {str(e)}</p>
         </body>
         </html>
         """
@@ -141,6 +155,7 @@ def health():
     """Health check endpoint"""
     try:
         from health_check import health_checker
+        # Flask не поддерживает async напрямую, используем синхронную версию
         import asyncio
         try:
             loop = asyncio.new_event_loop()
@@ -150,13 +165,14 @@ def health():
             return health_data
         except Exception as async_error:
             return {
-                'status': 'ultra_fast', 
+                'status': 'error', 
                 'error': f'Async error: {async_error}', 
-                'version': '2.1',
-                'mode': 'ultra_performance'
+                'version': '2.0',
+                'system_basic': health_checker.get_system_info(),
+                'bot_basic': health_checker.get_bot_status()
             }
     except Exception as e:
-        return {'status': 'error', 'error': str(e), 'version': '2.1-ultra'}
+        return {'status': 'error', 'error': str(e), 'version': '2.0'}
 
 def run_flask():
     """Запуск Flask сервера"""
@@ -164,6 +180,12 @@ def run_flask():
         app.run(host='0.0.0.0', port=8080, debug=False, threaded=True)
     except Exception as e:
         bot_logger.error(f"Ошибка Flask сервера: {e}")
+
+def keep_alive():
+    """Поддержка работы сервера"""
+    server_thread = Thread(target=run_flask, daemon=True)
+    server_thread.start()
+    bot_logger.info("Flask сервер запущен на порту 8080")
 
 def validate_environment():
     """Проверка переменных окружения"""
@@ -183,86 +205,60 @@ def validate_environment():
     return True
 
 async def main():
-    """Главная функция с исправленным закрытием соединений"""
+    """Основная функция"""
     try:
-        bot_logger.info("=" * 60)
-        bot_logger.info("🚀 Запуск УЛЬТРА-БЫСТРОГО торгового бота v2.1")
-        bot_logger.info("⚡ MAXIMUM SPEED MODE")
-        bot_logger.info("=" * 60)
+        bot_logger.info("=" * 50)
+        bot_logger.info("🚀 Запуск торгового бота v2.1")
+        bot_logger.info("=" * 50)
 
         # Проверяем переменные окружения
         if not validate_environment():
             sys.exit(1)
 
         # Инициализируем состояние бота
-        try:
-            from bot_state import bot_state_manager
-            bot_state_manager.increment_session()
-        except ImportError:
-            bot_logger.warning("bot_state_manager не найден, продолжаем без него")
+        from bot_state import bot_state_manager
+        bot_state_manager.increment_session()
 
         # Запускаем автоматическое обслуживание
-        try:
-            from auto_maintenance import auto_maintenance
-            maintenance_task = asyncio.create_task(auto_maintenance.start_maintenance_loop())
-        except ImportError:
-            bot_logger.warning("auto_maintenance не найден, продолжаем без него")
-            maintenance_task = None
+        from auto_maintenance import auto_maintenance
+        maintenance_task = asyncio.create_task(auto_maintenance.start_maintenance_loop())
 
-        # Запускаем Flask сервер
+        # Запускаем Flask сервер в отдельном потоке
         flask_thread = threading.Thread(target=run_flask, daemon=True)
         flask_thread.start()
         bot_logger.info("🌐 Flask сервер запущен на порту 8080")
 
-        # Настраиваем Telegram бота
+        # Настраиваем и запускаем Telegram бота
         app = telegram_bot.setup_application()
 
-        bot_logger.info("🚀 Ультра-быстрый Telegram бот готов")
-        bot_logger.info("⚡ Обновления каждые 0.3-0.5 секунд")
-        bot_logger.info("🎯 Максимальная производительность активна")
-        bot_logger.info("=" * 60)
+        bot_logger.info("🤖 Telegram бот готов к работе")
+        bot_logger.info("🔧 Автоматическое обслуживание активно")
+        bot_logger.info("=" * 50)
 
         start_time = time.time()
 
-        # Запускаем бота
+        # Запускаем бота с правильным управлением event loop
         async with app:
             await app.start()
             await app.updater.start_polling(drop_pending_updates=True)
 
+            # Держим приложение работающим
             try:
                 while True:
                     await asyncio.sleep(1)
             except KeyboardInterrupt:
                 bot_logger.info("🛑 Получен сигнал остановки")
             finally:
-                # Корректная остановка
-                bot_logger.info("🔄 Начинаем корректное закрытие...")
-                
                 # Останавливаем автоматическое обслуживание
-                try:
-                    if 'auto_maintenance' in locals():
-                        auto_maintenance.stop_maintenance()
-                    if maintenance_task:
-                        maintenance_task.cancel()
-                    bot_logger.debug("Автоматическое обслуживание остановлено")
-                except Exception as e:
-                    bot_logger.debug(f"Ошибка остановки обслуживания: {e}")
+                auto_maintenance.stop_maintenance()
+                maintenance_task.cancel()
 
                 # Сохраняем время работы
-                try:
-                    uptime = time.time() - start_time
-                    if 'bot_state_manager' in locals():
-                        bot_state_manager.add_uptime(uptime)
-                except Exception as e:
-                    bot_logger.debug(f"Ошибка сохранения времени работы: {e}")
+                uptime = time.time() - start_time
+                bot_state_manager.add_uptime(uptime)
 
-                # Останавливаем Telegram бота
-                try:
-                    await app.updater.stop()
-                    await app.stop()
-                    bot_logger.debug("Telegram бот остановлен")
-                except Exception as e:
-                    bot_logger.debug(f"Ошибка остановки Telegram бота: {e}")
+                await app.updater.stop()
+                await app.stop()
 
     except KeyboardInterrupt:
         bot_logger.info("🛑 Получен сигнал остановки")
@@ -270,51 +266,26 @@ async def main():
         bot_logger.critical(f"💥 Критическая ошибка: {e}", exc_info=True)
         sys.exit(1)
     finally:
-        # Корректное закрытие всех соединений
-        bot_logger.info("🔒 Закрываем все соединения...")
-        
-        cleanup_tasks = []
-        
-        # Закрытие API клиентов
+        # Корректное завершение работы
         try:
-            cleanup_tasks.append(optimized_api_client.close())
-            cleanup_tasks.append(api_client.close())
-        except Exception as e:
-            bot_logger.debug(f"Ошибка добавления задач закрытия API: {e}")
-
-        # Закрытие WebSocket (если используется)
-        try:
+            # Закрываем WebSocket соединение
             from websocket_client import ws_client
-            cleanup_tasks.append(ws_client.close())
+            await ws_client.close()
+            
+            # Закрываем оптимизированный API клиент
+            from optimized_api_client import optimized_api_client
+            await optimized_api_client.close()
+            
+            # Закрываем основной API клиент
+            await api_client.close()
+            
+            # Даем время на полное закрытие соединений
+            await asyncio.sleep(0.5)
+            bot_logger.info("🔒 Все клиенты закрыты")
         except Exception as e:
-            bot_logger.debug(f"WebSocket не найден или уже закрыт: {e}")
+            bot_logger.debug(f"Ошибка закрытия клиентов: {type(e).__name__}")
 
-        # Выполняем все задачи закрытия
-        if cleanup_tasks:
-            try:
-                await asyncio.gather(*cleanup_tasks, return_exceptions=True)
-                bot_logger.debug("Все клиенты закрыты")
-            except Exception as e:
-                bot_logger.debug(f"Ошибка массового закрытия: {e}")
-
-        # Дополнительная пауза для полного закрытия соединений
-        try:
-            await asyncio.sleep(0.3)
-        except Exception:
-            pass
-
-        bot_logger.info("👋 УЛЬТРА-БЫСТРЫЙ торговый бот остановлен")
-        bot_logger.info("⚡ Все соединения корректно закрыты")
+        bot_logger.info("👋 Торговый бот остановлен")
 
 if __name__ == "__main__":
-    # Настройка для предотвращения проблем с event loop в Windows
-    if sys.platform == 'win32':
-        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-    
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\n🛑 Бот остановлен пользователем")
-    except Exception as e:
-        print(f"\n💥 Критическая ошибка запуска: {e}")
-        sys.exit(1)
+    asyncio.run(main())
