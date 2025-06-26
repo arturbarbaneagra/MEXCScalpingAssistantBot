@@ -1,4 +1,3 @@
-# Applying the provided changes to the original code, focusing on adding trades cache functionality.
 import time
 import asyncio
 from typing import Dict, Optional, Any, Tuple
@@ -6,165 +5,181 @@ from logger import bot_logger
 import sys
 
 class CacheManager:
-    def __init__(self):
-        self.ticker_cache: Dict[str, Dict] = {}
-        self.price_cache: Dict[str, float] = {}
-        self.volume_cache: Dict[str, float] = {}
-        self.trades_cache: Dict[str, int] = {}
-        self.cache_timestamps: Dict[str, float] = {}
-        self.cache_hits = 0
-        self.cache_misses = 0
-        self.ttl = 5  # Time to live в секундах
+    def __init__(self, default_ttl: int = 8):  # Увеличиваем TTL
+        self.default_ttl = default_ttl
+        self.caches = {
+            'ticker': {},
+            'price': {},
+            'trades': {},
+            'book_ticker': {}  # Добавляем кеш для book_ticker
+        }
+        self.cache_stats = {
+            'hits': 0,
+            'misses': 0,
+            'cleanups': 0
+        }
+        self.last_cleanup = time.time()
+        self.cleanup_interval = 30  # Очистка каждые 30 секунд
 
     def get_ticker_cache(self, symbol: str) -> Optional[Dict]:
         """Получает данные тикера из кеша"""
-        cache_key = f"ticker_{symbol}"
-        if symbol in self.ticker_cache:
-            if time.time() - self.cache_timestamps.get(cache_key, 0) < self.ttl:
-                self.cache_hits += 1
-                return self.ticker_cache[symbol]
+        self._auto_cleanup()
+        cache_key = f"{symbol}_ticker"
+        if cache_key in self.caches['ticker']:
+            entry = self.caches['ticker'][cache_key]
+            if time.time() - entry['timestamp'] < self.default_ttl:
+                self.cache_stats['hits'] += 1
+                return entry['data']
             else:
-                # Удаляем устаревшие данные
-                del self.ticker_cache[symbol]
-                if cache_key in self.cache_timestamps:
-                    del self.cache_timestamps[cache_key]
+                del self.caches['ticker'][cache_key]
+                self.cache_stats['misses'] += 1
+                return None
 
-        self.cache_misses += 1
+        self.cache_stats['misses'] += 1
         return None
 
     def set_ticker_cache(self, symbol: str, data: Dict) -> None:
         """Сохраняет тикер в кеш"""
-        self.ticker_cache[symbol] = data
-        self.cache_timestamps[f"ticker_{symbol}"] = time.time()
+        cache_key = f"{symbol}_ticker"
+        self.caches['ticker'][cache_key] = {
+            'data': data,
+            'timestamp': time.time()
+        }
 
     def get_price_cache(self, symbol: str) -> Optional[float]:
         """Получает цену из кеша"""
-        if symbol in self.price_cache:
-            if time.time() - self.cache_timestamps.get(f"price_{symbol}", 0) < self.ttl:
-                self.cache_hits += 1
-                return self.price_cache[symbol]
+        self._auto_cleanup()
+        cache_key = f"{symbol}_price"
+        if cache_key in self.caches['price']:
+            entry = self.caches['price'][cache_key]
+            if time.time() - entry['timestamp'] < self.default_ttl:
+                self.cache_stats['hits'] += 1
+                return entry['data']
             else:
-                del self.price_cache[symbol]
-                if f"price_{symbol}" in self.cache_timestamps:
-                    del self.cache_timestamps[f"price_{symbol}"]
+                del self.caches['price'][cache_key]
 
-        self.cache_misses += 1
+        self.cache_stats['misses'] += 1
         return None
 
     def set_price_cache(self, symbol: str, price: float) -> None:
         """Сохраняет цену в кеш"""
-        self.price_cache[symbol] = price
-        self.cache_timestamps[f"price_{symbol}"] = time.time()
+        cache_key = f"{symbol}_price"
+        self.caches['price'][cache_key] = {
+            'data': price,
+            'timestamp': time.time()
+        }
 
     def get_volume_cache(self, symbol: str) -> Optional[float]:
         """Получает кешированный объём"""
-        cache_key = f"volume_{symbol}"
-        if symbol in self.volume_cache:
-            if time.time() - self.cache_timestamps.get(cache_key, 0) < self.ttl:
-                self.cache_hits += 1
-                return self.volume_cache[symbol]
-            else:
-                del self.volume_cache[symbol]
-                if cache_key in self.cache_timestamps:
-                    del self.cache_timestamps[cache_key]
-
-        self.cache_misses += 1
         return None
 
     def set_volume_cache(self, symbol: str, volume: float):
         """Кеширует объём"""
-        self.volume_cache[symbol] = volume
-        self.cache_timestamps[f"volume_{symbol}"] = time.time()
+        pass
 
     def get_trades_cache(self, symbol: str) -> Optional[int]:
         """Получает кешированное количество сделок"""
-        cache_key = f"trades_{symbol}"
-        if symbol in self.trades_cache:
-            if time.time() - self.cache_timestamps.get(cache_key, 0) < self.ttl:
-                self.cache_hits += 1
-                return self.trades_cache[symbol]
+        self._auto_cleanup()
+        cache_key = f"{symbol}_trades"
+        if cache_key in self.caches['trades']:
+            entry = self.caches['trades'][cache_key]
+            if time.time() - entry['timestamp'] < self.default_ttl:
+                self.cache_stats['hits'] += 1
+                return entry['data']
             else:
-                del self.trades_cache[symbol]
-                if cache_key in self.cache_timestamps:
-                    del self.cache_timestamps[cache_key]
+                del self.caches['trades'][cache_key]
 
-        self.cache_misses += 1
+        self.cache_stats['misses'] += 1
         return None
 
     def set_trades_cache(self, symbol: str, trades: int):
         """Кеширует количество сделок"""
-        self.trades_cache[symbol] = trades
-        self.cache_timestamps[f"trades_{symbol}"] = time.time()
+        cache_key = f"{symbol}_trades"
+        self.caches['trades'][cache_key] = {
+            'data': trades,
+            'timestamp': time.time()
+        }
+    def get_book_ticker_cache(self, symbol: str) -> Optional[Dict]:
+        """Получает book ticker из кеша"""
+        self._auto_cleanup()
+        cache_key = f"{symbol}_book"
+        if cache_key in self.caches['book_ticker']:
+            entry = self.caches['book_ticker'][cache_key]
+            if time.time() - entry['timestamp'] < self.default_ttl:
+                self.cache_stats['hits'] += 1
+                return entry['data']
+            else:
+                del self.caches['book_ticker'][cache_key]
+
+        self.cache_stats['misses'] += 1
+        return None
+
+    def set_book_ticker_cache(self, symbol: str, data: Dict):
+        """Сохраняет book ticker в кеш"""
+        cache_key = f"{symbol}_book"
+        self.caches['book_ticker'][cache_key] = {
+            'data': data,
+            'timestamp': time.time()
+        }
+
+    def _auto_cleanup(self):
+        """Автоматическая очистка устаревших записей"""
+        current_time = time.time()
+        if current_time - self.last_cleanup > self.cleanup_interval:
+            self._cleanup_expired()
+            self.last_cleanup = current_time
+
+    def _cleanup_expired(self):
+        """Очищает устаревшие записи из всех кешей"""
+        current_time = time.time()
+        cleaned_count = 0
+
+        for cache_name, cache in self.caches.items():
+            expired_keys = []
+            for key, entry in cache.items():
+                if current_time - entry['timestamp'] > self.default_ttl * 2:  # Удаляем через 2*TTL
+                    expired_keys.append(key)
+
+            for key in expired_keys:
+                del cache[key]
+                cleaned_count += 1
+
+        if cleaned_count > 0:
+            self.cache_stats['cleanups'] += 1
+            bot_logger.debug(f"🧹 Очищено {cleaned_count} устаревших записей кеша")
 
     def get_cache_efficiency(self) -> float:
         """Возвращает эффективность кеша в процентах"""
-        total = self.cache_hits + self.cache_misses
-        return (self.cache_hits / total * 100) if total > 0 else 0
+        total = self.cache_stats['hits'] + self.cache_stats['misses']
+        return (self.cache_stats['hits'] / total * 100) if total > 0 else 0
 
-    def clear_expired(self):
-        """Очищает устаревшие записи из кеша"""
-        current_time = time.time()
-        expired_keys = []
-
-        # Собираем устаревшие ключи
-        for key, timestamp in self.cache_timestamps.items():
-            if current_time - timestamp > self.ttl:
-                expired_keys.append(key)
-
-        # Удаляем устаревшие записи
-        for key in expired_keys:
-            del self.cache_timestamps[key]
-
-            # Определяем тип кеша и удаляем соответствующую запись
-            if key.startswith('ticker_'):
-                symbol = key.replace('ticker_', '')
-                if symbol in self.ticker_cache:
-                    del self.ticker_cache[symbol]
-            elif key.startswith('price_'):
-                symbol = key.replace('price_', '')
-                if symbol in self.price_cache:
-                    del self.price_cache[symbol]
-            elif key.startswith('volume_'):
-                symbol = key.replace('volume_', '')
-                if symbol in self.volume_cache:
-                    del self.volume_cache[symbol]
-            elif key.startswith('trades_'):
-                symbol = key.replace('trades_', '')
-                if symbol in self.trades_cache:
-                    del self.trades_cache[symbol]
-
-        if expired_keys:
-            bot_logger.debug(f"Очищено {len(expired_keys)} устаревших записей кеша")
+    def clear_all(self):
+        """Очищает все кеши"""
+        for cache in self.caches.values():
+            cache.clear()
+        self.cache_stats = {'hits': 0, 'misses': 0, 'cleanups': 0}
+        bot_logger.debug("🧹 Все кеши очищены")
 
     def get_stats(self) -> Dict[str, Any]:
         """Возвращает статистику кеша"""
         current_time = time.time()
-        valid_entries = 0
-        expired_entries = 0
-
-        for key, timestamp in self.cache_timestamps.items():
-            if current_time - timestamp < self.ttl:
-                valid_entries += 1
-            else:
-                expired_entries += 1
+        total_entries = sum(len(cache) for cache in self.caches.values())
 
         return {
-            'total_entries': len(self.cache_timestamps),
-            'valid_entries': valid_entries,
-            'expired_entries': expired_entries,
-            'ticker_cache_size': len(self.ticker_cache),
-            'price_cache_size': len(self.price_cache),
-            'volume_cache_size': len(self.volume_cache),
-            'trades_cache_size': len(self.trades_cache),
-            'cache_hits': self.cache_hits,
-            'cache_misses': self.cache_misses,
+            'total_entries': total_entries,
+            'cache_hits': self.cache_stats['hits'],
+            'cache_misses': self.cache_stats['misses'],
+            'cache_cleanups': self.cache_stats['cleanups'],
             'cache_efficiency': self.get_cache_efficiency(),
+            'ticker_cache_size': len(self.caches['ticker']),
+            'price_cache_size': len(self.caches['price']),
+            'trades_cache_size': len(self.caches['trades']),
+            'book_ticker_size': len(self.caches['book_ticker']),
             'memory_usage_kb': (
-                sys.getsizeof(self.ticker_cache) + 
-                sys.getsizeof(self.price_cache) +
-                sys.getsizeof(self.volume_cache) +
-                sys.getsizeof(self.trades_cache) +
-                sys.getsizeof(self.cache_timestamps)
+                sys.getsizeof(self.caches['ticker']) +
+                sys.getsizeof(self.caches['price']) +
+                sys.getsizeof(self.caches['trades']) +
+                sys.getsizeof(self.caches['book_ticker'])
             ) / 1024
         }
 

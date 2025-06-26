@@ -268,12 +268,43 @@ async def main():
     finally:
         # Корректное завершение работы
         try:
+            # Сначала останавливаем мониторинг
+            telegram_bot.bot_running = False
+            
+            # Закрываем API клиент
             await api_client.close()
+            
+            # Сохраняем состояние активных монет
+            if hasattr(telegram_bot, 'active_coins') and telegram_bot.active_coins:
+                try:
+                    with open('active_coins_backup.json', 'w') as f:
+                        json.dump({
+                            k: {
+                                'start_time': v.get('start_time', 0),
+                                'last_active': v.get('last_active', 0),
+                                'initial_data': v.get('initial_data', {})
+                            } for k, v in telegram_bot.active_coins.items()
+                        }, f)
+                    bot_logger.info("💾 Состояние активных монет сохранено")
+                except Exception as e:
+                    bot_logger.warning(f"Не удалось сохранить активные монеты: {e}")
+            
+            # Очищаем кеши
+            cache_manager.clear_all()
+            
+            # Финальное сохранение метрик
+            try:
+                metrics_summary = metrics_manager.get_summary()
+                with open('final_metrics.json', 'w') as f:
+                    json.dump(metrics_summary, f, indent=2)
+            except Exception as e:
+                bot_logger.debug(f"Не удалось сохранить финальные метрики: {e}")
+            
             # Даем время на полное закрытие соединений
-            await asyncio.sleep(0.5)
-            bot_logger.info("🔒 API клиент закрыт")
+            await asyncio.sleep(1.0)
+            bot_logger.info("🔒 Все компоненты корректно закрыты")
         except Exception as e:
-            bot_logger.debug(f"Ошибка закрытия API клиента: {type(e).__name__}")
+            bot_logger.error(f"Ошибка при завершении работы: {e}")
 
         bot_logger.info("👋 Торговый бот остановлен")
 

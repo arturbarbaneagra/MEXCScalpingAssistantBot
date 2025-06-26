@@ -98,7 +98,7 @@ class TradingTelegramBot:
                 "is bound to a different event loop", "runtimeerror",
                 "unknown error in http implementation", "networkerror"
             ]
-            
+
             if any(pattern in error_message for pattern in ignored_error_patterns):
                 bot_logger.debug(f"[NETWORK] Event loop/сетевая ошибка при отправке: {type(e).__name__}")
                 return None
@@ -122,7 +122,7 @@ class TradingTelegramBot:
             if "message is not modified" in error_message:
                 bot_logger.debug(f"Сообщение {message_id} не изменилось, пропускаем обновление")
                 return
-            
+
             # Обрабатываем другие типы ошибок
             ignored_error_patterns = [
                 "message to edit not found",
@@ -130,7 +130,7 @@ class TradingTelegramBot:
                 "message is too old",
                 "bad request"
             ]
-            
+
             if any(pattern in error_message for pattern in ignored_error_patterns):
                 bot_logger.debug(f"Сообщение {message_id} недоступно для редактирования: {type(e).__name__}")
             else:
@@ -162,11 +162,11 @@ class TradingTelegramBot:
 
             # Выполняем удаление в правильном контексте
             await self.app.bot.delete_message(chat_id=self.chat_id, message_id=message_id)
-            
+
             # Очищаем кеш для удаленного сообщения
             if message_id in self.message_cache:
                 del self.message_cache[message_id]
-                
+
             bot_logger.debug(f"Сообщение {message_id} успешно удалено")
             return True
 
@@ -262,7 +262,7 @@ class TradingTelegramBot:
 
             # Очищаем кеш сообщений
             self.message_cache.clear()
-            
+
             self.bot_mode = None
             # Сохраняем состояние
             bot_state_manager.set_last_mode(None)
@@ -279,7 +279,7 @@ class TradingTelegramBot:
     async def _notification_mode_loop(self):
         """Цикл режима уведомлений с периодической очисткой"""
         bot_logger.info("Запущен режим уведомлений")
-        
+
         cleanup_counter = 0
 
         while self.bot_running and self.bot_mode == 'notification':
@@ -315,12 +315,12 @@ class TradingTelegramBot:
 
                     try:
                         symbol = data['symbol']
-                        
+
                         # Защита от дублирования в одном цикле
                         if symbol in processed_symbols:
                             bot_logger.debug(f"[CYCLE_SKIP] {symbol} уже обработана в этом цикле")
                             continue
-                            
+
                         processed_symbols.add(symbol)
                         await self._process_coin_notification(symbol, data)
                     except Exception as e:
@@ -334,13 +334,13 @@ class TradingTelegramBot:
         """Очистка зависших процессов создания уведомлений"""
         current_time = time.time()
         stale_coins = []
-        
+
         for symbol, coin_info in self.active_coins.items():
             if coin_info.get('creating', False):
                 creation_time = coin_info.get('creation_time', current_time)
                 if current_time - creation_time > 30:  # 30 секунд таймаут
                     stale_coins.append(symbol)
-        
+
         if stale_coins:
             bot_logger.warning(f"[CLEANUP] Найдены зависшие процессы: {', '.join(stale_coins)}")
             for symbol in stale_coins:
@@ -357,7 +357,7 @@ class TradingTelegramBot:
     async def _process_coin_notification(self, symbol: str, data: Dict):
         """Обрабатывает уведомление для монеты - улучшенная защита от дублирования"""
         now = time.time()
-        
+
         # Проверяем алерты для монеты
         advanced_alert_manager.check_coin_alerts(symbol, data)
 
@@ -366,16 +366,16 @@ class TradingTelegramBot:
             if symbol in self.active_coins:
                 # Монета уже активна - только обновляем данные
                 coin_info = self.active_coins[symbol]
-                
+
                 # НЕ обновляем монеты в процессе создания
                 if coin_info.get('creating', False):
                     bot_logger.debug(f"[SKIP] {symbol} в процессе создания, пропускаем обновление")
                     return
-                
+
                 # Обновляем данные существующей активной монеты
                 coin_info['last_active'] = now
                 coin_info['data'] = data
-                
+
                 # Обновляем сообщение только если есть валидный msg_id и содержимое изменилось
                 msg_id = coin_info.get('msg_id')
                 if msg_id and isinstance(msg_id, int) and msg_id > 0:
@@ -385,7 +385,7 @@ class TradingTelegramBot:
                         f"📊 Объём: ${data['volume']:,.2f}  NATR: {data['natr']:.2f}%\n"
                         f"⇄ Спред: {data['spread']:.2f}%"
                     )
-                    
+
                     # Проверяем, изменилось ли содержимое
                     cached_message = self.message_cache.get(msg_id)
                     if cached_message != new_message:
@@ -393,11 +393,11 @@ class TradingTelegramBot:
                         self.message_cache[msg_id] = new_message
                     else:
                         bot_logger.debug(f"[SKIP_UPDATE] {symbol} - содержимое не изменилось")
-                    
+
             else:
                 # Новая активность - создаем с атомарной блокировкой
                 unique_id = f"{symbol}_{now}_{id(asyncio.current_task() or 'main')}"
-                
+
                 # Атомарно создаем запись с блокировкой
                 self.active_coins[symbol] = {
                     'start': now,
@@ -408,19 +408,19 @@ class TradingTelegramBot:
                     'lock_id': unique_id,
                     'creation_time': now
                 }
-                
+
                 bot_logger.info(f"[CREATE] Создание уведомления для {symbol} с ID {unique_id}")
-                
+
                 # Небольшая задержка для избежания race conditions
                 await asyncio.sleep(0.05)
-                
+
                 # Проверяем, что наша блокировка все еще активна
                 current_coin_info = self.active_coins.get(symbol)
                 if (not current_coin_info or 
                     current_coin_info.get('lock_id') != unique_id):
                     bot_logger.warning(f"[RACE] {symbol} заблокирован другим процессом")
                     return
-                
+
                 # Формируем и отправляем сообщение
                 message = (
                     f"🚨 <b>{symbol}_USDT активен</b>\n"
@@ -428,10 +428,10 @@ class TradingTelegramBot:
                     f"📊 Объём: ${data['volume']:,.2f}  NATR: {data['natr']:.2f}%\n"
                     f"⇄ Спред: {data['spread']:.2f}%"
                 )
-                
+
                 try:
                     msg_id = await self.send_message(message)
-                    
+
                     # Финальная проверка и обновление статуса
                     if symbol in self.active_coins and self.active_coins[symbol].get('lock_id') == unique_id:
                         if msg_id:
@@ -449,18 +449,18 @@ class TradingTelegramBot:
                             bot_logger.warning(f"[FAIL] Не удалось отправить уведомление для {symbol}")
                     else:
                         bot_logger.warning(f"[CONFLICT] Состояние {symbol} изменено внешне")
-                        
+
                 except Exception as e:
                     # Ошибка отправки - очищаем состояние
                     if symbol in self.active_coins and self.active_coins[symbol].get('lock_id') == unique_id:
                         del self.active_coins[symbol]
                     bot_logger.error(f"[ERROR] Ошибка создания уведомления для {symbol}: {e}")
-                    
+
         else:
             # Монета неактивна - проверяем на завершение активности
             if symbol in self.active_coins:
                 coin_info = self.active_coins[symbol]
-                
+
                 # НЕ завершаем активность для монет в процессе создания
                 if coin_info.get('creating', False):
                     # Проверяем таймаут создания (защита от зависших процессов)
@@ -471,7 +471,7 @@ class TradingTelegramBot:
                     else:
                         bot_logger.debug(f"[PENDING] {symbol} в процессе создания, откладываем завершение")
                     return
-                    
+
                 # Проверяем таймаут неактивности
                 inactivity_timeout = config_manager.get('INACTIVITY_TIMEOUT')
                 if now - coin_info['last_active'] > inactivity_timeout:
@@ -482,9 +482,9 @@ class TradingTelegramBot:
         if symbol not in self.active_coins:
             bot_logger.debug(f"[END] {symbol} уже не в активных монетах")
             return
-            
+
         coin_info = self.active_coins[symbol]
-        
+
         # Не завершаем активность для монет в процессе создания
         if coin_info.get('creating', False):
             creation_time = coin_info.get('creation_time', end_time)
@@ -493,9 +493,9 @@ class TradingTelegramBot:
             else:
                 bot_logger.debug(f"[SKIP_END] {symbol} в процессе создания, откладываем завершение")
                 return
-            
+
         duration = end_time - coin_info['start']
-        
+
         bot_logger.info(f"[END] Завершение активности {symbol}, длительность: {duration:.1f}с")
 
         # Удаляем сообщение об активности только если есть валидный ID
@@ -741,7 +741,8 @@ class TradingTelegramBot:
             for coin in inactive_coins[:8]:  # Показываем больше неактивных
                 trades_status = "✅" if coin['trades'] > 0 else "❌"
                 parts.append(
-                    f"• <b>{coin['symbol']}</b> "
+                    f"```text
+• <b>{coin['symbol']}</b> "
                     f"${coin['volume']:,.0f} | {coin['change']:+.1f}% | "
                     f"{trades_status}T:{coin['trades']} | S:{coin['spread']:.2f}% | N:{coin['natr']:.2f}%"
                 )
@@ -1207,7 +1208,7 @@ class TradingTelegramBot:
 
         # Валидируем и нормализуем символ
         from input_validator import input_validator
-        
+
         if not input_validator.validate_symbol(text):
             await update.message.reply_text(
                 "❌ Некорректный символ. Используйте только буквы и цифры (2-10 символов).\n"
@@ -1452,6 +1453,39 @@ class TradingTelegramBot:
         self.app.add_handler(conv_handler)
 
         return self.app
+
+    async def _track_coin_activity(self, symbol: str, data: Dict):
+        """Отслеживает активность монеты с thread-safe операциями"""
+        now = time.time()
+
+        # Thread-safe операция с блокировкой
+        if not hasattr(self, '_coins_lock'):
+            self._coins_lock = asyncio.Lock()
+
+        async with self._coins_lock:
+            if symbol not in self.active_coins:
+                # Создаем новую запись только если монета действительно активна
+                if not data.get('active', False):
+                    return
+
+                # Проверяем, что это не ложное срабатывание
+                if data.get('volume', 0) < config_manager.get('VOLUME_THRESHOLD') * 0.8:
+                    return
+
+                # Дополнительная проверка качества данных
+                if (data.get('spread', 0) < config_manager.get('SPREAD_THRESHOLD') * 0.5 or
+                    data.get('natr', 0) < config_manager.get('NATR_THRESHOLD') * 0.5):
+                    return
+
+                self.active_coins[symbol] = {
+                    'start_time': now,
+                    'last_active': now,
+                    'initial_data': data.copy(),
+                    'notification_sent': False,
+                    'creating': True,  # Флаг процесса создания
+                    'creation_time': now,
+                    'update_count': 1
+                }
 
 # Глобальный экземпляр бота
 telegram_bot = TradingTelegramBot()

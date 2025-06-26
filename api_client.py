@@ -531,11 +531,25 @@ class APIClient:
             return None
 
     async def _rate_limit(self):
-        """Реализует rate limiting"""
-        interval = time.time() - self.last_request_time
-        if interval < 0.1:
-            await asyncio.sleep(0.1 - interval)
+        """Реализует улучшенный rate limiting для MEXC API"""
+        current_time = time.time()
+        
+        # MEXC API лимит: 20 запросов в секунду
+        min_interval = 0.05  # 50ms между запросами
+        
+        # Проверяем интервал с последним запросом
+        interval = current_time - self.last_request_time
+        if interval < min_interval:
+            sleep_time = min_interval - interval
+            await asyncio.sleep(sleep_time)
+        
+        # Обновляем счетчики
         self.last_request_time = time.time()
+        self.request_count += 1
+        
+        # Дополнительная защита от burst запросов
+        if self.request_count % 15 == 0:  # Каждые 15 запросов пауза
+            await asyncio.sleep(0.1)
 
     async def get_current_price_fast(self, symbol: str) -> Optional[float]:
         """Быстрое получение текущей цены монеты с кешированием"""
