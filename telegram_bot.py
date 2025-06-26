@@ -8,8 +8,6 @@ from telegram.constants import ParseMode
 from logger import bot_logger
 from config import config_manager
 from api_client import api_client
-from websocket_client import ws_client
-from optimized_api_client import optimized_api_client
 from watchlist_manager import watchlist_manager
 from bot_state import bot_state_manager
 from advanced_alerts import advanced_alert_manager, AlertType, AlertSeverity
@@ -184,15 +182,6 @@ class TradingTelegramBot:
             # Сначала останавливаем циклы
             self.bot_running = False
 
-            # Отписываемся от всех WebSocket подписок
-            try:
-                watchlist = watchlist_manager.get_all()
-                for symbol in watchlist:
-                    await ws_client.unsubscribe_symbol(symbol)
-                bot_logger.info("🔌 Отписались от всех WebSocket подписок")
-            except Exception as e:
-                bot_logger.debug(f"Ошибка отписки от WebSocket: {e}")
-
             # Даем время циклам завершиться
             await asyncio.sleep(0.8)
 
@@ -259,53 +248,37 @@ class TradingTelegramBot:
                 bot_logger.debug(f"Ошибка закрытия API сессии: {e}")
 
     async def _notification_mode_loop(self):
-        """Оптимизированный цикл уведомлений с WebSocket"""
-        bot_logger.info("Запущен оптимизированный режим уведомлений с WebSocket")
+        """Цикл режима уведомлений - упрощенная версия по образцу старого бота"""
+        bot_logger.info("Запущен режим уведомлений")
 
-        # Запускаем WebSocket клиент
-        try:
-            await ws_client.connect()
-        except Exception as e:
-            bot_logger.error(f"Ошибка подключения WebSocket: {e}")
-            # Fallback на HTTP режим
-            await self._notification_mode_loop_http()
-            return
-
-        # Подписываемся на все монеты из watchlist
-        watchlist = watchlist_manager.get_all()
-        for symbol in watchlist:
-            try:
-                await ws_client.subscribe_symbol(symbol, self._ws_coin_callback)
-            except Exception as e:
-                bot_logger.error(f"Ошибка подписки на {symbol}: {e}")
-
-        # Основной цикл с минимальными задержками  
         while self.bot_running and self.bot_mode == 'notification':
-            try:
-                # Получаем batch данные для всех монет
-                watchlist = watchlist_manager.get_all()
-                if not watchlist:
-                    await asyncio.sleep(5)
-                    continue
+            watchlist = watchlist_manager.get_all()
+            if not watchlist:
+                await asyncio.sleep(config_manager.get('CHECK_FULL_CYCLE_INTERVAL'))
+                continue
 
-                # Обрабатываем большими батчами с минимальными задержками
-                batch_size = 20  # Увеличиваем размер батча
-                for batch in self._chunks(list(watchlist), batch_size):
+            batch_size = config_manager.get('CHECK_BATCH_SIZE')
+            for batch in self._chunks(list(watchlist), batch_size):
+                if not self.bot_running or self.bot_mode != 'notification':
+                    break
+
+                # Обрабатываем каждую монету в батче
+                for symbol in batch:
                     if not self.bot_running or self.bot_mode != 'notification':
                         break
 
-                    # Параллельно обрабатываем весь батч
-                    await self._process_notification_batch(batch)
-                    
-                    # Минимальная задержка между батчами
-                    await asyncio.sleep(0.1)
+                    try:
+                        coin_data = await api_client.get_coin_data(symbol)
+                        if coin_data:
+                            await self._process_coin_notification(symbol, coin_data)
+                    except Exception as e:
+                        bot_logger.error(f"Ошибка обработки {symbol}: {e}")
 
-                # Значительно уменьшаем интервал цикла
-                await asyncio.sleep(2)  # Было 15 секунд, стало 2
+                    await asyncio.sleep(config_manager.get('COIN_DATA_DELAY'))
 
-            except Exception as e:
-                bot_logger.error(f"Ошибка в цикле уведомлений: {e}")
-                await asyncio.sleep(1)
+                await asyncio.sleep(config_manager.get('CHECK_BATCH_INTERVAL'))
+
+            await asyncio.sleep(config_manager.get('CHECK_FULL_CYCLE_INTERVAL'))
 
     async def _process_coin_notification(self, symbol: str, data: Dict):
         """Обрабатывает уведомление для монеты - упрощенная логика как в старом боте"""
@@ -353,77 +326,6 @@ class TradingTelegramBot:
             inactivity_timeout = config_manager.get('INACTIVITY_TIMEOUT')
             if now - self.active_coins[symbol]['last_active'] > inactivity_timeout:
                 await self._end_coin_activity(symbol, now)
-
-    async def _ws_coin_callback(self, symbol: str, ticker_data: Dict):
-        """Callback для обработки WebSocket данных монеты"""
-        try:
-            # Получаем дополнительные данные только при необходимости
-            coin_data = await optimized_api_client.get_optimized_coin_data(symbol)
-            if coin_data:
-                await self._process_coin_notification(symbol, coin_data)
-        except Exception as e:
-            bot_logger.debug(f"Ошибка WebSocket callback для {symbol}: {e}")
-
-    async def _process_notification_batch(self, batch: List[str]):
-        """Обрабатывает батч монет параллельно"""
-        try:
-            # Создаем задачи для параллельной обработки
-            tasks = []
-            for symbol in batch:
-                if not self.bot_running or self.bot_mode != 'notification':
-                    break
-                task = self._process_single_coin_optimized(symbol)
-                tasks.append(task)
-
-            # Выполняем все задачи параллельно
-            if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
-
-        except Exception as e:
-            bot_logger.error(f"Ошибка обработки батча: {e}")
-
-    async def _process_single_coin_optimized(self, symbol: str):
-        """Оптимизированная обработка одной монеты"""
-        try:
-            # Сначала пытаемся получить из оптимизированного API
-            coin_data = await optimized_api_client.get_optimized_coin_data(symbol)
-            if coin_data:
-                await self._process_coin_notification(symbol, coin_data)
-        except Exception as e:
-            bot_logger.debug(f"Ошибка оптимизированной обработки {symbol}: {e}")
-
-    async def _notification_mode_loop_http(self):
-        """Fallback HTTP режим при недоступности WebSocket"""
-        bot_logger.info("Запущен fallback HTTP режим уведомлений")
-
-        while self.bot_running and self.bot_mode == 'notification':
-            watchlist = watchlist_manager.get_all()
-            if not watchlist:
-                await asyncio.sleep(config_manager.get('CHECK_FULL_CYCLE_INTERVAL'))
-                continue
-
-            batch_size = config_manager.get('CHECK_BATCH_SIZE')
-            for batch in self._chunks(list(watchlist), batch_size):
-                if not self.bot_running or self.bot_mode != 'notification':
-                    break
-
-                # Обрабатываем каждую монету в батче
-                for symbol in batch:
-                    if not self.bot_running or self.bot_mode != 'notification':
-                        break
-
-                    try:
-                        coin_data = await api_client.get_coin_data(symbol)
-                        if coin_data:
-                            await self._process_coin_notification(symbol, coin_data)
-                    except Exception as e:
-                        bot_logger.error(f"Ошибка обработки {symbol}: {e}")
-
-                    await asyncio.sleep(config_manager.get('COIN_DATA_DELAY'))
-
-                await asyncio.sleep(config_manager.get('CHECK_BATCH_INTERVAL'))
-
-            await asyncio.sleep(config_manager.get('CHECK_FULL_CYCLE_INTERVAL'))
 
     async def _end_coin_activity(self, symbol: str, end_time: float):
         """Завершает активность монеты - как в старом боте"""
@@ -474,26 +376,11 @@ class TradingTelegramBot:
         )
 
     async def _monitoring_mode_loop(self):
-        """Оптимизированный цикл мониторинга с WebSocket"""
-        bot_logger.info("Запущен оптимизированный режим мониторинга с WebSocket")
-
-        # Запускаем WebSocket клиент если еще не подключен
-        if not ws_client.running:
-            try:
-                await ws_client.connect()
-            except Exception as e:
-                bot_logger.error(f"Ошибка подключения WebSocket для мониторинга: {e}")
-
-        # Подписываемся на все монеты
-        watchlist = watchlist_manager.get_all()
-        for symbol in watchlist:
-            try:
-                await ws_client.subscribe_symbol(symbol)
-            except Exception as e:
-                bot_logger.error(f"Ошибка подписки на {symbol} для мониторинга: {e}")
+        """Цикл режима мониторинга - рефакторированная версия"""
+        bot_logger.info("Запущен режим мониторинга")
 
         # Отправляем начальное сообщение
-        initial_text = "🔄 <b>Инициализация оптимизированного мониторинга...</b>"
+        initial_text = "🔄 <b>Инициализация мониторинга...</b>"
         self.monitoring_message_id = await self.send_message(initial_text)
 
         cycle_count = 0
@@ -502,11 +389,11 @@ class TradingTelegramBot:
 
             # Проверяем список отслеживания
             if not await self._check_watchlist_for_monitoring():
-                await asyncio.sleep(5)  # Уменьшили с 20 до 5 секунд
+                await asyncio.sleep(config_manager.get('MONITORING_UPDATE_INTERVAL'))
                 continue
 
-            # Получаем данные монет с оптимизацией
-            results, failed_coins = await self._fetch_monitoring_data_optimized()
+            # Получаем данные монет
+            results, failed_coins = await self._fetch_monitoring_data()
 
             # Обновляем отчет
             await self._update_monitoring_report(results, failed_coins)
@@ -514,8 +401,7 @@ class TradingTelegramBot:
             # Периодическая очистка
             await self._periodic_cleanup(cycle_count)
 
-            # Значительно уменьшаем интервал обновления
-            await asyncio.sleep(5)  # Было 20 секунд, стало 5
+            await asyncio.sleep(config_manager.get('MONITORING_UPDATE_INTERVAL'))
 
         # Очищаем при остановке
         await self._cleanup_monitoring_mode()
@@ -529,57 +415,6 @@ class TradingTelegramBot:
                 await self.edit_message(self.monitoring_message_id, no_coins_text)
             return False
         return True
-
-    async def _fetch_monitoring_data_optimized(self) -> tuple:
-        """Оптимизированное получение данных для мониторинга"""
-        watchlist = watchlist_manager.get_all()
-        results = []
-        failed_coins = []
-
-        try:
-            # Создаем задачи для параллельного получения данных
-            tasks = []
-            for symbol in watchlist:
-                if not self.bot_running or self.bot_mode != 'monitoring':
-                    break
-                task = optimized_api_client.get_optimized_coin_data(symbol)
-                tasks.append((symbol, task))
-
-            # Выполняем все задачи параллельно с ограничением
-            semaphore = asyncio.Semaphore(15)  # Максимум 15 одновременных запросов
-            
-            async def limited_task(symbol, task):
-                async with semaphore:
-                    try:
-                        result = await task
-                        return symbol, result
-                    except Exception as e:
-                        bot_logger.debug(f"Ошибка получения данных {symbol}: {e}")
-                        return symbol, None
-
-            # Получаем все результаты
-            batch_results = await asyncio.gather(
-                *[limited_task(symbol, task) for symbol, task in tasks],
-                return_exceptions=True
-            )
-
-            # Обрабатываем результаты
-            for result in batch_results:
-                if isinstance(result, Exception):
-                    continue
-                    
-                symbol, coin_data = result
-                if coin_data:
-                    results.append(coin_data)
-                else:
-                    failed_coins.append(symbol)
-
-        except Exception as e:
-            bot_logger.error(f"Ошибка оптимизированного получения данных мониторинга: {e}")
-            # Fallback на старый метод
-            return await self._fetch_monitoring_data()
-
-        return results, failed_coins
 
     async def _fetch_monitoring_data(self) -> tuple:
         """Получает данные для мониторинга"""

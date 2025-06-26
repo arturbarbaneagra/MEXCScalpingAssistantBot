@@ -268,22 +268,12 @@ async def main():
     finally:
         # Корректное завершение работы
         try:
-            # Закрываем WebSocket соединение
-            from websocket_client import ws_client
-            await ws_client.close()
-            
-            # Закрываем оптимизированный API клиент
-            from optimized_api_client import optimized_api_client
-            await optimized_api_client.close()
-            
-            # Закрываем основной API клиент
             await api_client.close()
-            
             # Даем время на полное закрытие соединений
             await asyncio.sleep(0.5)
-            bot_logger.info("🔒 Все клиенты закрыты")
+            bot_logger.info("🔒 API клиент закрыт")
         except Exception as e:
-            bot_logger.debug(f"Ошибка закрытия клиентов: {type(e).__name__}")
+            bot_logger.debug(f"Ошибка закрытия API клиента: {type(e).__name__}")
 
         bot_logger.info("👋 Торговый бот остановлен")
 

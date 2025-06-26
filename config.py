@@ -11,21 +11,17 @@ class ConfigManager:
             "VOLUME_THRESHOLD": 1500,
             "SPREAD_THRESHOLD": 0.1,
             "NATR_THRESHOLD": 0.4,
-            "CHECK_BATCH_SIZE": 20,  # Увеличили размер батча
-            "CHECK_BATCH_INTERVAL": 0.1,  # Уменьшили интервал
-            "CHECK_FULL_CYCLE_INTERVAL": 2.0,  # Значительно уменьшили
+            "CHECK_BATCH_SIZE": 8,
+            "CHECK_BATCH_INTERVAL": 0.6,
+            "CHECK_FULL_CYCLE_INTERVAL": 15.0,
             "INACTIVITY_TIMEOUT": 30,
-            "COIN_DATA_DELAY": 0.05,  # Уменьшили задержку
-            "MONITORING_UPDATE_INTERVAL": 5,  # Уменьшили с 20 до 5
-            "MAX_API_REQUESTS_PER_SECOND": 15,  # Увеличили лимит
-            "MESSAGE_RATE_LIMIT": 1.0,  # Уменьшили ограничение
+            "COIN_DATA_DELAY": 0.15,
+            "MONITORING_UPDATE_INTERVAL": 20,
+            "MAX_API_REQUESTS_PER_SECOND": 8,
+            "MESSAGE_RATE_LIMIT": 1.5,
             "MAX_COINS_DISPLAY": 30,
-            "API_TIMEOUT": 8,  # Уменьшили timeout
-            "MAX_RETRIES": 2,
-            "USE_WEBSOCKET": True,  # Новый параметр
-            "WEBSOCKET_RECONNECT_DELAY": 5,
-            "PARALLEL_PROCESSING": True,
-            "SESSION_POOL_SIZE": 5
+            "API_TIMEOUT": 12,
+            "MAX_RETRIES": 2
         }
         self.load()
 
