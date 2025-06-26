@@ -27,6 +27,7 @@ class TradingTelegramBot:
         self.active_coins: Dict[str, Dict] = {}
         self.monitoring_message_id = None
         self.last_message_time = 0
+        self.message_cache = {}  # Кеш содержимого сообщений для предотвращения дублирования
 
         # Состояния ConversationHandler
         self.ADDING_COIN, self.REMOVING_COIN = range(2)
@@ -106,7 +107,7 @@ class TradingTelegramBot:
                 return None
 
     async def edit_message(self, message_id: int, text: str, reply_markup=None):
-        """Редактирует сообщение"""
+        """Редактирует сообщение с проверкой на изменения"""
         try:
             await self.app.bot.edit_message_text(
                 chat_id=self.chat_id,
@@ -116,7 +117,24 @@ class TradingTelegramBot:
                 parse_mode=ParseMode.HTML
             )
         except Exception as e:
-            bot_logger.error(f"Ошибка редактирования сообщения: {e}")
+            error_message = str(e).lower()
+            # Игнорируем ошибку "сообщение не изменилось"
+            if "message is not modified" in error_message:
+                bot_logger.debug(f"Сообщение {message_id} не изменилось, пропускаем обновление")
+                return
+            
+            # Обрабатываем другие типы ошибок
+            ignored_error_patterns = [
+                "message to edit not found",
+                "message can't be edited",
+                "message is too old",
+                "bad request"
+            ]
+            
+            if any(pattern in error_message for pattern in ignored_error_patterns):
+                bot_logger.debug(f"Сообщение {message_id} недоступно для редактирования: {type(e).__name__}")
+            else:
+                bot_logger.error(f"Ошибка редактирования сообщения {message_id}: {e}")
 
     async def delete_message(self, message_id: int) -> bool:
         """Удаляет сообщение с улучшенной обработкой event loop"""
@@ -144,6 +162,11 @@ class TradingTelegramBot:
 
             # Выполняем удаление в правильном контексте
             await self.app.bot.delete_message(chat_id=self.chat_id, message_id=message_id)
+            
+            # Очищаем кеш для удаленного сообщения
+            if message_id in self.message_cache:
+                del self.message_cache[message_id]
+                
             bot_logger.debug(f"Сообщение {message_id} успешно удалено")
             return True
 
@@ -237,6 +260,9 @@ class TradingTelegramBot:
                 self.monitoring_message_id = None
                 self.active_coins.clear()
 
+            # Очищаем кеш сообщений
+            self.message_cache.clear()
+            
             self.bot_mode = None
             # Сохраняем состояние
             bot_state_manager.set_last_mode(None)
@@ -350,16 +376,23 @@ class TradingTelegramBot:
                 coin_info['last_active'] = now
                 coin_info['data'] = data
                 
-                # Обновляем сообщение только если есть валидный msg_id
+                # Обновляем сообщение только если есть валидный msg_id и содержимое изменилось
                 msg_id = coin_info.get('msg_id')
                 if msg_id and isinstance(msg_id, int) and msg_id > 0:
-                    message = (
+                    new_message = (
                         f"🚨 <b>{symbol}_USDT активен</b>\n"
                         f"🔄 Изм: {data['change']:+.2f}%  🔁 Сделок: {data['trades']}\n"
                         f"📊 Объём: ${data['volume']:,.2f}  NATR: {data['natr']:.2f}%\n"
                         f"⇄ Спред: {data['spread']:.2f}%"
                     )
-                    await self.edit_message(msg_id, message)
+                    
+                    # Проверяем, изменилось ли содержимое
+                    cached_message = self.message_cache.get(msg_id)
+                    if cached_message != new_message:
+                        await self.edit_message(msg_id, new_message)
+                        self.message_cache[msg_id] = new_message
+                    else:
+                        bot_logger.debug(f"[SKIP_UPDATE] {symbol} - содержимое не изменилось")
                     
             else:
                 # Новая активность - создаем с атомарной блокировкой
