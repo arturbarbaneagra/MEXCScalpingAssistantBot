@@ -108,7 +108,6 @@ class TradingTelegramBot:
 
         try:
             # Безопасная проверка event loop
-            import asyncio
             try:
                 # Пытаемся получить текущий loop
                 current_loop = asyncio.get_running_loop()
@@ -169,7 +168,6 @@ class TradingTelegramBot:
 
             try:
                 # Проверяем event loop перед удалением сообщений
-                import asyncio
                 try:
                     current_loop = asyncio.get_running_loop()
                     if current_loop.is_closed():
