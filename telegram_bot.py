@@ -360,90 +360,22 @@ class TradingTelegramBot:
             await asyncio.sleep(config_manager.get('CHECK_FULL_CYCLE_INTERVAL'))
 
     async def _cleanup_stale_processes(self):
-        """Усиленная очистка зависших процессов создания уведомлений"""
+        """Простая очистка зависших процессов как в старом боте"""
         current_time = time.time()
-        stale_coins = []
-        creating_coins = []
         orphaned_coins = []
 
+        # Проверяем только на orphaned монеты (без msg_id)
         for symbol, coin_info in list(self.active_coins.items()):
-            if coin_info.get('creating', False):
-                creation_time = coin_info.get('creation_time', current_time)
-                if current_time - creation_time > 15:  # Уменьшили таймаут до 15 секунд
-                    stale_coins.append(symbol)
-                else:
-                    creating_coins.append(symbol)
-            elif not coin_info.get('msg_id'):
-                # Монета активна, но без msg_id - потенциальный orphan
+            if not coin_info.get('msg_id'):
                 orphaned_coins.append(symbol)
 
-        # Очищаем зависшие процессы
-        if stale_coins:
-            bot_logger.warning(f"[CLEANUP] Найдены зависшие процессы ({len(stale_coins)}): {', '.join(stale_coins[:5])}")
-            for symbol in stale_coins:
-                try:
-                    coin_info = self.active_coins.get(symbol)
-                    if coin_info:
-                        msg_id = coin_info.get('msg_id')
-                        if msg_id and isinstance(msg_id, int) and msg_id > 0:
-                            await self.delete_message(msg_id)
-                        del self.active_coins[symbol]
-                        bot_logger.info(f"[CLEANUP] Удален зависший процесс для {symbol}")
-                except Exception as e:
-                    bot_logger.error(f"[CLEANUP] Ошибка очистки {symbol}: {e}")
-                    # Принудительное удаление в случае ошибки
-                    try:
-                        if symbol in self.active_coins:
-                            del self.active_coins[symbol]
-                    except:
-                        pass
-
         # Очищаем orphaned монеты
-        if orphaned_coins:
-            bot_logger.warning(f"[CLEANUP] Найдены orphaned монеты ({len(orphaned_coins)}): {', '.join(orphaned_coins[:3])}")
-            for symbol in orphaned_coins:
-                try:
-                    del self.active_coins[symbol]
-                    bot_logger.info(f"[CLEANUP] Удалена orphaned монета {symbol}")
-                except Exception as e:
-                    bot_logger.error(f"[CLEANUP] Ошибка очистки orphaned {symbol}: {e}")
-
-        # Очищаем старые блокировки
-        if hasattr(self, '_notification_locks'):
-            expired_locks = []
-            for symbol, lock_time in list(self._notification_locks.items()):
-                if current_time - lock_time > 5.0:  # Блокировки старше 5 секунд
-                    expired_locks.append(symbol)
-            
-            for symbol in expired_locks:
-                try:
-                    del self._notification_locks[symbol]
-                    bot_logger.debug(f"[CLEANUP] Очищена устаревшая блокировка для {symbol}")
-                except:
-                    pass
-
-        # Очищаем старые метки времени обработки
-        if hasattr(self, '_processing_timestamps'):
-            expired_timestamps = []
-            for symbol, timestamp in list(self._processing_timestamps.items()):
-                if current_time - timestamp > 10.0:  # Метки старше 10 секунд
-                    expired_timestamps.append(symbol)
-            
-            for symbol in expired_timestamps:
-                try:
-                    del self._processing_timestamps[symbol]
-                    bot_logger.debug(f"[CLEANUP] Очищена устаревшая метка времени для {symbol}")
-                except:
-                    pass
-
-        # Информация о текущем состоянии
-        if creating_coins:
-            bot_logger.debug(f"[STATUS] Монеты в процессе создания ({len(creating_coins)}): {', '.join(creating_coins[:3])}")
-
-        # Общая статистика
-        total_active = len(self.active_coins)
-        if total_active > 0:
-            bot_logger.debug(f"[STATUS] Всего активных монет: {total_active}")
+        for symbol in orphaned_coins:
+            try:
+                del self.active_coins[symbol]
+                bot_logger.info(f"[CLEANUP] Удалена orphaned монета {symbol}")
+            except Exception as e:
+                bot_logger.error(f"[CLEANUP] Ошибка очистки orphaned {symbol}: {e}")
 
         # Дополнительная очистка кеша сообщений
         if len(self.message_cache) > 100:
@@ -453,211 +385,81 @@ class TradingTelegramBot:
             bot_logger.debug(f"[CLEANUP] Очищен кеш сообщений, оставлено 50 записей")
 
     async def _process_coin_notification(self, symbol: str, data: Dict):
-        """Обрабатывает уведомление для монеты с усиленной защитой от дублирования"""
+        """Обрабатывает уведомление для монеты - упрощенная версия как в старом боте"""
         now = time.time()
 
-        # Усиленная система блокировок
-        if not hasattr(self, '_notification_locks'):
-            self._notification_locks = {}
-        if not hasattr(self, '_processing_timestamps'):
-            self._processing_timestamps = {}
-        
-        # Проверяем, не обрабатывали ли мы эту монету недавно (защита от спама)
-        last_processed = self._processing_timestamps.get(symbol, 0)
-        if now - last_processed < 0.5:  # Минимальный интервал 0.5 секунды
-            bot_logger.debug(f"[COOLDOWN] {symbol} обработана недавно, пропускаем")
-            return
-            
-        # Проверяем блокировку
-        if symbol in self._notification_locks:
-            lock_time = self._notification_locks[symbol]
-            if now - lock_time < 2.0:  # Блокировка на 2 секунды
-                bot_logger.debug(f"[LOCKED] {symbol} заблокована другим процессом")
-                return
-            else:
-                # Старая блокировка, удаляем
-                del self._notification_locks[symbol]
-            
-        # Устанавливаем блокировку и отметку времени
-        self._notification_locks[symbol] = now
-        self._processing_timestamps[symbol] = now
+        # Проверяем алерты для монеты
+        advanced_alert_manager.check_coin_alerts(symbol, data)
 
-        try:
-            # Проверяем алерты для монеты
-            advanced_alert_manager.check_coin_alerts(symbol, data)
-
-            if data['active']:
-                # Новая активность или обновление существующей
-                if symbol in self.active_coins:
-                    # Монета уже активна - только обновляем данные
-                    coin_info = self.active_coins[symbol]
-
-                    # Строгая проверка процесса создания
-                    if coin_info.get('creating', False):
-                        creation_time = coin_info.get('creation_time', now)
-                        if now - creation_time > 15:  # Уменьшили таймаут
-                            bot_logger.warning(f"[TIMEOUT_UPDATE] Принудительная очистка зависшего процесса {symbol}")
-                            try:
-                                # Попытаемся удалить сообщение если есть msg_id
-                                msg_id = coin_info.get('msg_id')
-                                if msg_id and isinstance(msg_id, int) and msg_id > 0:
-                                    await self.delete_message(msg_id)
-                                del self.active_coins[symbol]
-                            except Exception as e:
-                                bot_logger.error(f"[CLEANUP_ERROR] Ошибка очистки {symbol}: {e}")
-                                # Принудительное удаление
-                                if symbol in self.active_coins:
-                                    del self.active_coins[symbol]
-                        else:
-                            bot_logger.debug(f"[SKIP] {symbol} в процессе создания ({now - creation_time:.1f}s)")
-                        return
-
-                    # Обновляем данные существующей активной монеты
-                    coin_info['last_active'] = now
-                    coin_info['data'] = data
-
-                    # Обновляем сообщение только если есть валидный msg_id
-                    msg_id = coin_info.get('msg_id')
-                    if msg_id and isinstance(msg_id, int) and msg_id > 0:
-                        new_message = (
-                            f"🚨 <b>{symbol}_USDT активен</b>\n"
-                            f"🔄 Изм: {data['change']:+.2f}%  🔁 Сделок: {data['trades']}\n"
-                            f"📊 Объём: ${data['volume']:,.2f}  NATR: {data['natr']:.2f}%\n"
-                            f"⇄ Спред: {data['spread']:.2f}%"
-                        )
-
-                        # Проверяем, изменилось ли содержимое
-                        cached_message = self.message_cache.get(msg_id)
-                        if cached_message != new_message:
-                            await self.edit_message(msg_id, new_message)
-                            self.message_cache[msg_id] = new_message
-                            bot_logger.debug(f"[UPDATE] {symbol} сообщение обновлено")
-
-                else:
-                    # ТРОЙНАЯ ПРОВЕРКА: убеждаемся что монеты действительно нет в активных
-                    if symbol in self.active_coins:
-                        bot_logger.debug(f"[RACE_DETECTED] {symbol} появилась в активных во время обработки")
-                        return
-
-                    # Новая активность - создаем уведомление
-                    current_time = time.time()
-                    unique_id = f"{symbol}_{current_time}_{id(asyncio.current_task())}"
-
-                    # Создаем запись с блокировкой
+        if data['active']:
+            # Монета активна
+            if symbol not in self.active_coins:
+                # Новая активная монета - создаем уведомление
+                message = (
+                    f"🚨 <b>{symbol}_USDT активен</b>\n"
+                    f"🔄 Изм: {data['change']:+.2f}%  🔁 Сделок: {data['trades']}\n"
+                    f"📊 Объём: ${data['volume']:,.2f}  NATR: {data['natr']:.2f}%\n"
+                    f"⇄ Спред: {data['spread']:.2f}%"
+                )
+                
+                msg_id = await self.send_message(message)
+                if msg_id:
                     self.active_coins[symbol] = {
-                        'start': current_time,
-                        'last_active': current_time,
-                        'msg_id': None,
-                        'data': data,
-                        'creating': True,
-                        'lock_id': unique_id,
-                        'creation_time': current_time
+                        'start': now,
+                        'last_active': now,
+                        'msg_id': msg_id,
+                        'data': data
                     }
+                    self.message_cache[msg_id] = message
+                    bot_logger.trade_activity(symbol, "STARTED", f"Volume: ${data['volume']:,.2f}")
+                else:
+                    bot_logger.warning(f"[FAIL] Не удалось отправить уведомление для {symbol}")
+            else:
+                # Обновляем данные существующей активной монеты
+                coin_info = self.active_coins[symbol]
+                coin_info['last_active'] = now
+                coin_info['data'] = data
 
-                    bot_logger.info(f"[CREATE] Создание уведомления для {symbol} с ID {unique_id}")
-
-                    # Формируем и отправляем сообщение
-                    message = (
+                # Обновляем сообщение
+                msg_id = coin_info.get('msg_id')
+                if msg_id and isinstance(msg_id, int) and msg_id > 0:
+                    new_message = (
                         f"🚨 <b>{symbol}_USDT активен</b>\n"
                         f"🔄 Изм: {data['change']:+.2f}%  🔁 Сделок: {data['trades']}\n"
                         f"📊 Объём: ${data['volume']:,.2f}  NATR: {data['natr']:.2f}%\n"
                         f"⇄ Спред: {data['spread']:.2f}%"
                     )
 
-                    try:
-                        msg_id = await self.send_message(message)
-
-                        # Проверяем, что монета все еще в процессе создания и принадлежит нам
-                        if symbol not in self.active_coins:
-                            bot_logger.warning(f"[RACE_LOST] {symbol} исчезла во время создания")
-                            return
-                            
-                        current_coin_info = self.active_coins[symbol]
-                        if current_coin_info.get('lock_id') != unique_id:
-                            bot_logger.warning(f"[LOCK_MISMATCH] {symbol} обрабатывается другим процессом")
-                            return
-
-                        if msg_id and isinstance(msg_id, int) and msg_id > 0:
-                            # Успешно отправили
-                            self.active_coins[symbol].update({
-                                'msg_id': msg_id,
-                                'creating': False,
-                                'lock_id': None
-                            })
-                            self.message_cache[msg_id] = message
-                            bot_logger.trade_activity(symbol, "STARTED", f"Volume: ${data['volume']:,.2f}")
-                        else:
-                            # Не удалось отправить
-                            bot_logger.warning(f"[FAIL] Не удалось отправить уведомление для {symbol}")
-                            if symbol in self.active_coins and self.active_coins[symbol].get('lock_id') == unique_id:
-                                del self.active_coins[symbol]
-
-                    except Exception as e:
-                        bot_logger.error(f"[ERROR] Ошибка создания уведомления для {symbol}: {e}")
-                        if symbol in self.active_coins and self.active_coins[symbol].get('lock_id') == unique_id:
-                            del self.active_coins[symbol]
-
-            else:
-                # Монета неактивна - проверяем на завершение активности
-                if symbol in self.active_coins:
-                    coin_info = self.active_coins[symbol]
-
-                    # НЕ завершаем активность для монет в процессе создания
-                    if coin_info.get('creating', False):
-                        creation_time = coin_info.get('creation_time', now)
-                        if now - creation_time > 15:
-                            bot_logger.warning(f"[TIMEOUT] Принудительное завершение создания {symbol}")
-                            try:
-                                msg_id = coin_info.get('msg_id')
-                                if msg_id and isinstance(msg_id, int) and msg_id > 0:
-                                    await self.delete_message(msg_id)
-                                del self.active_coins[symbol]
-                            except Exception as e:
-                                bot_logger.error(f"[TIMEOUT_CLEANUP_ERROR] {symbol}: {e}")
-                                if symbol in self.active_coins:
-                                    del self.active_coins[symbol]
-                        return
-
-                    # Проверяем таймаут неактивности
-                    inactivity_timeout = config_manager.get('INACTIVITY_TIMEOUT')
-                    if now - coin_info['last_active'] > inactivity_timeout:
-                        await self._end_coin_activity(symbol, now)
-
-        finally:
-            # Снимаем блокировку через небольшую задержку
-            await asyncio.sleep(0.1)
-            if symbol in self._notification_locks:
-                del self._notification_locks[symbol]
+                    # Проверяем, изменилось ли содержимое
+                    cached_message = self.message_cache.get(msg_id)
+                    if cached_message != new_message:
+                        await self.edit_message(msg_id, new_message)
+                        self.message_cache[msg_id] = new_message
+                        bot_logger.debug(f"[UPDATE] {symbol} сообщение обновлено")
+        else:
+            # Монета неактивна - проверяем на завершение активности
+            if symbol in self.active_coins:
+                coin_info = self.active_coins[symbol]
+                
+                # Проверяем таймаут неактивности
+                inactivity_timeout = config_manager.get('INACTIVITY_TIMEOUT')
+                if now - coin_info['last_active'] > inactivity_timeout:
+                    await self._end_coin_activity(symbol, now)
 
     async def _end_coin_activity(self, symbol: str, end_time: float):
-        """Завершает активность монеты с улучшенной обработкой"""
+        """Завершает активность монеты - упрощенная версия как в старом боте"""
         if symbol not in self.active_coins:
-            bot_logger.debug(f"[END] {symbol} уже не в активных монетах")
             return
 
         coin_info = self.active_coins[symbol]
-
-        # Не завершаем активность для монет в процессе создания
-        if coin_info.get('creating', False):
-            creation_time = coin_info.get('creation_time', end_time)
-            if end_time - creation_time > 30:  # Таймаут создания
-                bot_logger.warning(f"[FORCE_END] Принудительное завершение зависшего процесса {symbol}")
-            else:
-                bot_logger.debug(f"[SKIP_END] {symbol} в процессе создания, откладываем завершение")
-                return
-
         duration = end_time - coin_info['start']
 
         bot_logger.info(f"[END] Завершение активности {symbol}, длительность: {duration:.1f}с")
 
-        # Удаляем сообщение об активности только если есть валидный ID
+        # Удаляем сообщение об активности
         msg_id = coin_info.get('msg_id')
         if msg_id and isinstance(msg_id, int) and msg_id > 0:
-            success = await self.delete_message(msg_id)
-            if success:
-                bot_logger.debug(f"[DELETE] Сообщение {msg_id} для {symbol} удалено")
-            else:
-                bot_logger.debug(f"[DELETE_FAIL] Не удалось удалить сообщение {msg_id} для {symbol}")
+            await self.delete_message(msg_id)
 
         # Отправляем сообщение о завершении только если активность была >= 60 секунд
         if duration >= 60:
@@ -671,11 +473,7 @@ class TradingTelegramBot:
             bot_logger.trade_activity(symbol, "ENDED", f"Duration: {duration_min}m {duration_sec}s")
 
         # Удаляем из активных монет
-        try:
-            del self.active_coins[symbol]
-            bot_logger.debug(f"[CLEANUP] {symbol} удален из активных монет")
-        except KeyError:
-            bot_logger.debug(f"[CLEANUP] {symbol} уже был удален из активных монет")
+        del self.active_coins[symbol]
 
     def _format_coin_message(self, data: Dict, status: str) -> str:
         """Форматирует сообщение о монете"""
