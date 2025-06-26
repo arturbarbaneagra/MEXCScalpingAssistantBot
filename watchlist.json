@@ -1,32 +1,6 @@
 {
-  "coins": [
-    "SERO",
-    "VGX",
-    "FUD",
-    "WING",
-    "DKA",
-    "NIGELLA",
-    "WLTH",
-    "FRED",
-    "FSN",
-    "UFD",
-    "SPS",
-    "FOX",
-    "NPCS",
-    "MUMU",
-    "MFER",
-    "POOH",
-    "PAI",
-    "TMAI",
-    "PNG",
-    "RFD",
-    "VADER",
-    "SQT",
-    "SKX",
-    "ZERC",
-    "AIMONICA",
-    "SAUBER"
+  "symbols": [
+    "LKI"
   ],
-  "last_updated": "2025-06-26 00:33:29",
-  "count": 26
+  "updated": "2025-06-26T01:25:59.505764"
 }
