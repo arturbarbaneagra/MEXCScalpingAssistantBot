@@ -57,8 +57,7 @@ class OptimizedAPIClient:
             use_dns_cache=True,
             keepalive_timeout=60,
             enable_cleanup_closed=True,
-            force_close=False,
-            limit_per_host=50
+            force_close=False
         )
 
         return aiohttp.ClientSession(
