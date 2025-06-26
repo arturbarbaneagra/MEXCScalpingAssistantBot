@@ -271,8 +271,24 @@ async def main():
             # Сначала останавливаем мониторинг
             telegram_bot.bot_running = False
             
-            # Закрываем API клиент
+            # Закрываем API клиент с дополнительным ожиданием
             await api_client.close()
+            
+            # Дополнительная пауза для завершения всех pending tasks
+            await asyncio.sleep(1.0)
+            
+            # Принудительная очистка всех pending tasks
+            try:
+                pending_tasks = [task for task in asyncio.all_tasks() 
+                               if not task.done() and task != asyncio.current_task()]
+                if pending_tasks:
+                    bot_logger.info(f"Отменяем {len(pending_tasks)} pending tasks")
+                    for task in pending_tasks:
+                        task.cancel()
+                    # Ждем отмены всех задач
+                    await asyncio.gather(*pending_tasks, return_exceptions=True)
+            except Exception as e:
+                bot_logger.debug(f"Ошибка очистки pending tasks: {e}")
             
             # Сохраняем состояние активных монет
             if hasattr(telegram_bot, 'active_coins') and telegram_bot.active_coins:

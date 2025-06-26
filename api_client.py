@@ -570,16 +570,26 @@ class APIClient:
             return None
 
     async def close(self):
-        """Правильно закрывает HTTP сессию и коннекторы"""
+        """Правильно закрывает HTTP сессию для предотвращения pending tasks"""
         if self.session and not self.session.closed:
             try:
+                # Получаем коннектор для принудительного закрытия
+                connector = self.session.connector
+                
                 # Закрываем сессию
                 await self.session.close()
-
-                # Даем время на завершение всех соединений
-                await asyncio.sleep(0.25)
-
-                bot_logger.debug("HTTP сессия корректно закрыта")
+                
+                # Принудительно закрываем все соединения коннектора
+                if connector and not connector.closed:
+                    await connector.close()
+                
+                # Увеличиваем время ожидания для полного закрытия
+                await asyncio.sleep(0.5)
+                
+                bot_logger.debug("HTTP сессия и коннектор корректно закрыты")
+                
+            except asyncio.CancelledError:
+                bot_logger.debug("Закрытие HTTP сессии было отменено")
             except Exception as e:
                 bot_logger.debug(f"Ошибка при закрытии HTTP сессии: {type(e).__name__}")
             finally:
