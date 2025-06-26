@@ -1,0 +1,62 @@
+
+{
+  "_comment": "Конфигурация торгового бота - скопируйте в config.json и настройте под себя",
+  
+  "_trading_filters": "Фильтры для определения активности монет",
+  "VOLUME_THRESHOLD": 1000,
+  "SPREAD_THRESHOLD": 0.1,
+  "NATR_THRESHOLD": 0.5,
+  
+  "_api_settings": "Настройки взаимодействия с API",
+  "CHECK_BATCH_SIZE": 10,
+  "CHECK_BATCH_INTERVAL": 0.7,
+  "CHECK_FULL_CYCLE_INTERVAL": 2.0,
+  "MAX_API_REQUESTS_PER_SECOND": 8,
+  "API_TIMEOUT": 15,
+  "MAX_RETRIES": 3,
+  
+  "_bot_behavior": "Поведение бота и интервалы",
+  "INACTIVITY_TIMEOUT": 30,
+  "COIN_DATA_DELAY": 0.3,
+  "MONITORING_UPDATE_INTERVAL": 12,
+  "MAX_COINS_DISPLAY": 35,
+  "MESSAGE_RATE_LIMIT": 1.5,
+  
+  "_performance": "Настройки производительности",
+  "CACHE_TTL_SECONDS": 5,
+  "METRICS_CLEANUP_INTERVAL": 3600,
+  "PERFORMANCE_MONITORING": true,
+  "AUTO_RECOVERY": true,
+  
+  "_alerts": "Система алертов",
+  "ALERT_HISTORY_LIMIT": 500,
+  
+  "_presets": {
+    "_scalping": "Настройки для скальпинга",
+    "scalping": {
+      "VOLUME_THRESHOLD": 1500,
+      "SPREAD_THRESHOLD": 0.08,
+      "NATR_THRESHOLD": 0.8,
+      "CHECK_BATCH_INTERVAL": 0.5,
+      "CHECK_FULL_CYCLE_INTERVAL": 1.5
+    },
+    
+    "_swing": "Настройки для свинг-трейдинга",
+    "swing": {
+      "VOLUME_THRESHOLD": 500,
+      "SPREAD_THRESHOLD": 0.2,
+      "NATR_THRESHOLD": 0.3,
+      "CHECK_BATCH_INTERVAL": 1.0,
+      "CHECK_FULL_CYCLE_INTERVAL": 5.0
+    },
+    
+    "_conservative": "Консервативные настройки",
+    "conservative": {
+      "VOLUME_THRESHOLD": 2000,
+      "SPREAD_THRESHOLD": 0.05,
+      "NATR_THRESHOLD": 1.0,
+      "CHECK_BATCH_INTERVAL": 1.5,
+      "CHECK_FULL_CYCLE_INTERVAL": 10.0
+    }
+  }
+}

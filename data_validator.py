@@ -1,11 +1,127 @@
-
-from typing import Dict, Any, Optional, List
-from logger import bot_logger
+"""
+Модуль валидации данных для торгового бота
+"""
 import time
+from typing import Dict, Any, Optional
+from logger import bot_logger
 
 class DataValidator:
-    """Валидатор для проверки данных API и пользовательского ввода"""
-    
+    """Валидатор данных для обеспечения качества информации"""
+
+    def __init__(self):
+        self.validation_stats = {
+            'total_validations': 0,
+            'failed_validations': 0,
+            'last_validation': 0
+        }
+
+    def validate_coin_data(self, data: Dict[str, Any]) -> bool:
+        """Валидирует данные монеты"""
+        self.validation_stats['total_validations'] += 1
+        self.validation_stats['last_validation'] = time.time()
+
+        try:
+            # Проверяем обязательные поля
+            required_fields = ['symbol', 'price', 'volume', 'change', 'spread', 'natr', 'trades', 'active']
+            for field in required_fields:
+                if field not in data:
+                    bot_logger.warning(f"Отсутствует поле {field} в данных монеты")
+                    self._record_failed_validation()
+                    return False
+
+            # Проверяем типы данных
+            if not isinstance(data['symbol'], str) or len(data['symbol']) < 2:
+                bot_logger.warning(f"Некорректный символ: {data.get('symbol')}")
+                self._record_failed_validation()
+                return False
+
+            # Проверяем числовые значения
+            numeric_fields = ['price', 'volume', 'change', 'spread', 'natr', 'trades']
+            for field in numeric_fields:
+                value = data[field]
+                if not isinstance(value, (int, float)) or value < 0:
+                    if field != 'change':  # change может быть отрицательным
+                        bot_logger.warning(f"Некорректное значение {field}: {value}")
+                        self._record_failed_validation()
+                        return False
+
+            # Проверяем разумные диапазоны
+            if data['price'] > 1000000:  # Цена больше $1M
+                bot_logger.warning(f"Подозрительно высокая цена для {data['symbol']}: {data['price']}")
+                self._record_failed_validation()
+                return False
+
+            if data['spread'] > 50:  # Спред больше 50%
+                bot_logger.warning(f"Подозрительно высокий спред для {data['symbol']}: {data['spread']}%")
+                self._record_failed_validation()
+                return False
+
+            if data['natr'] > 100:  # NATR больше 100%
+                bot_logger.warning(f"Подозрительно высокий NATR для {data['symbol']}: {data['natr']}%")
+                self._record_failed_validation()
+                return False
+
+            # Проверяем булевые значения
+            if not isinstance(data['active'], bool):
+                bot_logger.warning(f"Некорректное значение active для {data['symbol']}: {data['active']}")
+                self._record_failed_validation()
+                return False
+
+            return True
+
+        except Exception as e:
+            bot_logger.error(f"Ошибка валидации данных: {e}")
+            self._record_failed_validation()
+            return False
+
+    def validate_api_response(self, response: Optional[Dict]) -> bool:
+        """Валидирует ответ API"""
+        if response is None:
+            return False
+
+        # Проверяем базовую структуру
+        if not isinstance(response, dict):
+            return False
+
+        # Для ticker данных
+        if 'symbol' in response and 'lastPrice' in response:
+            try:
+                float(response['lastPrice'])
+                return True
+            except (ValueError, TypeError):
+                return False
+
+        # Для klines данных
+        if isinstance(response, list) and len(response) > 0:
+            try:
+                # Проверяем структуру первого элемента
+                if isinstance(response[0], list) and len(response[0]) >= 8:
+                    # Проверяем, что можем конвертировать в числа
+                    float(response[0][1])  # open
+                    float(response[0][4])  # close
+                    float(response[0][7])  # volume
+                    return True
+            except (ValueError, TypeError, IndexError):
+                return False
+
+        return False
+
+    def _record_failed_validation(self):
+        """Записывает неудачную валидацию"""
+        self.validation_stats['failed_validations'] += 1
+
+    def get_validation_stats(self) -> Dict[str, Any]:
+        """Возвращает статистику валидации"""
+        total = self.validation_stats['total_validations']
+        failed = self.validation_stats['failed_validations']
+
+        return {
+            'total_validations': total,
+            'failed_validations': failed,
+            'success_rate': ((total - failed) / total * 100) if total > 0 else 100,
+            'last_validation': self.validation_stats['last_validation']
+        }
+
     @staticmethod
     def validate_symbol(symbol: str) -> bool:
         """Валидация символа монеты"""
@@ -21,59 +137,6 @@ class DataValidator:
         
         # Только буквы и цифры
         return clean_symbol.replace(" ", "").replace("-", "").isalnum()
-
-    @staticmethod
-    def validate_coin_data(data: Dict[str, Any]) -> bool:
-        """Валидация данных монеты от API"""
-        required_fields = ['symbol', 'price', 'volume', 'change', 'spread', 'natr', 'trades', 'active']
-        
-        try:
-            # Проверяем наличие всех полей
-            for field in required_fields:
-                if field not in data:
-                    bot_logger.warning(f"Отсутствует поле {field} в данных монеты")
-                    return False
-            
-            # Проверяем типы данных
-            if not isinstance(data['symbol'], str) or len(data['symbol']) < 2:
-                return False
-                
-            if not isinstance(data['price'], (int, float)) or data['price'] <= 0:
-                return False
-                
-            if not isinstance(data['volume'], (int, float)) or data['volume'] < 0:
-                return False
-                
-            if not isinstance(data['change'], (int, float)):
-                return False
-                
-            if not isinstance(data['spread'], (int, float)) or data['spread'] < 0:
-                return False
-                
-            if not isinstance(data['natr'], (int, float)) or data['natr'] < 0:
-                return False
-                
-            if not isinstance(data['trades'], int) or data['trades'] < 0:
-                return False
-                
-            if not isinstance(data['active'], bool):
-                return False
-            
-            # Проверяем разумные границы
-            if data['price'] > 1000000:  # Цена не должна быть слишком большой
-                return False
-                
-            if data['volume'] > 10000000:  # Объем не должен быть слишком большим
-                return False
-                
-            if abs(data['change']) > 1000:  # Изменение не должно быть больше 1000%
-                return False
-                
-            return True
-            
-        except Exception as e:
-            bot_logger.warning(f"Ошибка валидации данных монеты: {e}")
-            return False
 
     @staticmethod
     def validate_config_value(key: str, value: Any) -> bool:
@@ -121,33 +184,6 @@ class DataValidator:
         
         return sanitized
 
-    @staticmethod
-    def validate_api_response(response: Dict[str, Any], endpoint: str) -> bool:
-        """Валидация ответа API"""
-        try:
-            if not isinstance(response, dict):
-                return False
-            
-            # Специфические проверки для разных endpoint'ов
-            if 'ticker' in endpoint:
-                required_fields = ['symbol', 'lastPrice']
-                return all(field in response for field in required_fields)
-            
-            elif 'klines' in endpoint:
-                return isinstance(response, list) and len(response) > 0
-            
-            elif 'trades' in endpoint:
-                return isinstance(response, list)
-            
-            elif 'bookTicker' in endpoint:
-                required_fields = ['bidPrice', 'askPrice']
-                return all(field in response for field in required_fields)
-            
-            return True
-            
-        except Exception as e:
-            bot_logger.warning(f"Ошибка валидации API ответа для {endpoint}: {e}")
-            return False
-
 # Глобальный экземпляр валидатора
 data_validator = DataValidator()
+```

@@ -1,77 +1,125 @@
 
-import time
+"""
+Модуль автоматического обслуживания системы
+"""
+
 import asyncio
+import time
+import gc
+from typing import Dict, Any
 from logger import bot_logger
-from metrics_manager import metrics_manager
+from config import config_manager
 from cache_manager import cache_manager
-from advanced_alerts import advanced_alert_manager
+from metrics_manager import metrics_manager
+from performance_optimizer import performance_optimizer
 
 class AutoMaintenance:
-    """Система автоматического обслуживания"""
+    """Автоматическое обслуживание системы"""
     
     def __init__(self):
         self.last_cleanup = 0
-        self.last_health_report = 0
-        self.cleanup_interval = 3600  # 1 час
-        self.health_report_interval = 21600  # 6 часов
+        self.last_optimization = 0
+        self.last_gc = 0
+        self.maintenance_interval = 1800  # 30 минут
+        self.running = False
+
+    async def start_maintenance_loop(self):
+        """Запускает цикл автоматического обслуживания"""
+        self.running = True
+        bot_logger.info("🔧 Запущено автоматическое обслуживание")
         
-    async def run_maintenance(self):
-        """Запуск регулярного обслуживания"""
+        while self.running:
+            try:
+                await self._perform_maintenance()
+                await asyncio.sleep(self.maintenance_interval)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                bot_logger.error(f"Ошибка в цикле обслуживания: {e}")
+                await asyncio.sleep(300)  # 5 минут при ошибке
+
+    def stop_maintenance(self):
+        """Останавливает обслуживание"""
+        self.running = False
+        bot_logger.info("🔧 Автоматическое обслуживание остановлено")
+
+    async def _perform_maintenance(self):
+        """Выполняет обслуживание"""
+        current_time = time.time()
+        maintenance_tasks = []
+
+        # Очистка кеша каждые 30 минут
+        if current_time - self.last_cleanup > 1800:
+            maintenance_tasks.append("cache_cleanup")
+            
+        # Оптимизация производительности каждые 15 минут
+        if current_time - self.last_optimization > 900:
+            maintenance_tasks.append("performance_optimization")
+            
+        # Сборка мусора каждые 10 минут
+        if current_time - self.last_gc > 600:
+            maintenance_tasks.append("garbage_collection")
+
+        if maintenance_tasks:
+            bot_logger.info(f"🔧 Выполняется обслуживание: {', '.join(maintenance_tasks)}")
+            
+            for task in maintenance_tasks:
+                try:
+                    if task == "cache_cleanup":
+                        await self._cleanup_cache()
+                    elif task == "performance_optimization":
+                        await self._optimize_performance()
+                    elif task == "garbage_collection":
+                        await self._garbage_collection()
+                except Exception as e:
+                    bot_logger.error(f"Ошибка выполнения задачи {task}: {e}")
+
+    async def _cleanup_cache(self):
+        """Очищает устаревший кеш"""
+        try:
+            cache_manager.clear_expired()
+            metrics_manager.cleanup_old_metrics()
+            self.last_cleanup = time.time()
+            bot_logger.info("✅ Кеш и метрики очищены")
+        except Exception as e:
+            bot_logger.error(f"Ошибка очистки кеша: {e}")
+
+    async def _optimize_performance(self):
+        """Оптимизирует производительность"""
+        try:
+            await performance_optimizer.auto_optimize()
+            self.last_optimization = time.time()
+            bot_logger.info("✅ Производительность оптимизирована")
+        except Exception as e:
+            bot_logger.error(f"Ошибка оптимизации: {e}")
+
+    async def _garbage_collection(self):
+        """Выполняет сборку мусора"""
+        try:
+            before = gc.get_count()
+            collected = gc.collect()
+            after = gc.get_count()
+            
+            if collected > 0:
+                bot_logger.info(f"✅ Сборка мусора: собрано {collected} объектов")
+                bot_logger.debug(f"GC счетчики до: {before}, после: {after}")
+            
+            self.last_gc = time.time()
+        except Exception as e:
+            bot_logger.error(f"Ошибка сборки мусора: {e}")
+
+    def get_maintenance_stats(self) -> Dict[str, Any]:
+        """Возвращает статистику обслуживания"""
         current_time = time.time()
         
-        # Очистка каждый час
-        if current_time - self.last_cleanup > self.cleanup_interval:
-            await self._cleanup_system()
-            self.last_cleanup = current_time
-        
-        # Отчет о здоровье каждые 6 часов
-        if current_time - self.last_health_report > self.health_report_interval:
-            await self._health_report()
-            self.last_health_report = current_time
-    
-    async def _cleanup_system(self):
-        """Очистка системы"""
-        try:
-            # Очистка метрик
-            metrics_manager.cleanup_old_metrics()
-            
-            # Очистка кеша
-            cache_manager.cleanup_expired()
-            
-            # Очистка старых алертов
-            if len(advanced_alert_manager.alert_history) > 1000:
-                advanced_alert_manager.alert_history = advanced_alert_manager.alert_history[-500:]
-            
-            bot_logger.info("🧹 Автоматическая очистка системы выполнена")
-            
-        except Exception as e:
-            bot_logger.error(f"Ошибка автоочистки: {e}")
-    
-    async def _health_report(self):
-        """Отчет о здоровье системы"""
-        try:
-            metrics = metrics_manager.get_summary()
-            uptime_hours = metrics.get('uptime_seconds', 0) / 3600
-            
-            total_requests = sum(
-                stats.get('total_requests', 0) 
-                for stats in metrics.get('api_stats', {}).values()
-            )
-            
-            cache_stats = cache_manager.get_stats()
-            alert_stats = advanced_alert_manager.get_alert_stats()
-            
-            bot_logger.info(
-                f"📊 ОТЧЕТ О ЗДОРОВЬЕ СИСТЕМЫ:\n"
-                f"   • Время работы: {uptime_hours:.1f} часов\n"
-                f"   • Всего API запросов: {total_requests}\n"
-                f"   • Записей в кеше: {cache_stats.get('total_entries', 0)}\n"
-                f"   • Всего алертов: {alert_stats.get('total_triggers', 0)}\n"
-                f"   • Статус: Система работает стабильно ✅"
-            )
-            
-        except Exception as e:
-            bot_logger.error(f"Ошибка отчета о здоровье: {e}")
+        return {
+            'maintenance_running': self.running,
+            'last_cleanup': self.last_cleanup,
+            'last_optimization': self.last_optimization,
+            'last_gc': self.last_gc,
+            'next_maintenance': current_time + (self.maintenance_interval - (current_time % self.maintenance_interval)),
+            'maintenance_interval_minutes': self.maintenance_interval / 60
+        }
 
-# Глобальный экземпляр
+# Глобальный экземпляр автоматического обслуживания
 auto_maintenance = AutoMaintenance()

@@ -216,6 +216,14 @@ async def main():
         if not validate_environment():
             sys.exit(1)
 
+        # Инициализируем состояние бота
+        from bot_state import bot_state_manager
+        bot_state_manager.increment_session()
+        
+        # Запускаем автоматическое обслуживание
+        from auto_maintenance import auto_maintenance
+        maintenance_task = asyncio.create_task(auto_maintenance.start_maintenance_loop())
+
         # Запускаем Flask сервер в отдельном потоке
         flask_thread = threading.Thread(target=run_flask, daemon=True)
         flask_thread.start()
@@ -225,7 +233,10 @@ async def main():
         app = telegram_bot.setup_application()
 
         bot_logger.info("🤖 Telegram бот готов к работе")
+        bot_logger.info("🔧 Автоматическое обслуживание активно")
         bot_logger.info("=" * 50)
+
+        start_time = time.time()
 
         # Запускаем бота с правильным управлением event loop
         async with app:
@@ -239,6 +250,14 @@ async def main():
             except KeyboardInterrupt:
                 bot_logger.info("🛑 Получен сигнал остановки")
             finally:
+                # Останавливаем автоматическое обслуживание
+                auto_maintenance.stop_maintenance()
+                maintenance_task.cancel()
+                
+                # Сохраняем время работы
+                uptime = time.time() - start_time
+                bot_state_manager.add_uptime(uptime)
+                
                 await app.updater.stop()
                 await app.stop()
 
