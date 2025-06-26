@@ -53,6 +53,11 @@ def health_check():
         metrics = metrics_manager.get_summary()
         cache_stats = cache_manager.get_stats()
         alerts = alert_manager.get_active_alerts()
+        
+        # Получаем продвинутые алерты
+        from advanced_alerts import advanced_alert_manager
+        advanced_alerts = advanced_alert_manager.get_active_alerts()
+        alert_stats = advanced_alert_manager.get_alert_stats()
 
         # Время работы
         uptime_hours = metrics.get('uptime_seconds', 0) / 3600
@@ -102,7 +107,8 @@ def health_check():
 
                 <div class="metric-box">
                     <strong>🚨 Alerts:</strong> {alert_status}<br>
-                    {f"Recent alerts: {', '.join([a.get('message', '') for a in alerts[:3]])}" if alerts else "No active alerts"}
+                    {f"Recent alerts: {', '.join([a.get('message', '') for a in alerts[:3]])}" if alerts else "No active alerts"}<br>
+                    <strong>Advanced:</strong> {len(advanced_alerts)} active, {alert_stats.get('total_triggers', 0)} total triggers
                 </div>
 
                 <div class="status-grid">

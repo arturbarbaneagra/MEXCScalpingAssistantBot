@@ -11,6 +11,7 @@ from config import config_manager
 from api_client import api_client
 from watchlist_manager import watchlist_manager
 from bot_state import bot_state_manager
+from advanced_alerts import advanced_alert_manager, AlertType, AlertSeverity
 import os
 
 class TradingTelegramBot:
@@ -45,8 +46,8 @@ class TradingTelegramBot:
 
         self.settings_keyboard = ReplyKeyboardMarkup([
             ["📊 Объём", "⇄ Спред"],
-            ["📈 NATR", "🔄 Сброс"],
-            ["🔙 Назад"]
+            ["📈 NATR", "🚨 Алерты"],
+            ["🔄 Сброс", "🔙 Назад"]
         ], resize_keyboard=True)
 
         self.back_keyboard = ReplyKeyboardMarkup([
@@ -285,6 +286,9 @@ class TradingTelegramBot:
         now = time.time()
         is_currently_active = symbol in self.active_coins
 
+        # Проверяем алерты для монеты
+        advanced_alert_manager.check_coin_alerts(symbol, data)
+
         if data['active']:
             if not is_currently_active:
                 # Новая активная монета
@@ -373,7 +377,7 @@ class TradingTelegramBot:
         )
 
     async def _monitoring_mode_loop(self):
-        """Цикл режима мониторинга"""
+        """Цикл режима мониторинга - рефакторированная версия"""
         bot_logger.info("Запущен режим мониторинга")
 
         # Отправляем начальное сообщение
@@ -383,84 +387,119 @@ class TradingTelegramBot:
         cycle_count = 0
         while self.bot_running and self.bot_mode == 'monitoring':
             cycle_count += 1
-            watchlist = watchlist_manager.get_all()
-            if not watchlist:
-                no_coins_text = "❌ <b>Список отслеживания пуст</b>\nДобавьте монеты для мониторинга."
-                if self.monitoring_message_id:
-                    await self.edit_message(self.monitoring_message_id, no_coins_text)
+            
+            # Проверяем список отслеживания
+            if not await self._check_watchlist_for_monitoring():
                 await asyncio.sleep(config_manager.get('MONITORING_UPDATE_INTERVAL'))
                 continue
 
-            results = []
-            failed_coins = []
+            # Получаем данные монет
+            results, failed_coins = await self._fetch_monitoring_data()
+            
+            # Обновляем отчет
+            await self._update_monitoring_report(results, failed_coins)
+            
+            # Периодическая очистка
+            await self._periodic_cleanup(cycle_count)
+            
+            await asyncio.sleep(config_manager.get('MONITORING_UPDATE_INTERVAL'))
 
-            # Получаем данные по всем монетам (оптимизированно)
-            batch_size = config_manager.get('CHECK_BATCH_SIZE')
-            for batch in self._chunks(sorted(watchlist), batch_size):
-                if not self.bot_running or self.bot_mode != 'monitoring':
-                    break
+        # Очищаем при остановке
+        await self._cleanup_monitoring_mode()
 
-                try:
-                    symbols_batch = list(batch)
-                    # Используем новый батч-метод
-                    ticker_results = await api_client.get_multiple_tickers_batch(symbols_batch)
-                    
-                    # Обрабатываем результаты
-                    for symbol in symbols_batch:
-                        ticker_data = ticker_results.get(symbol)
-                        if ticker_data:
-                            try:
-                                coin_data = await api_client.get_coin_data(symbol)
-                                if coin_data:
-                                    results.append(coin_data)
-                                else:
-                                    failed_coins.append(symbol)
-                            except Exception as e:
-                                bot_logger.error(f"Ошибка получения данных для {symbol}: {e}")
-                                failed_coins.append(symbol)
+    async def _check_watchlist_for_monitoring(self) -> bool:
+        """Проверяет список отслеживания для мониторинга"""
+        watchlist = watchlist_manager.get_all()
+        if not watchlist:
+            no_coins_text = "❌ <b>Список отслеживания пуст</b>\nДобавьте монеты для мониторинга."
+            if self.monitoring_message_id:
+                await self.edit_message(self.monitoring_message_id, no_coins_text)
+            return False
+        return True
+    
+    async def _fetch_monitoring_data(self) -> tuple:
+        """Получает данные для мониторинга"""
+        watchlist = watchlist_manager.get_all()
+        results = []
+        failed_coins = []
+        
+        batch_size = config_manager.get('CHECK_BATCH_SIZE')
+        for batch in self._chunks(sorted(watchlist), batch_size):
+            if not self.bot_running or self.bot_mode != 'monitoring':
+                break
+                
+            batch_results, batch_failures = await self._process_monitoring_batch(batch)
+            results.extend(batch_results)
+            failed_coins.extend(batch_failures)
+            
+            await asyncio.sleep(config_manager.get('CHECK_BATCH_INTERVAL'))
+            
+        return results, failed_coins
+    
+    async def _process_monitoring_batch(self, batch) -> tuple:
+        """Обрабатывает батч символов для мониторинга"""
+        results = []
+        failed_coins = []
+        
+        try:
+            symbols_batch = list(batch)
+            ticker_results = await api_client.get_multiple_tickers_batch(symbols_batch)
+            
+            for symbol in symbols_batch:
+                ticker_data = ticker_results.get(symbol)
+                if ticker_data:
+                    try:
+                        coin_data = await api_client.get_coin_data(symbol)
+                        if coin_data:
+                            results.append(coin_data)
                         else:
                             failed_coins.append(symbol)
-                            
-                except Exception as e:
-                    bot_logger.error(f"Ошибка обработки батча мониторинга: {e}")
-                    # Fallback на старый метод
-                    for symbol in batch:
-                        try:
-                            coin_data = await api_client.get_coin_data(symbol)
-                            if coin_data:
-                                results.append(coin_data)
-                            else:
-                                failed_coins.append(symbol)
-                        except Exception as e:
-                            bot_logger.error(f"Ошибка получения данных для {symbol}: {e}")
-                            failed_coins.append(symbol)
-
-                await asyncio.sleep(config_manager.get('CHECK_BATCH_INTERVAL'))
-
-            # Формируем отчет
-            if results:
-                report = self._format_monitoring_report(results, failed_coins)
-                if self.monitoring_message_id:
-                    await self.edit_message(self.monitoring_message_id, report)
+                    except Exception as e:
+                        bot_logger.error(f"Ошибка получения данных для {symbol}: {e}")
+                        failed_coins.append(symbol)
                 else:
-                    self.monitoring_message_id = await self.send_message(report)
-
-            await asyncio.sleep(config_manager.get('MONITORING_UPDATE_INTERVAL'))
+                    failed_coins.append(symbol)
+                    
+        except Exception as e:
+            bot_logger.error(f"Ошибка обработки батча мониторинга: {e}")
+            # Fallback на старый метод
+            for symbol in batch:
+                try:
+                    coin_data = await api_client.get_coin_data(symbol)
+                    if coin_data:
+                        results.append(coin_data)
+                    else:
+                        failed_coins.append(symbol)
+                except Exception as e:
+                    bot_logger.error(f"Ошибка получения данных для {symbol}: {e}")
+                    failed_coins.append(symbol)
+                    
+        return results, failed_coins
+    
+    async def _update_monitoring_report(self, results: list, failed_coins: list):
+        """Обновляет отчет мониторинга"""
+        if results:
+            report = self._format_monitoring_report(results, failed_coins)
+            if self.monitoring_message_id:
+                await self.edit_message(self.monitoring_message_id, report)
+            else:
+                self.monitoring_message_id = await self.send_message(report)
+    
+    async def _periodic_cleanup(self, cycle_count: int):
+        """Выполняет периодическую очистку памяти"""
+        if cycle_count % 50 == 0:
+            import gc
+            gc.collect()
             
-            # Периодическая очистка памяти каждые 50 циклов
-            if cycle_count % 50 == 0:
-                import gc
-                gc.collect()
-                
-                # Очищаем кеш и метрики
-                from cache_manager import cache_manager
-                from metrics_manager import metrics_manager
-                cache_manager.clear_expired()
-                metrics_manager.cleanup_old_metrics()
-                
-                bot_logger.debug(f"Очистка памяти, кеша и метрик после {cycle_count} циклов")
-
-        # Очищаем при остановке режима мониторинга
+            from cache_manager import cache_manager
+            from metrics_manager import metrics_manager
+            cache_manager.clear_expired()
+            metrics_manager.cleanup_old_metrics()
+            
+            bot_logger.debug(f"Очистка памяти, кеша и метрик после {cycle_count} циклов")
+    
+    async def _cleanup_monitoring_mode(self):
+        """Очищает ресурсы при остановке мониторинга"""
         if self.monitoring_message_id:
             bot_logger.info(f"Режим мониторинга завершен, удаляем сообщение: {self.monitoring_message_id}")
             await self.delete_message(self.monitoring_message_id)
@@ -613,6 +652,8 @@ class TradingTelegramBot:
                 return await self._handle_spread_setting_start(update)
             elif text == "📈 NATR":
                 return await self._handle_natr_setting_start(update)
+            elif text == "🚨 Алерты":
+                await self._handle_alerts(update)
             elif text == "🔄 Сброс":
                 await self._handle_reset_settings(update)
             elif text == "ℹ Статус":
@@ -887,6 +928,45 @@ class TradingTelegramBot:
 
         await update.message.reply_text(
             "\n".join(status_parts),
+            reply_markup=self.main_keyboard,
+            parse_mode=ParseMode.HTML
+        )
+
+    async def _handle_alerts(self, update: Update):
+        """Обработка алертов"""
+        await self._stop_current_mode()
+        
+        # Получаем статистику алертов
+        stats = advanced_alert_manager.get_alert_stats()
+        active_alerts = advanced_alert_manager.get_active_alerts()
+        recent_history = advanced_alert_manager.get_alert_history(5)
+        
+        alerts_text = f"🚨 <b>Система алертов:</b>\n\n"
+        alerts_text += f"📊 <b>Статистика:</b>\n"
+        alerts_text += f"• Всего алертов: {stats['total_alerts']}\n"
+        alerts_text += f"• Активных: {stats['active_alerts']}\n"
+        alerts_text += f"• Общих срабатываний: {stats['total_triggers']}\n\n"
+        
+        if active_alerts:
+            alerts_text += f"🔴 <b>Активные алерты ({len(active_alerts)}):</b>\n"
+            for alert in active_alerts[:3]:  # Показываем только первые 3
+                alerts_text += f"• {alert['title']} [{alert['severity'].upper()}]\n"
+            if len(active_alerts) > 3:
+                alerts_text += f"• ... и еще {len(active_alerts) - 3}\n"
+            alerts_text += "\n"
+        
+        if recent_history:
+            alerts_text += f"📋 <b>Последние срабатывания:</b>\n"
+            for alert in recent_history:
+                time_str = time.strftime("%H:%M", time.localtime(alert['timestamp']))
+                alerts_text += f"• {time_str} - {alert['title']} ({alert['symbol']})\n"
+        else:
+            alerts_text += f"✅ <b>Нет недавних срабатываний</b>\n"
+        
+        alerts_text += f"\n💡 Алерты работают автоматически в фоновом режиме"
+        
+        await update.message.reply_text(
+            alerts_text,
             reply_markup=self.main_keyboard,
             parse_mode=ParseMode.HTML
         )
