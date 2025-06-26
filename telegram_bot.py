@@ -107,18 +107,30 @@ class TradingTelegramBot:
             return False
 
         try:
+            # Проверяем, что мы в правильном event loop
+            import asyncio
+            try:
+                current_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                # Если нет активного loop, создаем новый
+                bot_logger.debug(f"Нет активного event loop для удаления сообщения {message_id}")
+                return False
+            
             await self.app.bot.delete_message(chat_id=self.chat_id, message_id=message_id)
             bot_logger.debug(f"Сообщение {message_id} успешно удалено")
             return True
         except Exception as e:
             error_message = str(e).lower()
-            # Игнорируем обычные ошибки удаления
+            # Игнорируем обычные ошибки удаления и event loop ошибки
             if any(phrase in error_message for phrase in [
                 "message to delete not found",
                 "message can't be deleted", 
                 "message is too old",
                 "bad request",
-                "not found"
+                "not found",
+                "event loop",
+                "different event loop",
+                "asyncio.locks.event"
             ]):
                 bot_logger.debug(f"Сообщение {message_id} недоступно для удаления: {e}")
             else:
@@ -141,24 +153,27 @@ class TradingTelegramBot:
             # Даем время циклам завершиться
             await asyncio.sleep(0.5)
 
-            # Удаляем сообщение мониторинга если оно есть
-            if self.monitoring_message_id:
-                success = await self.delete_message(self.monitoring_message_id)
-                if success:
-                    bot_logger.info("📝 Сообщение мониторинга удалено")
-                self.monitoring_message_id = None
+            try:
+                # Удаляем сообщение мониторинга если оно есть
+                if self.monitoring_message_id:
+                    success = await self.delete_message(self.monitoring_message_id)
+                    if success:
+                        bot_logger.info("📝 Сообщение мониторинга удалено")
+                    self.monitoring_message_id = None
 
-            # Удаляем активные уведомления
-            if self.active_coins:
-                deleted_count = 0
-                for symbol, coin_data in list(self.active_coins.items()):
-                    if coin_data.get('msg_id'):
-                        success = await self.delete_message(coin_data['msg_id'])
-                        if success:
-                            deleted_count += 1
-                if deleted_count > 0:
-                    bot_logger.info(f"🗑 Удалено {deleted_count} уведомлений")
-                self.active_coins.clear()
+                # Удаляем активные уведомления
+                if self.active_coins:
+                    deleted_count = 0
+                    for symbol, coin_data in list(self.active_coins.items()):
+                        if coin_data.get('msg_id'):
+                            success = await self.delete_message(coin_data['msg_id'])
+                            if success:
+                                deleted_count += 1
+                    if deleted_count > 0:
+                        bot_logger.info(f"🗑 Удалено {deleted_count} уведомлений")
+                    self.active_coins.clear()
+            except Exception as e:
+                bot_logger.warning(f"Ошибка при очистке сообщений: {e}")
 
             self.bot_mode = None
 
