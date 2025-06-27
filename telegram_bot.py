@@ -1070,7 +1070,7 @@ class TradingTelegramBot:
                 try:
                     current_time = time.time()
 
-                    # Получаем данные с кеширования  
+                    # Получаем данные с кешированием  
                     watchlist_symbols = watchlist_manager.get_symbols()
 
                     if not watchlist_symbols:
