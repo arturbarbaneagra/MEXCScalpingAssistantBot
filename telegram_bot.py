@@ -336,8 +336,6 @@ class TradingTelegramBot:
         if not self.bot_mode:
             return
 
-        bot_logger.info(f"🛑 Остановка режима: {self.bot_mode}")
-
         # Останавливаем соответствующий модуль
         if self.bot_mode == 'notification':
             await self.notification_mode.stop()
