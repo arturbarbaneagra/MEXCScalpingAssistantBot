@@ -150,10 +150,56 @@ class MonitoringMode:
                     if coin_data:
                         results.append(coin_data)
                     else:
-                        failed_coins.append(symbol)
+                        # Пробуем получить из кеша при ошибке API
+                        try:
+                            from cache_manager import cache_manager
+                            cached_data = cache_manager.get_ticker_cache(symbol)
+                            if cached_data:
+                                # Создаем упрощенные данные из кеша
+                                simplified_data = {
+                                    'symbol': symbol,
+                                    'price': float(cached_data.get('lastPrice', 0)),
+                                    'volume': 0,  # Не знаем актуальный объём
+                                    'change': 0,  # Не знаем актуальное изменение
+                                    'spread': 0,
+                                    'natr': 0,
+                                    'trades': 0,
+                                    'active': False,  # Помечаем как неактивную
+                                    'has_recent_trades': False,
+                                    'timestamp': time.time(),
+                                    'from_cache': True  # Флаг что данные из кеша
+                                }
+                                results.append(simplified_data)
+                            else:
+                                failed_coins.append(symbol)
+                        except:
+                            failed_coins.append(symbol)
             except Exception as e:
-                bot_logger.error(f"Ошибка batch получения данных: {e}")
-                failed_coins.extend(batch)
+                bot_logger.warning(f"API временно недоступен для batch {batch}: {e}")
+                # При полной недоступности API пытаемся использовать кеш
+                for symbol in batch:
+                    try:
+                        from cache_manager import cache_manager
+                        cached_data = cache_manager.get_ticker_cache(symbol)
+                        if cached_data:
+                            simplified_data = {
+                                'symbol': symbol,
+                                'price': float(cached_data.get('lastPrice', 0)),
+                                'volume': 0,
+                                'change': 0,
+                                'spread': 0,
+                                'natr': 0,
+                                'trades': 0,
+                                'active': False,
+                                'has_recent_trades': False,
+                                'timestamp': time.time(),
+                                'from_cache': True
+                            }
+                            results.append(simplified_data)
+                        else:
+                            failed_coins.append(symbol)
+                    except:
+                        failed_coins.append(symbol)
 
             await asyncio.sleep(config_manager.get('CHECK_BATCH_INTERVAL', 0.4))
 
@@ -169,6 +215,17 @@ class MonitoringMode:
         spread_thresh = config_manager.get('SPREAD_THRESHOLD')
         natr_thresh = config_manager.get('NATR_THRESHOLD')
 
+        # Проверяем статус Circuit Breakers
+        api_status = "🟢"
+        try:
+            from circuit_breaker import api_circuit_breakers
+            open_breakers = [name for name, cb in api_circuit_breakers.items() if cb.state == 'OPEN']
+            if open_breakers:
+                api_status = f"🟡 API проблемы: {', '.join([name.replace('_api', '') for name in open_breakers[:2]])}"
+        except:
+            pass
+
+        parts.append(f"<i>API: {api_status}</i>")
         parts.append(
             f"<i>Фильтры: 1м оборот ≥${vol_thresh:,}, "
             f"Спред ≥{spread_thresh}%, NATR ≥{natr_thresh}%</i>\n"
@@ -182,8 +239,9 @@ class MonitoringMode:
             parts.append("<b>🟢 АКТИВНЫЕ:</b>")
             for coin in active_coins[:10]:
                 trades_icon = "🔥" if coin.get('has_recent_trades') else "📊"
+                cache_icon = "💾" if coin.get('from_cache') else ""
                 parts.append(
-                    f"• <b>{coin['symbol']}</b> "
+                    f"• <b>{coin['symbol']}</b>{cache_icon} "
                     f"${coin['volume']:,.0f} | {coin['change']:+.1f}% | "
                     f"{trades_icon}T:{coin['trades']} | S:{coin['spread']:.2f}% | N:{coin['natr']:.2f}%"
                 )
@@ -194,8 +252,9 @@ class MonitoringMode:
             parts.append("<b>🔴 НЕАКТИВНЫЕ (топ по объёму):</b>")
             for coin in inactive_coins[:8]:
                 trades_status = "✅" if coin['trades'] > 0 else "❌"
+                cache_icon = "💾" if coin.get('from_cache') else ""
                 parts.append(
-                    f"• <b>{coin['symbol']}</b> "
+                    f"• <b>{coin['symbol']}</b>{cache_icon} "
                     f"${coin['volume']:,.0f} | {coin['change']:+.1f}% | "
                     f"{trades_status}T:{coin['trades']} | S:{coin['spread']:.2f}% | N:{coin['natr']:.2f}%"
                 )
