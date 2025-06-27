@@ -85,10 +85,10 @@ class CircuitBreaker:
         self.last_failure_time = 0
         bot_logger.info(f"Circuit Breaker '{self.name}' сброшен")
 
-# Глобальные Circuit Breaker для разных API endpoint'ов
+# Глобальные Circuit Breaker для разных API endpoint'ов с более мягкими параметрами
 api_circuit_breakers = {
-    'ticker': CircuitBreaker(failure_threshold=5, timeout=30, recovery_timeout=20, name='ticker_api'),
-    'klines': CircuitBreaker(failure_threshold=5, timeout=30, recovery_timeout=20, name='klines_api'),
-    'trades': CircuitBreaker(failure_threshold=7, timeout=60, recovery_timeout=30, name='trades_api'),
-    'book_ticker': CircuitBreaker(failure_threshold=5, timeout=30, recovery_timeout=20, name='book_ticker_api')
+    'ticker': CircuitBreaker(failure_threshold=8, timeout=30, recovery_timeout=15, name='ticker_api'),
+    'klines': CircuitBreaker(failure_threshold=8, timeout=30, recovery_timeout=15, name='klines_api'),
+    'trades': CircuitBreaker(failure_threshold=10, timeout=60, recovery_timeout=20, name='trades_api'),
+    'book_ticker': CircuitBreaker(failure_threshold=8, timeout=30, recovery_timeout=15, name='book_ticker_api')
 }

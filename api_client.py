@@ -8,6 +8,7 @@ from cache_manager import cache_manager
 from metrics_manager import metrics_manager
 from circuit_breaker import api_circuit_breakers
 from data_validator import data_validator
+from api_recovery_manager import api_recovery_manager
 
 class APIClient:
     def __init__(self):
@@ -98,9 +99,15 @@ class APIClient:
                         # Логируем как debug, а не error для 400 ошибок
                         bot_logger.debug(f"Invalid request for {endpoint}: 400 Bad Request")
                         # Для валидации символов не считаем это failure для Circuit Breaker
-                        if "/ticker/24hr" in endpoint:
-                            return None  # Возвращаем None без исключения
-                        raise Exception(f"Invalid symbol or request for {endpoint}")
+                        if "/ticker/24hr" in endpoint or "/ticker/bookTicker" in endpoint:
+                            return None  # Возвращаем None без исключения для валидации
+                        # Для других endpoint'ов тоже не считаем как circuit breaker failure
+                        return None
+                    elif response.status in [404, 429]:  # Not found или rate limit
+                        bot_logger.debug(f"API status {response.status} for {endpoint}")
+                        if response.status == 429:
+                            raise Exception(f"Rate limit hit for {endpoint}")
+                        return None
                     else:
                         raise Exception(f"API error {response.status} for {endpoint}")
             except aiohttp.ClientError as e:
@@ -167,7 +174,7 @@ class APIClient:
         return None
 
     async def get_ticker_data(self, symbol: str) -> Optional[Dict]:
-        """Получает данные тикера для символа с кешированием"""
+        """Получает данные тикера для символа с кешированием и fallback"""
         # Проверяем кеш
         cached_data = cache_manager.get_ticker_cache(symbol)
         if cached_data:
@@ -177,11 +184,19 @@ class APIClient:
         params = {'symbol': f"{symbol}USDT"}
         data = await self._make_request("/ticker/24hr", params)
 
-        # Сохраняем в кеш
+        # Сохраняем в кеш и fallback при успехе
         if data:
             cache_manager.set_ticker_cache(symbol, data)
+            api_recovery_manager.store_successful_data("/ticker/24hr", symbol, data)
+            return data
+        
+        # Пытаемся получить fallback данные при неудаче
+        fallback_data = api_recovery_manager.get_fallback_data("/ticker/24hr", symbol)
+        if fallback_data:
+            bot_logger.debug(f"Используем fallback данные для тикера {symbol}")
+            return fallback_data
 
-        return data
+        return None
 
     async def get_book_ticker(self, symbol: str) -> Optional[Dict]:
         """Получает данные книги ордеров (bid/ask)"""

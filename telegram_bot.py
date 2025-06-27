@@ -30,6 +30,11 @@ class TradingTelegramBot:
         self.message_cache = {}
         self._message_queue = asyncio.Queue()
         self._queue_processor_task = None
+        
+        # Защита от одновременных операций
+        self._operation_lock = asyncio.Lock()
+        self._switching_mode = False
+        self._last_operation_time = 0
 
         # Модули режимов
         self.notification_mode = NotificationMode(self)
@@ -332,45 +337,72 @@ class TradingTelegramBot:
             yield lst[i:i + size]
 
     async def _stop_current_mode(self):
-        """Останавливает текущий режим работы бота"""
-        if not self.bot_mode:
-            return
+        """Останавливает текущий режим работы бота с защитой от одновременных операций"""
+        async with self._operation_lock:
+            if self._switching_mode:
+                bot_logger.debug("Переключение режима уже в процессе, пропускаем")
+                return
+                
+            if not self.bot_mode:
+                return
 
-        # Останавливаем соответствующий модуль
-        if self.bot_mode == 'notification':
-            await self.notification_mode.stop()
-        elif self.bot_mode == 'monitoring':
-            await self.monitoring_mode.stop()
-
-        # Останавливаем процессор очереди
-        if self._queue_processor_task and not self._queue_processor_task.done():
-            self._queue_processor_task.cancel()
+            self._switching_mode = True
+            
             try:
-                await asyncio.wait_for(self._queue_processor_task, timeout=1.0)
-            except (asyncio.CancelledError, asyncio.TimeoutError):
-                pass
-            self._queue_processor_task = None
+                bot_logger.info(f"🛑 Останавливаем режим: {self.bot_mode}")
 
-        # Очищаем очередь сообщений
-        try:
-            while not self._message_queue.empty():
+                # Останавливаем соответствующий модуль
                 try:
-                    self._message_queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    break
-        except Exception as e:
-            bot_logger.debug(f"Ошибка очистки очереди: {e}")
+                    if self.bot_mode == 'notification':
+                        await asyncio.wait_for(self.notification_mode.stop(), timeout=5.0)
+                    elif self.bot_mode == 'monitoring':
+                        await asyncio.wait_for(self.monitoring_mode.stop(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    bot_logger.warning("Таймаут остановки режима, принудительно завершаем")
+                except Exception as e:
+                    bot_logger.error(f"Ошибка остановки режима: {e}")
 
-        # Пересоздаем очередь
-        self._message_queue = asyncio.Queue()
+                # Останавливаем процессор очереди
+                if self._queue_processor_task and not self._queue_processor_task.done():
+                    self._queue_processor_task.cancel()
+                    try:
+                        await asyncio.wait_for(self._queue_processor_task, timeout=1.0)
+                    except (asyncio.CancelledError, asyncio.TimeoutError):
+                        pass
+                    self._queue_processor_task = None
 
-        # Очищаем состояние
-        self.bot_running = False
-        self.bot_mode = None
-        self.message_cache.clear()
-        bot_state_manager.set_last_mode(None)
+                # Очищаем очередь сообщений безопасно
+                try:
+                    if self._message_queue:
+                        queue_size = 0
+                        while not self._message_queue.empty() and queue_size < 100:
+                            try:
+                                self._message_queue.get_nowait()
+                                queue_size += 1
+                            except asyncio.QueueEmpty:
+                                break
+                        
+                        # Пересоздаем очередь
+                        self._message_queue = asyncio.Queue()
+                        
+                except Exception as e:
+                    bot_logger.debug(f"Ошибка очистки очереди: {e}")
+                    # Принудительно пересоздаем очередь
+                    self._message_queue = asyncio.Queue()
 
-        bot_logger.info("✅ Режим успешно остановлен")
+                # Очищаем состояние
+                self.bot_running = False
+                self.bot_mode = None
+                self.message_cache.clear()
+                bot_state_manager.set_last_mode(None)
+
+                # Даем время для завершения операций
+                await asyncio.sleep(0.3)
+
+                bot_logger.info("✅ Режим успешно остановлен")
+                
+            finally:
+                self._switching_mode = False
 
 
 
@@ -420,10 +452,26 @@ class TradingTelegramBot:
         await update.message.reply_text(welcome_text, reply_markup=self.main_keyboard, parse_mode=ParseMode.HTML)
 
     async def button_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Основной обработчик кнопок"""
+        """Основной обработчик кнопок с защитой от spam"""
         text = update.message.text
+        current_time = time.time()
+
+        # Защита от spam нажатий (минимум 1 секунда между операциями)
+        if current_time - self._last_operation_time < 1.0:
+            bot_logger.debug("Слишком быстрые нажатия, игнорируем")
+            return ConversationHandler.END
+            
+        self._last_operation_time = current_time
 
         try:
+            # Проверяем, не идет ли уже переключение режима
+            if self._switching_mode:
+                await update.message.reply_text(
+                    "⏳ Идет переключение режима, подождите...",
+                    reply_markup=self.main_keyboard
+                )
+                return ConversationHandler.END
+
             if text == "🔔 Уведомления":
                 await self._handle_notification_mode(update)
             elif text == "📊 Мониторинг":
@@ -459,10 +507,13 @@ class TradingTelegramBot:
                 )
         except Exception as e:
             bot_logger.error(f"Ошибка в button_handler: {e}", exc_info=True)
-            await update.message.reply_text(
-                "❌ Произошла ошибка. Попробуйте еще раз.",
-                reply_markup=self.main_keyboard
-            )
+            try:
+                await update.message.reply_text(
+                    "❌ Произошла ошибка. Попробуйте еще раз через несколько секунд.",
+                    reply_markup=self.main_keyboard
+                )
+            except Exception as reply_error:
+                bot_logger.error(f"Не удалось отправить сообщение об ошибке: {reply_error}")
 
         return ConversationHandler.END
 
@@ -784,39 +835,68 @@ class TradingTelegramBot:
             return ConversationHandler.END
 
         # Проверяем существование монеты через API с улучшенной обработкой ошибок
+        loading_msg = None
         try:
             loading_msg = await update.message.reply_text("🔍 Проверяю монету...")
 
-            # Проверяем кеш сначала
-            # cached_data = cache_manager.get_ticker_cache(symbol) # assuming cache_manager is defined somewhere, if not, comment out this line
-            # if cached_data:
-            #     ticker_data = cached_data
-            # else:
-            ticker_data = await api_client.get_ticker_data(symbol)
+            # Проверяем кеш сначала для ускорения
+            from cache_manager import cache_manager
+            cached_data = cache_manager.get_ticker_cache(symbol)
+            if cached_data:
+                ticker_data = cached_data
+                bot_logger.debug(f"Использован кеш для {symbol}")
+            else:
+                # Используем таймаут для проверки API
+                ticker_data = await asyncio.wait_for(
+                    api_client.get_ticker_data(symbol), 
+                    timeout=10.0
+                )
 
             if not ticker_data:
-                await loading_msg.edit_text(
-                    f"❌ <b>Монета '{symbol}' не найдена на MEXC</b>\n\n"
-                    "• Проверьте правильность символа\n"
-                    "• Поддерживаются только пары с USDT\n"
-                    "• Убедитесь что монета торгуется на MEXC\n\n"
-                    "Примеры корректных символов: <code>BTC</code>, <code>ETH</code>, <code>ADA</code>",
-                    parse_mode=ParseMode.HTML
-                )
-                return
+                try:
+                    await loading_msg.edit_text(
+                        f"❌ <b>Монета '{symbol}' не найдена на MEXC</b>\n\n"
+                        "• Проверьте правильность символа\n"
+                        "• Поддерживаются только пары с USDT\n"
+                        "• Убедитесь что монета торгуется на MEXC\n\n"
+                        "Примеры корректных символов: <code>BTC</code>, <code>ETH</code>, <code>ADA</code>",
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception:
+                    await update.message.reply_text(
+                        f"❌ <b>Монета '{symbol}' не найдена на MEXC</b>",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=self.main_keyboard
+                    )
+                return ConversationHandler.END
 
+        except asyncio.TimeoutError:
+            try:
+                if loading_msg:
+                    await loading_msg.delete()
+            except:
+                pass
+            await update.message.reply_text(
+                f"⏱️ <b>Таймаут проверки монеты '{symbol}'</b>\n\n"
+                "API слишком медленно отвечает. Попробуйте позже или добавьте монету напрямую - "
+                "она будет проверена при первом запросе данных.",
+                parse_mode=ParseMode.HTML,
+                reply_markup=self.main_keyboard
+            )
+            return ConversationHandler.END
         except Exception as e:
             error_msg = str(e).lower()
             try:
-                # Удаляем сообщение "Проверяю монету..."
-                await loading_msg.delete()
+                if loading_msg:
+                    await loading_msg.delete()
             except:
                 pass
                 
-            if "invalid symbol" in error_msg or "400" in error_msg or "inline keyboard expected" in error_msg:
+            if ("invalid symbol" in error_msg or "400" in error_msg or 
+                "inline keyboard expected" in error_msg or "circuit breaker" in error_msg):
                 await update.message.reply_text(
-                    f"❌ <b>Символ '{symbol}' не существует</b>\n\n"
-                    "Монета не найдена на бирже MEXC или имеет неправильный формат.\n"
+                    f"❌ <b>Символ '{symbol}' не существует или недоступен</b>\n\n"
+                    "Монета не найдена на бирже MEXC или API временно недоступно.\n"
                     "Проверьте символ и попробуйте снова.",
                     parse_mode=ParseMode.HTML,
                     reply_markup=self.main_keyboard
@@ -824,8 +904,9 @@ class TradingTelegramBot:
             else:
                 bot_logger.error(f"Ошибка проверки монеты {symbol}: {e}")
                 await update.message.reply_text(
-                    f"⚠️ <b>Временная ошибка проверки монеты</b>\n\n"
-                    "API временно недоступен. Попробуйте позже.",
+                    f"⚠️ <b>Ошибка проверки монеты '{symbol}'</b>\n\n"
+                    "Возможно API временно недоступен или перегружен. "
+                    "Попробуйте позже или добавьте без проверки.",
                     parse_mode=ParseMode.HTML,
                     reply_markup=self.main_keyboard
                 )
