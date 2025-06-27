@@ -26,8 +26,8 @@ class InputValidator:
         if not re.match(r'^[A-Z0-9]+$', clean_symbol):
             return False
         
-        # Не должен начинаться или заканчиваться цифрой
-        if clean_symbol[0].isdigit() or clean_symbol[-1].isdigit():
+        # Не должен начинаться с цифры (но может заканчиваться)
+        if clean_symbol[0].isdigit():
             return False
             
         # Запрещенные символы и паттерны
