@@ -12,6 +12,7 @@ from bot_state import bot_state_manager
 from advanced_alerts import advanced_alert_manager, AlertType, AlertSeverity
 from notification_mode import NotificationMode
 from monitoring_mode import MonitoringMode
+from input_validator import input_validator
 import os
 
 class TradingTelegramBot:
