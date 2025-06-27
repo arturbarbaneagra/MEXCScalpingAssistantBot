@@ -98,6 +98,7 @@ class SessionRecorder:
         minute_data['natr'] = coin_data.get('natr', 0.0)
         
         bot_logger.debug(f"💾 Запись активности {symbol}: сделок {minute_data['trades']}, объём ${minute_data['volume']:,.0f}")
+        bot_logger.info(f"📝 Запись об активности {symbol} сохранена в сессию")
 
     def check_inactive_sessions(self, active_coins: Dict[str, Any]):
         """Проверяет и завершает неактивные сессии"""

@@ -175,6 +175,7 @@ class NotificationMode:
             try:
                 from session_recorder import session_recorder
                 session_recorder.update_coin_activity(symbol, data)
+                bot_logger.debug(f"📊 Данные {symbol} переданы в Session Recorder")
             except Exception as e:
                 bot_logger.debug(f"Ошибка записи сессии {symbol}: {e}")
 
