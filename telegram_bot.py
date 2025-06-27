@@ -30,7 +30,7 @@ class TradingTelegramBot:
         self.message_cache = {}
         self._message_queue = asyncio.Queue()
         self._queue_processor_task = None
-        
+
         # Защита от одновременных операций
         self._operation_lock = asyncio.Lock()
         self._switching_mode = False
@@ -343,12 +343,12 @@ class TradingTelegramBot:
             if self._switching_mode:
                 bot_logger.debug("Переключение режима уже в процессе, пропускаем")
                 return
-                
+
             if not self.bot_mode:
                 return
 
             self._switching_mode = True
-            
+
             try:
                 bot_logger.info(f"🛑 Останавливаем режим: {self.bot_mode}")
 
@@ -382,10 +382,10 @@ class TradingTelegramBot:
                                 queue_size += 1
                             except asyncio.QueueEmpty:
                                 break
-                        
+
                         # Пересоздаем очередь
                         self._message_queue = asyncio.Queue()
-                        
+
                 except Exception as e:
                     bot_logger.debug(f"Ошибка очистки очереди: {e}")
                     # Принудительно пересоздаем очередь
@@ -401,7 +401,7 @@ class TradingTelegramBot:
                 await asyncio.sleep(0.3)
 
                 bot_logger.info("✅ Режим успешно остановлен")
-                
+
             finally:
                 self._switching_mode = False
 
@@ -461,7 +461,7 @@ class TradingTelegramBot:
         if current_time - self._last_operation_time < 1.0:
             bot_logger.debug("Слишком быстрые нажатия, игнорируем")
             return ConversationHandler.END
-            
+
         self._last_operation_time = current_time
 
         try:
@@ -780,15 +780,15 @@ class TradingTelegramBot:
     async def _handle_reset_api(self, update: Update):
         """Сброс Circuit Breaker API"""
         await self._stop_current_mode()
-        
+
         try:
             from circuit_breaker import api_circuit_breakers
             reset_count = 0
-            
+
             for name, cb in api_circuit_breakers.items():
                 cb.reset()
                 reset_count += 1
-            
+
             await update.message.reply_text(
                 f"🔄 <b>API Circuit Breakers сброшены</b>\n\n"
                 f"Сброшено: <b>{reset_count}</b> circuit breaker'ов\n"
@@ -797,7 +797,7 @@ class TradingTelegramBot:
                 reply_markup=self.main_keyboard
             )
             bot_logger.info(f"Circuit Breakers сброшены пользователем ({reset_count} штук)")
-            
+
         except Exception as e:
             bot_logger.error(f"Ошибка сброса Circuit Breakers: {e}")
             await update.message.reply_text(
@@ -891,21 +891,26 @@ class TradingTelegramBot:
 
             if not ticker_data:
                 try:
-                    await loading_msg.edit_text(
-                        f"❌ <b>Монета '{symbol}' не найдена на MEXC</b>\n\n"
-                        "• Проверьте правильность символа\n"
-                        "• Поддерживаются только пары с USDT\n"
-                        "• Убедитесь что монета торгуется на MEXC\n\n"
-                        "Примеры корректных символов: <code>BTC</code>, <code>ETH</code>, <code>ADA</code>",
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception:
                     await update.message.reply_text(
-                        f"❌ <b>Монета '{symbol}' не найдена на MEXC</b>",
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=self.main_keyboard
-                    )
-                return ConversationHandler.END
+                    f"❌ <b>Монета '{symbol}' не найдена на MEXC</b>\n\n"
+                    "• Проверьте правильность символа\n"
+                    "• Поддерживаются только пары с USDT\n"
+                    "• Убедитесь что монета торгуется на MEXC\n\n"
+                    "💡 <b>Попробуйте еще раз:</b>\n"
+                    "• Введите другой символ монеты\n"
+                    "• Или нажмите '🔙 Назад' для выхода\n\n"
+                    "Примеры: <code>BTC</code>, <code>ETH</code>, <code>ADA</code>",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=self.back_keyboard
+                )
+            except Exception:
+                await update.message.reply_text(
+                    f"❌ <b>Монета '{symbol}' не найдена на MEXC</b>\n\n"
+                    "💡 Попробуйте ввести другой символ или нажмите '🔙 Назад'",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=self.back_keyboard
+                )
+            return self.ADDING_COIN  # Продолжаем ждать ввод
 
         except asyncio.TimeoutError:
             try:
@@ -930,7 +935,7 @@ class TradingTelegramBot:
                     await loading_msg.delete()
             except:
                 pass
-                
+
             if ("invalid symbol" in error_msg or "400" in error_msg or 
                 "inline keyboard expected" in error_msg or "circuit breaker" in error_msg):
                 await update.message.reply_text(
@@ -966,7 +971,7 @@ class TradingTelegramBot:
                     api_circuit_breakers['ticker'].force_close()
             except:
                 pass
-                
+
             price = float(ticker_data.get('lastPrice', 0))
             await update.message.reply_text(
                 f"✅ <b>Монета добавлена!</b>\n\n"
