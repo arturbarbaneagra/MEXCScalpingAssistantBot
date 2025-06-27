@@ -220,17 +220,6 @@ class MonitoringMode:
         spread_thresh = config_manager.get('SPREAD_THRESHOLD')
         natr_thresh = config_manager.get('NATR_THRESHOLD')
 
-        # Проверяем статус Circuit Breakers
-        api_status = "🟢"
-        try:
-            from circuit_breaker import api_circuit_breakers
-            open_breakers = [name for name, cb in api_circuit_breakers.items() if cb.state == 'OPEN']
-            if open_breakers:
-                api_status = f"🟡 API проблемы: {', '.join([name.replace('_api', '') for name in open_breakers[:2]])}"
-        except:
-            pass
-
-        parts.append(f"<i>API: {api_status}</i>")
         parts.append(
             f"<i>Фильтры: 1м оборот ≥${vol_thresh:,}, "
             f"Спред ≥{spread_thresh}%, NATR ≥{natr_thresh}%</i>\n"

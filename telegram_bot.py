@@ -809,25 +809,44 @@ class TradingTelegramBot:
                     report_parts.append(f"{i}. <b>{symbol}</b> - {duration/60:.1f} мин")
                 report_parts.append("")
             
-            # Последние 10 сессий
-            recent_sessions = all_sessions[:10]
+            # Последние сессии, группированные по часам (московское время UTC+3)
+            recent_sessions = all_sessions[:20]  # Берем больше для группировки
             if recent_sessions:
                 report_parts.append("🕐 <b>Последние сессии:</b>")
+                
+                # Группируем по часам
+                sessions_by_hour = {}
                 for session in recent_sessions:
-                    symbol = session.get('symbol', '')
-                    duration = session.get('total_duration', 0) / 60
-                    summary = session.get('summary', {})
-                    volume = summary.get('total_volume', 0)
-                    trades = summary.get('total_trades', 0)
                     start_time = session.get('start_time', 0)
-                    end_time = session.get('end_time', 0)
-                    start_str = datetime.fromtimestamp(start_time).strftime('%H:%M')
-                    end_str = datetime.fromtimestamp(end_time).strftime('%H:%M')
+                    # Конвертируем в московское время (UTC+3)
+                    moscow_time = datetime.fromtimestamp(start_time + 3*3600)
+                    hour_key = moscow_time.strftime('%H:00')
                     
-                    report_parts.append(
-                        f"• <b>{symbol}</b> ({start_str}-{end_str}) - {duration:.1f}м, "
-                        f"${volume:,.0f}, {trades} сделок"
-                    )
+                    if hour_key not in sessions_by_hour:
+                        sessions_by_hour[hour_key] = []
+                    sessions_by_hour[hour_key].append(session)
+                
+                # Отображаем по часам (сортируем в обратном порядке)
+                for hour in sorted(sessions_by_hour.keys(), reverse=True):
+                    hour_sessions = sessions_by_hour[hour]
+                    report_parts.append(f"\n<b>{hour}</b>")
+                    
+                    for session in hour_sessions[:8]:  # Максимум 8 сессий на час
+                        symbol = session.get('symbol', '')
+                        duration = session.get('total_duration', 0) / 60
+                        summary = session.get('summary', {})
+                        volume = summary.get('total_volume', 0)
+                        trades = summary.get('total_trades', 0)
+                        start_time = session.get('start_time', 0)
+                        end_time = session.get('end_time', 0)
+                        # Московское время для отображения
+                        start_str = datetime.fromtimestamp(start_time + 3*3600).strftime('%H:%M')
+                        end_str = datetime.fromtimestamp(end_time + 3*3600).strftime('%H:%M')
+                        
+                        report_parts.append(
+                            f"• <b>{symbol}</b> ({start_str}-{end_str}) - {duration:.1f}м, "
+                            f"${volume:,.0f}, {trades} сделок"
+                        )
             
             # Разбиваем сообщение на части если слишком длинное
             report_text = "\n".join(report_parts)
