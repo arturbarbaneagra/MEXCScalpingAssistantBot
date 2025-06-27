@@ -324,7 +324,6 @@ class TradingTelegramBot:
             return True
         except Exception as e:
             bot_logger.debug(f"Ошибка добавления delete в очередь: {e}")
-            return False
 
     def _chunks(self, lst: List, size: int):
         """Разбивает список на чанки"""
@@ -733,92 +732,110 @@ class TradingTelegramBot:
     # Handlers для ConversationHandler
     async def add_coin_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик добавления монеты"""
-        text = update.message.text.strip()
+        text = update.message.text.strip().upper()
 
-        if text == "🔙 Назад":
-            await self._handle_back(update)
-            return ConversationHandler.END
+        # Убираем префиксы команд
+        if text.startswith('/ADD'):
+            text = text[4:].strip()
 
-        from input_validator import input_validator
-
+        # Предварительная валидация символа
         if not input_validator.validate_symbol(text):
             await update.message.reply_text(
-                "❌ Некорректный символ. Используйте только буквы и цифры (2-10 символов).\n"
-                "Примеры: BTC, ETH, DOGE",
-                reply_markup=self.back_keyboard
+                "❌ <b>Неверный формат символа</b>\n\n"
+                "Символ должен содержать только буквы и цифры (2-10 символов)\n"
+                "Примеры: <code>BTC</code>, <code>ETH</code>, <code>ADA</code>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=self.main_keyboard
             )
-            return self.ADDING_COIN
+            return
 
-        symbol = text.upper().replace("_USDT", "").replace("USDT", "")
+        symbol = text.replace('USDT', '').replace('_', '')
 
-        if not symbol or len(symbol) < 2:
+        # Дополнительная валидация - проверяем на известные некорректные символы
+        invalid_symbols = [
+            'ADAD', 'XXXX', 'NULL', 'UNDEFINED', 'TEST', 'FAKE',
+            'SCAM', '123', 'ABC', 'XYZ', 'QQQ', 'WWW', 'EEE'
+        ]
+
+        if symbol in invalid_symbols or len(symbol) < 2 or len(symbol) > 10:
             await update.message.reply_text(
-                "❌ Некорректный символ. Попробуйте еще раз:",
-                reply_markup=self.back_keyboard
+                f"❌ <b>Символ '{symbol}' недействителен</b>\n\n"
+                "Пожалуйста, используйте корректные символы криптовалют.\n"
+                "Примеры: <code>BTC</code>, <code>ETH</code>, <code>ADA</code>, <code>SOL</code>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=self.main_keyboard
             )
-            return self.ADDING_COIN
+            return
 
         if watchlist_manager.contains(symbol):
             await update.message.reply_text(
-                f"⚠ <b>{symbol}</b> уже в списке отслеживания.",
-                reply_markup=self.main_keyboard,
-                parse_mode=ParseMode.HTML
+                f"⚠️ Монета <b>{symbol}</b> уже в списке отслеживания",
+                parse_mode=ParseMode.HTML,
+                reply_markup=self.main_keyboard
             )
-            return ConversationHandler.END
+            return
 
-        await update.message.reply_text("🔄 Проверяю доступность монеты...")
-
+        # Проверяем существование монеты через API с улучшенной обработкой ошибок
         try:
-            # Сначала проверяем существование торговой пары через ticker
-            ticker_data = await api_client.get_ticker_data(symbol)
-            
-            if ticker_data and ticker_data.get('lastPrice'):
-                # Монета существует, добавляем в список
-                watchlist_manager.add(symbol)
-                
-                price = float(ticker_data['lastPrice'])
-                volume = float(ticker_data.get('quoteVolume', 0))
-                change = float(ticker_data.get('priceChangePercent', 0))
-                
-                await update.message.reply_text(
-                    f"✅ <b>{symbol}_USDT</b> добавлена в список отслеживания\n"
-                    f"💰 Текущая цена: ${price:.6f}\n"
-                    f"📊 24ч объём: ${volume:,.2f}\n"
-                    f"🔄 24ч изменение: {change:+.2f}%",
-                    reply_markup=self.main_keyboard,
-                    parse_mode=ParseMode.HTML
-                )
-            else:
-                # Монета не найдена
-                await update.message.reply_text(
-                    f"❌ <b>{symbol}_USDT</b> не найдена на бирже MEXC\n\n"
-                    f"💡 <b>Возможные причины:</b>\n"
-                    f"• Неправильное название монеты\n"
-                    f"• Торговая пара не существует\n"
-                    f"• Монета не торгуется на MEXC\n\n"
-                    f"Проверьте правильность символа и попробуйте снова.",
-                    reply_markup=self.main_keyboard,
-                    parse_mode=ParseMode.HTML
-                )
-        except Exception as e:
-            bot_logger.error(f"Ошибка при добавлении монеты {symbol}: {e}")
+            loading_msg = await update.message.reply_text("🔍 Проверяю монету...")
 
-            # Более детальное сообщение об ошибке
-            if "400" in str(e) or "Bad Request" in str(e):
+            # Проверяем кеш сначала
+            # cached_data = cache_manager.get_ticker_cache(symbol) # assuming cache_manager is defined somewhere, if not, comment out this line
+            # if cached_data:
+            #     ticker_data = cached_data
+            # else:
+            ticker_data = await api_client.get_ticker_data(symbol)
+
+            if not ticker_data:
+                await loading_msg.edit_text(
+                    f"❌ <b>Монета '{symbol}' не найдена на MEXC</b>\n\n"
+                    "• Проверьте правильность символа\n"
+                    "• Поддерживаются только пары с USDT\n"
+                    "• Убедитесь что монета торгуется на MEXC\n\n"
+                    "Примеры корректных символов: <code>BTC</code>, <code>ETH</code>, <code>ADA</code>",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=self.main_keyboard
+                )
+                return
+
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "invalid symbol" in error_msg or "400" in error_msg:
                 await update.message.reply_text(
-                    f"❌ <b>{symbol}_USDT</b> не существует на бирже\n\n"
-                    f"Проверьте правильность написания символа.\n"
-                    f"Пример: BTC, ETH, ADA",
-                    reply_markup=self.main_keyboard,
-                    parse_mode=ParseMode.HTML
+                    f"❌ <b>Символ '{symbol}' не существует</b>\n\n"
+                    "Монета не найдена на бирже MEXC или имеет неправильный формат.\n"
+                    "Проверьте символ и попробуйте снова.",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=self.main_keyboard
                 )
             else:
+                bot_logger.error(f"Ошибка проверки монеты {symbol}: {e}")
                 await update.message.reply_text(
-                    f"❌ Временная ошибка при проверке <b>{symbol}</b>\n"
-                    f"Попробуйте позже или проверьте соединение.",
-                    reply_markup=self.main_keyboard,
-                    parse_mode=ParseMode.HTML
+                    f"⚠️ <b>Временная ошибка проверки монеты</b>\n\n"
+                    "API временно недоступен. Попробуйте позже.",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=self.main_keyboard
                 )
+            return
+
+        # Добавляем в список
+        if watchlist_manager.add(symbol):
+            price = float(ticker_data.get('lastPrice', 0))
+            await update.message.reply_text(
+                f"✅ <b>Монета добавлена!</b>\n\n"
+                f"📊 <b>{symbol}</b>\n"
+                f"💰 Цена: <code>${price:.6f}</code>\n"
+                f"📈 Всего в списке: <b>{watchlist_manager.size()}</b>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=self.main_keyboard
+            )
+            bot_logger.info(f"Добавлена монета {symbol} по цене ${price:.6f}")
+        else:
+            await update.message.reply_text(
+                f"❌ Ошибка добавления монеты <b>{symbol}</b>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=self.main_keyboard
+            )
 
         return ConversationHandler.END
 

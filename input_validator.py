@@ -18,13 +18,35 @@ class InputValidator:
         # Убираем _USDT и USDT
         clean_symbol = symbol.upper().replace("_USDT", "").replace("USDT", "")
         
-        # Проверяем формат
-        if not re.match(r'^[A-Z0-9]{2,10}$', clean_symbol):
+        # Проверяем длину
+        if len(clean_symbol) < 2 or len(clean_symbol) > 10:
+            return False
+        
+        # Проверяем формат - только буквы и цифры
+        if not re.match(r'^[A-Z0-9]+$', clean_symbol):
+            return False
+        
+        # Не должен начинаться или заканчиваться цифрой
+        if clean_symbol[0].isdigit() or clean_symbol[-1].isdigit():
             return False
             
-        # Запрещенные символы
-        forbidden = ['XXX', 'NULL', 'UNDEFINED']
+        # Запрещенные символы и паттерны
+        forbidden = [
+            'XXX', 'NULL', 'UNDEFINED', 'TEST', 'FAKE', 'SCAM',
+            'ADAD', 'ABCD', 'QWER', 'ASDF', 'ZXCV', '1234',
+            'AAAA', 'BBBB', 'CCCC', 'QQQ', 'WWW', 'EEE',
+            'ABC', 'XYZ', '123', 'AAA', 'BBB', 'CCC'
+        ]
+        
         if clean_symbol in forbidden:
+            return False
+        
+        # Не должен состоять из одинаковых символов
+        if len(set(clean_symbol)) == 1:
+            return False
+        
+        # Не должен быть только цифрами
+        if clean_symbol.isdigit():
             return False
             
         return True

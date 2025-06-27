@@ -87,8 +87,8 @@ class CircuitBreaker:
 
 # Глобальные Circuit Breaker для разных API endpoint'ов
 api_circuit_breakers = {
-    'ticker': CircuitBreaker(failure_threshold=3, timeout=30, name='ticker_api'),
-    'klines': CircuitBreaker(failure_threshold=3, timeout=30, name='klines_api'),
-    'trades': CircuitBreaker(failure_threshold=5, timeout=60, name='trades_api'),
-    'book_ticker': CircuitBreaker(failure_threshold=3, timeout=30, name='book_ticker_api')
+    'ticker': CircuitBreaker(failure_threshold=5, timeout=30, recovery_timeout=20, name='ticker_api'),
+    'klines': CircuitBreaker(failure_threshold=5, timeout=30, recovery_timeout=20, name='klines_api'),
+    'trades': CircuitBreaker(failure_threshold=7, timeout=60, recovery_timeout=30, name='trades_api'),
+    'book_ticker': CircuitBreaker(failure_threshold=5, timeout=30, recovery_timeout=20, name='book_ticker_api')
 }

@@ -97,6 +97,9 @@ class APIClient:
                     elif response.status == 400:  # Bad request (invalid symbol)
                         # Логируем как debug, а не error для 400 ошибок
                         bot_logger.debug(f"Invalid request for {endpoint}: 400 Bad Request")
+                        # Для валидации символов не считаем это failure для Circuit Breaker
+                        if "/ticker/24hr" in endpoint:
+                            return None  # Возвращаем None без исключения
                         raise Exception(f"Invalid symbol or request for {endpoint}")
                     else:
                         raise Exception(f"API error {response.status} for {endpoint}")
