@@ -93,6 +93,12 @@ class NotificationMode:
                 cleanup_counter += 1
                 if cleanup_counter >= 10:
                     await self._cleanup_stale_processes()
+                    # Проверяем неактивные сессии
+                    try:
+                        from session_recorder import session_recorder
+                        session_recorder.check_inactive_sessions(self.active_coins)
+                    except Exception as e:
+                        bot_logger.debug(f"Ошибка проверки сессий: {e}")
                     cleanup_counter = 0
 
                 batch_size = config_manager.get('CHECK_BATCH_SIZE')
@@ -163,6 +169,14 @@ class NotificationMode:
     async def _process_coin_notification(self, symbol: str, data: Dict):
         """Обработка уведомлений монет"""
         now = time.time()
+
+        # Записываем данные активных монет в сессии
+        if data.get('active'):
+            try:
+                from session_recorder import session_recorder
+                session_recorder.update_coin_activity(symbol, data)
+            except Exception as e:
+                bot_logger.debug(f"Ошибка записи сессии {symbol}: {e}")
 
         # Проверяем алерты
         try:
