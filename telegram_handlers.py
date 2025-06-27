@@ -1,6 +1,6 @@
 
 """
-Дополнительные обработчики для Telegram бота
+Дополнительные обработчики для MEXCScalping Assistant
 Содержит специализированные обработчики, которые не входят в основной класс
 """
 
@@ -138,7 +138,7 @@ class ExtendedTelegramHandlers:
                 return
 
             # Создаем текстовый экспорт
-            export_text = "# Список отслеживания торгового бота\n"
+            export_text = "# Список отслеживания MEXCScalping Assistant\n"
             export_text += f"# Экспортировано: {len(coins)} монет\n\n"
             
             sorted_coins = sorted(coins)

@@ -1,6 +1,6 @@
 
 """
-Валидатор конфигурации торгового бота
+Валидатор конфигурации MEXCScalping Assistant
 """
 
 from typing import Dict, Any, List, Tuple

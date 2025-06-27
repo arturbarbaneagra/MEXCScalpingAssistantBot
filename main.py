@@ -107,7 +107,7 @@ def health_check():
         </head>
         <body>
             <div class="container">
-                <h1>🤖 Trading Bot Status v2.1</h1>
+                <h1>🤖 MEXCScalping Assistant Status v2.1</h1>
 
                 <div class="status-grid">
                     <div class="metric-box {'success' if status['bot_running'] else 'critical'}">
@@ -153,7 +153,7 @@ def health_check():
         return f"""
         <html>
         <body>
-            <h1>🤖 Trading Bot Status v2.1</h1>
+            <h1>🤖 MEXCScalping Assistant Status v2.1</h1>
             <p><strong>Status:</strong> {'🟢 Running' if telegram_bot.bot_running else '🔴 Stopped'}</p>
             <p><strong>Mode:</strong> {telegram_bot.bot_mode or 'None'}</p>
             <p><strong>Watchlist:</strong> {watchlist_manager.size()} coins</p>
@@ -167,11 +167,11 @@ def api_performance():
     """Endpoint для мониторинга производительности API"""
     try:
         from api_performance_monitor import api_performance_monitor
-        
+
         stats = api_performance_monitor.get_all_stats()
         slow_endpoints = api_performance_monitor.get_slow_endpoints()
         error_endpoints = api_performance_monitor.get_error_prone_endpoints()
-        
+
         # HTML отчет
         html = f"""
         <html>
@@ -191,7 +191,7 @@ def api_performance():
         <body>
             <div class="container">
                 <h1>🚀 API Performance Monitor</h1>
-                
+
                 <div class="metric">
                     <strong>📊 Общая статистика:</strong><br>
                     Всего запросов: {stats.get('total_requests', 0)}<br>
@@ -199,15 +199,15 @@ def api_performance():
                     Общий процент ошибок: {stats.get('overall_error_rate', 0):.2%}<br>
                     Средний ответ: {stats.get('overall_avg_response_time', 0):.3f}s
                 </div>
-                
+
                 {"<div class='metric critical'><strong>🐌 Медленные endpoints:</strong><br>" + "<br>".join(slow_endpoints) + "</div>" if slow_endpoints else ""}
-                
+
                 {"<div class='metric critical'><strong>❌ Проблемные endpoints:</strong><br>" + "<br>".join(error_endpoints) + "</div>" if error_endpoints else ""}
-                
+
                 <h2>📋 Детальная статистика по endpoints:</h2>
                 <div class="endpoint-grid">
         """
-        
+
         for endpoint, endpoint_stats in stats.get('endpoints', {}).items():
             if endpoint_stats.get('status') != 'no_data':
                 status_class = endpoint_stats.get('status', 'healthy')
@@ -220,7 +220,7 @@ def api_performance():
                         Статус: {status_class}
                     </div>
                 """
-        
+
         html += """
                 </div>
                 <p><small>Страница обновляется каждые 30 секунд</small></p>
@@ -228,9 +228,9 @@ def api_performance():
         </body>
         </html>
         """
-        
+
         return html
-        
+
     except Exception as e:
         return f"<html><body><h1>API Performance Monitor</h1><p>Ошибка: {e}</p></body></html>"
 
@@ -241,7 +241,7 @@ def health():
         from health_check import health_checker
         # Безопасная обработка async операций во Flask
         import asyncio
-        
+
         # Проверяем существующий event loop
         try:
             # Пытаемся получить текущий loop
@@ -349,16 +349,16 @@ async def main():
         # Отправляем приветственное сообщение с диагностикой
         try:
             bot_logger.info(f"🔧 Отправляем приветственное сообщение в chat_id: {telegram_bot.chat_id}")
-            
+
             # Проверяем, что бот инициализирован
             if not telegram_bot.app or not telegram_bot.app.bot:
                 bot_logger.error("❌ Telegram приложение не инициализировано")
                 return
-            
+
             # Тестируем соединение с Telegram API
             bot_info = await telegram_bot.app.bot.get_me()
             bot_logger.info(f"✅ Подключение к Telegram API успешно. Бот: @{bot_info.username}")
-            
+
             # Отправляем сообщение напрямую через API
             message = await telegram_bot.app.bot.send_message(
                 chat_id=telegram_bot.chat_id,
@@ -374,12 +374,12 @@ async def main():
                 ),
                 parse_mode="HTML"
             )
-            
+
             if message:
                 bot_logger.info(f"✅ Приветственное сообщение отправлено успешно! Message ID: {message.message_id}")
             else:
                 bot_logger.error("❌ Сообщение не было отправлено - получен None")
-                
+
         except Exception as e:
             bot_logger.error(f"❌ Ошибка отправки приветственного сообщения: {e}")
             bot_logger.error(f"   Тип ошибки: {type(e).__name__}")
@@ -420,13 +420,13 @@ async def main():
         # Корректное завершение работы
         try:
             bot_logger.info("🔄 Начинаем процедуру корректного завершения...")
-            
+
             # Сначала останавливаем мониторинг
             telegram_bot.bot_running = False
-            
+
             # Ждем завершения текущих операций
             await asyncio.sleep(1.0)
-            
+
             # Закрываем API клиент с улучшенной обработкой
             bot_logger.info("🔌 Закрываем API клиент...")
             try:
@@ -438,21 +438,21 @@ async def main():
                 bot_logger.warning(f"Предупреждение при закрытии API клиента: {e}")
                 # Принудительное обнуление сессии
                 api_client.session = None
-            
+
             # Принудительная очистка всех pending tasks
             try:
                 current_task = asyncio.current_task()
                 pending_tasks = [task for task in asyncio.all_tasks() 
                                if not task.done() and task != current_task]
-                
+
                 if pending_tasks:
                     bot_logger.info(f"🧹 Обнаружено {len(pending_tasks)} pending tasks, отменяем...")
-                    
+
                     # Отменяем все задачи
                     for task in pending_tasks:
                         if not task.cancelled():
                             task.cancel()
-                    
+
                     # Ждем завершения с таймаутом
                     try:
                         await asyncio.wait_for(
@@ -462,10 +462,10 @@ async def main():
                         bot_logger.info("✅ Все pending tasks корректно отменены")
                     except asyncio.TimeoutError:
                         bot_logger.warning("⚠️ Таймаут отмены pending tasks")
-                        
+
             except Exception as e:
                 bot_logger.debug(f"Ошибка очистки pending tasks: {e}")
-            
+
             # Сохраняем состояние активных монет
             if hasattr(telegram_bot, 'active_coins') and telegram_bot.active_coins:
                 try:
@@ -481,7 +481,7 @@ async def main():
                     bot_logger.info("💾 Состояние активных монет сохранено")
                 except Exception as e:
                     bot_logger.warning(f"Не удалось сохранить активные монеты: {e}")
-            
+
             # Очищаем кеши
             try:
                 from cache_manager import cache_manager
@@ -489,7 +489,7 @@ async def main():
                 bot_logger.info("🗑️ Кеши очищены")
             except Exception as e:
                 bot_logger.debug(f"Ошибка очистки кешей: {e}")
-            
+
             # Финальное сохранение метрик
             try:
                 from metrics_manager import metrics_manager
@@ -500,11 +500,11 @@ async def main():
                 bot_logger.info("📊 Финальные метрики сохранены")
             except Exception as e:
                 bot_logger.debug(f"Не удалось сохранить финальные метрики: {e}")
-            
+
             # Финальная пауза для полного закрытия всех соединений
             await asyncio.sleep(0.5)
             bot_logger.info("🔒 Все компоненты корректно закрыты")
-            
+
         except Exception as e:
             bot_logger.error(f"Ошибка при завершении работы: {e}")
 
