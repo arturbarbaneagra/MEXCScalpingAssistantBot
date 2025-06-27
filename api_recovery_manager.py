@@ -1,5 +1,4 @@
 
-<code>
 import asyncio
 import time
 from typing import Dict, Optional, Any
@@ -76,4 +75,3 @@ class APIRecoveryManager:
 
 # Глобальный экземпляр
 api_recovery_manager = APIRecoveryManager()
-</code>
