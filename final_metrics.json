@@ -1,17 +1,6 @@
 {
-  "uptime_seconds": 1189.6113221645355,
-  "api_stats": {
-    "/ticker/24hr": {
-      "total_requests": 1,
-      "avg_response_time": 0.20323443412780762,
-      "max_response_time": 0.20323443412780762,
-      "min_response_time": 0.20323443412780762,
-      "error_count": 1
-    }
-  },
+  "uptime_seconds": 2.765655517578125e-05,
+  "api_stats": {},
   "performance_stats": {},
-  "counters": {
-    "api_requests_/ticker/24hr": 1,
-    "api_errors_/ticker/24hr": 1
-  }
+  "counters": {}
 }
