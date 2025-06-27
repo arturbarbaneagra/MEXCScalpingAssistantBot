@@ -1,7 +1,7 @@
 import asyncio
 import time
 import threading
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Any
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, ConversationHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from telegram.constants import ParseMode
@@ -60,14 +60,24 @@ class TradingTelegramBot:
 
     async def _start_message_queue_processor(self):
         """Запускает процессор очереди сообщений"""
-        if self._queue_processor_task is None or self._queue_processor_task.done():
-            self._queue_processor_task = asyncio.create_task(self._process_message_queue())
-            bot_logger.debug("Запущен процессор очереди сообщений")
+        try:
+            if self._message_queue is None:
+                self._message_queue = asyncio.Queue()
+
+            if self._queue_processor_task is None or self._queue_processor_task.done():
+                self._queue_processor_task = asyncio.create_task(self._process_message_queue())
+                bot_logger.debug("🔄 Процессор очереди сообщений запущен")
+        except Exception as e:
+            bot_logger.error(f"Ошибка запуска процессора очереди: {e}")
 
     async def _process_message_queue(self):
         """Обрабатывает очередь сообщений последовательно"""
         while self.bot_running:
             try:
+                if self._message_queue is None:
+                    await asyncio.sleep(1.0)
+                    continue
+
                 # Ждем сообщение из очереди с таймаутом
                 message_data = await asyncio.wait_for(
                     self._message_queue.get(), 
@@ -1226,6 +1236,17 @@ class TradingTelegramBot:
             return self.SETTING_NATR
 
         return ConversationHandler.END
+
+    async def _queue_message(self, message_data: Dict[str, Any]):
+        """Добавляет сообщение в очередь для отправки"""
+        try:
+            if self._message_queue is None:
+                self._message_queue = asyncio.Queue()
+
+            await self._message_queue.put(message_data)
+            bot_logger.debug("📤 Сообщение добавлено в очередь")
+        except Exception as e:
+            bot_logger.error(f"Ошибка добавления в очередь: {e}")
 
     def setup_application(self):
         """Настраивает Telegram приложение"""
