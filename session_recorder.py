@@ -228,9 +228,9 @@ class SessionRecorder:
                     if hasattr(telegram_bot, 'active_coins'):
                         self.check_inactive_sessions(telegram_bot.active_coins)
                     
-                    # Очистка старых данных раз в час
-                    if int(time.time()) % 3600 < 30:
-                        self._cleanup_old_data()
+                    # Очистка старых данных отключена - сохраняем статистику
+                    # if int(time.time()) % 3600 < 30:
+                    #     self._cleanup_old_data()
                     
                     await asyncio.sleep(30)
                     
@@ -244,21 +244,25 @@ class SessionRecorder:
             bot_logger.error(f"Критическая ошибка в цикле записи: {e}")
 
     def _cleanup_old_data(self):
-        """Очистка старых файлов данных (старше 30 дней)"""
-        try:
-            cutoff_date = datetime.now() - timedelta(days=30)
-            cutoff_str = cutoff_date.strftime('%Y-%m-%d')
-            
-            for filename in os.listdir(self.data_dir):
-                if filename.startswith('sessions_') and filename.endswith('.json'):
-                    file_date = filename.replace('sessions_', '').replace('.json', '')
-                    if file_date < cutoff_str:
-                        filepath = os.path.join(self.data_dir, filename)
-                        os.remove(filepath)
-                        bot_logger.info(f"🗑️ Удален старый файл сессий: {filename}")
-                        
-        except Exception as e:
-            bot_logger.error(f"Ошибка очистки старых данных: {e}")
+        """Очистка старых файлов данных отключена - сохраняем для статистики"""
+        # Метод отключен для сохранения статистических данных
+        # В будущем эти данные будут использоваться для анализа и подведения итогов
+        pass
+        
+        # try:
+        #     cutoff_date = datetime.now() - timedelta(days=30)
+        #     cutoff_str = cutoff_date.strftime('%Y-%m-%d')
+        #     
+        #     for filename in os.listdir(self.data_dir):
+        #         if filename.startswith('sessions_') and filename.endswith('.json'):
+        #             file_date = filename.replace('sessions_', '').replace('.json', '')
+        #             if file_date < cutoff_str:
+        #                 filepath = os.path.join(self.data_dir, filename)
+        #                 os.remove(filepath)
+        #                 bot_logger.info(f"🗑️ Удален старый файл сессий: {filename}")
+        #                 
+        # except Exception as e:
+        #     bot_logger.error(f"Ошибка очистки старых данных: {e}")
 
     def get_stats(self) -> Dict[str, Any]:
         """Возвращает статистику записи"""
