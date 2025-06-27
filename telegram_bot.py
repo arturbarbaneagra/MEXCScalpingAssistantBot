@@ -809,10 +809,12 @@ class TradingTelegramBot:
                     report_parts.append(f"{i}. <b>{symbol}</b> - {duration/60:.1f} мин")
                 report_parts.append("")
             
-            # Последние сессии, группированные по часам (московское время UTC+3)
-            recent_sessions = all_sessions[:20]  # Берем больше для группировки
+            # Последние сессии, группированные по часам с уровнем активности (московское время UTC+3)
+            recent_sessions = all_sessions[:40]  # Берем больше для анализа
             if recent_sessions:
-                report_parts.append("🕐 <b>Последние сессии:</b>")
+                from activity_level_calculator import activity_calculator
+                
+                report_parts.append("🕐 <b>Последние сессии по часам:</b>")
                 
                 # Группируем по часам
                 sessions_by_hour = {}
@@ -821,17 +823,47 @@ class TradingTelegramBot:
                     # Конвертируем в московское время (UTC+3)
                     moscow_time = datetime.fromtimestamp(start_time + 3*3600)
                     hour_key = moscow_time.strftime('%H:00')
+                    hour_datetime = moscow_time.replace(minute=0, second=0, microsecond=0)
                     
                     if hour_key not in sessions_by_hour:
-                        sessions_by_hour[hour_key] = []
-                    sessions_by_hour[hour_key].append(session)
+                        sessions_by_hour[hour_key] = {
+                            'sessions': [],
+                            'hour_datetime': hour_datetime
+                        }
+                    sessions_by_hour[hour_key]['sessions'].append(session)
                 
                 # Отображаем по часам (сортируем в обратном порядке)
                 for hour in sorted(sessions_by_hour.keys(), reverse=True):
-                    hour_sessions = sessions_by_hour[hour]
-                    report_parts.append(f"\n<b>{hour}</b>")
+                    hour_data = sessions_by_hour[hour]
+                    hour_sessions = hour_data['sessions']
+                    hour_datetime = hour_data['hour_datetime']
                     
-                    for session in hour_sessions[:8]:  # Максимум 8 сессий на час
+                    # Рассчитываем уровень активности для этого часа
+                    total_activity = activity_calculator.calculate_hourly_activity(
+                        hour_sessions, hour_datetime
+                    )
+                    
+                    # Получаем информацию об уровне активности
+                    activity_info = activity_calculator.get_activity_level_info(total_activity)
+                    
+                    # Обновляем статистику (если час завершился)
+                    current_hour = datetime.now().replace(minute=0, second=0, microsecond=0)
+                    if hour_datetime < current_hour:
+                        activity_calculator.update_activity_stats(total_activity)
+                    
+                    # Формируем заголовок часа с уровнем активности
+                    if total_activity > 0:
+                        z_score_text = f" (z={activity_info['z_score']:.1f})" if activity_info['count'] > 1 else ""
+                        report_parts.append(
+                            f"\n<b>{hour}</b> {activity_info['color']} {activity_info['emoji']} "
+                            f"<i>{activity_info['level']}</i>\n"
+                            f"<i>Активность: {total_activity:.1f} мин{z_score_text}</i>"
+                        )
+                    else:
+                        report_parts.append(f"\n<b>{hour}</b> ⚫ 💤 <i>Нет активности</i>")
+                    
+                    # Показываем сессии
+                    for session in hour_sessions[:6]:  # Максимум 6 сессий на час
                         symbol = session.get('symbol', '')
                         duration = session.get('total_duration', 0) / 60
                         summary = session.get('summary', {})
@@ -847,6 +879,16 @@ class TradingTelegramBot:
                             f"• <b>{symbol}</b> ({start_str}-{end_str}) - {duration:.1f}м, "
                             f"${volume:,.0f}, {trades} сделок"
                         )
+                
+                # Добавляем сводку статистики активности
+                if activity_calculator.count > 0:
+                    stats = activity_calculator.get_stats_summary()
+                    report_parts.append(
+                        f"\n📊 <b>Статистика активности:</b>\n"
+                        f"• Среднее: <code>{stats['mean']:.1f} мин/час</code>\n"
+                        f"• Стд. откл.: <code>{stats['std_dev']:.1f} мин</code>\n"
+                        f"• Выборка: <code>{stats['count']} часов</code>"
+                    )
             
             # Разбиваем сообщение на части если слишком длинное
             report_text = "\n".join(report_parts)
