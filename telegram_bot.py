@@ -801,12 +801,15 @@ class TradingTelegramBot:
         if not input_validator.validate_symbol(text):
             await update.message.reply_text(
                 "❌ <b>Неверный формат символа</b>\n\n"
-                "Символ должен содержать только буквы и цифры (2-10 символов)\n"
+                "Символ должен содержать только буквы и цифры (2-10 символов)\n\n"
+                "💡 <b>Попробуйте еще раз:</b>\n"
+                "• Введите корректный символ\n"
+                "• Или нажмите '🔙 Назад' для выхода\n\n"
                 "Примеры: <code>BTC</code>, <code>ETH</code>, <code>ADA</code>",
                 parse_mode=ParseMode.HTML,
-                reply_markup=self.main_keyboard
+                reply_markup=self.back_keyboard
             )
-            return ConversationHandler.END
+            return self.ADDING_COIN  # Продолжаем ждать ввод
 
         symbol = text.replace('USDT', '').replace('_', '')
 
@@ -819,12 +822,15 @@ class TradingTelegramBot:
         if symbol in invalid_symbols or len(symbol) < 2 or len(symbol) > 10:
             await update.message.reply_text(
                 f"❌ <b>Символ '{symbol}' недействителен</b>\n\n"
-                "Пожалуйста, используйте корректные символы криптовалют.\n"
+                "Пожалуйста, используйте корректные символы криптовалют.\n\n"
+                "💡 <b>Попробуйте еще раз:</b>\n"
+                "• Введите другой символ\n"
+                "• Или нажмите '🔙 Назад' для выхода\n\n"
                 "Примеры: <code>BTC</code>, <code>ETH</code>, <code>ADA</code>, <code>SOL</code>",
                 parse_mode=ParseMode.HTML,
-                reply_markup=self.main_keyboard
+                reply_markup=self.back_keyboard
             )
-            return ConversationHandler.END
+            return self.ADDING_COIN  # Продолжаем ждать ввод
 
         if watchlist_manager.contains(symbol):
             await update.message.reply_text(
@@ -878,12 +884,14 @@ class TradingTelegramBot:
                 pass
             await update.message.reply_text(
                 f"⏱️ <b>Таймаут проверки монеты '{symbol}'</b>\n\n"
-                "API слишком медленно отвечает. Попробуйте позже или добавьте монету напрямую - "
-                "она будет проверена при первом запросе данных.",
+                "API слишком медленно отвечает.\n\n"
+                "💡 <b>Попробуйте:</b>\n"
+                "• Ввести символ еще раз\n"
+                "• Или нажать '🔙 Назад' для выхода",
                 parse_mode=ParseMode.HTML,
-                reply_markup=self.main_keyboard
+                reply_markup=self.back_keyboard
             )
-            return ConversationHandler.END
+            return self.ADDING_COIN  # Продолжаем ждать ввод
         except Exception as e:
             error_msg = str(e).lower()
             try:
@@ -895,22 +903,28 @@ class TradingTelegramBot:
             if ("invalid symbol" in error_msg or "400" in error_msg or 
                 "inline keyboard expected" in error_msg or "circuit breaker" in error_msg):
                 await update.message.reply_text(
-                    f"❌ <b>Символ '{symbol}' не существует или недоступен</b>\n\n"
-                    "Монета не найдена на бирже MEXC или API временно недоступно.\n"
-                    "Проверьте символ и попробуйте снова.",
+                    f"❌ <b>Символ '{symbol}' не существует</b>\n\n"
+                    "Монета не найдена на бирже MEXC.\n\n"
+                    "💡 <b>Попробуйте еще раз:</b>\n"
+                    "• Введите другой символ монеты\n"
+                    "• Или нажмите '🔙 Назад' для выхода\n\n"
+                    "Примеры: <code>BTC</code>, <code>ETH</code>, <code>ADA</code>",
                     parse_mode=ParseMode.HTML,
-                    reply_markup=self.main_keyboard
+                    reply_markup=self.back_keyboard
                 )
+                return self.ADDING_COIN  # Возвращаемся в состояние ожидания ввода
             else:
                 bot_logger.error(f"Ошибка проверки монеты {symbol}: {e}")
                 await update.message.reply_text(
-                    f"⚠️ <b>Ошибка проверки монеты '{symbol}'</b>\n\n"
-                    "Возможно API временно недоступен или перегружен. "
-                    "Попробуйте позже или добавьте без проверки.",
+                    f"⚠️ <b>Временная ошибка при проверке '{symbol}'</b>\n\n"
+                    "API временно недоступен.\n\n"
+                    "💡 <b>Что делать:</b>\n"
+                    "• Попробуйте ввести символ снова\n"
+                    "• Или нажмите '🔙 Назад' для выхода",
                     parse_mode=ParseMode.HTML,
-                    reply_markup=self.main_keyboard
+                    reply_markup=self.back_keyboard
                 )
-            return ConversationHandler.END
+                return self.ADDING_COIN  # Продолжаем ждать ввод
 
         # Добавляем в список
         if watchlist_manager.add(symbol):
