@@ -845,10 +845,15 @@ class TradingTelegramBot:
                     # Получаем информацию об уровне активности
                     activity_info = activity_calculator.get_activity_level_info(total_activity)
                     
-                    # Обновляем статистику (если час завершился)
+                    # Обновляем статистику каждый час (если час завершился)
                     current_hour = datetime.now().replace(minute=0, second=0, microsecond=0)
-                    if hour_datetime < current_hour and total_activity > 0:
-                        activity_calculator.update_activity_stats(total_activity)
+                    moscow_current_hour = (datetime.now() + timedelta(hours=3)).replace(minute=0, second=0, microsecond=0)
+                    
+                    # Проверяем, завершился ли час по московскому времени
+                    if hour_datetime < moscow_current_hour and total_activity > 0:
+                        # Создаем уникальный ключ для часа
+                        hour_key = f"{hour_datetime.strftime('%Y-%m-%d_%H')}"
+                        activity_calculator.update_activity_stats(total_activity, hour_key)
                     
                     # Формируем заголовок часа с уровнем активности
                     if total_activity > 0:
@@ -893,6 +898,12 @@ class TradingTelegramBot:
                         f"• Среднее: <code>{stats['mean']:.1f} мин/час</code>\n"
                         f"• Стд. откл.: <code>{stats['std_dev']:.1f} мин</code>\n"
                         f"• Выборка: <code>{stats['count']} часов</code>"
+                    )
+                else:
+                    report_parts.append(
+                        f"\n📊 <b>Статистика активности:</b>\n"
+                        f"• Недостаточно данных для анализа\n"
+                        f"• Собираем статистику по часам..."
                     )
             
             # Разбиваем сообщение на части если слишком длинное

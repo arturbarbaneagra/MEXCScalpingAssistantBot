@@ -15,14 +15,19 @@ from logger import bot_logger
 class ActivityLevelCalculator:
     def __init__(self):
         self.stats_file = "activity_stats.json"
+        self.processed_hours_file = "processed_hours.json"
         
         # Статистика Welford для онлайн расчета среднего и дисперсии
         self.count = 0
         self.mean = 0.0
         self.M2 = 0.0  # Сумма квадратов отклонений
         
+        # Множество обработанных часов для избежания дублирования
+        self.processed_hours = set()
+        
         # Загружаем сохраненную статистику
         self._load_stats()
+        self._load_processed_hours()
     
     def _load_stats(self):
         """Загружает сохраненную статистику"""
@@ -59,28 +64,70 @@ class ActivityLevelCalculator:
         except Exception as e:
             bot_logger.error(f"Ошибка сохранения статистики активности: {e}")
     
+    def _load_processed_hours(self):
+        """Загружает список обработанных часов"""
+        if os.path.exists(self.processed_hours_file):
+            try:
+                with open(self.processed_hours_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    self.processed_hours = set(data.get('hours', []))
+                    
+                bot_logger.debug(f"📊 Загружено {len(self.processed_hours)} обработанных часов")
+                
+            except Exception as e:
+                bot_logger.warning(f"Ошибка загрузки обработанных часов: {e}")
+                self.processed_hours = set()
+        else:
+            self.processed_hours = set()
+    
+    def _save_processed_hours(self):
+        """Сохраняет список обработанных часов"""
+        try:
+            data = {
+                'hours': list(self.processed_hours),
+                'last_updated': datetime.now().isoformat()
+            }
+            
+            with open(self.processed_hours_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2)
+                
+        except Exception as e:
+            bot_logger.error(f"Ошибка сохранения обработанных часов: {e}")
+    
     def _reset_stats(self):
         """Сброс статистики"""
         self.count = 0
         self.mean = 0.0
         self.M2 = 0.0
+        self.processed_hours = set()
     
-    def update_activity_stats(self, new_value: float):
+    def update_activity_stats(self, new_value: float, hour_key: str = None):
         """
         Обновляет статистику активности новым значением (алгоритм Welford)
         
         Args:
             new_value: Новое значение уровня активности в минутах
+            hour_key: Уникальный ключ часа для избежания дублирования
         """
+        # Если указан ключ часа, проверяем уникальность
+        if hour_key:
+            if hour_key in self.processed_hours:
+                bot_logger.debug(f"📊 Час {hour_key} уже обработан, пропускаем")
+                return
+            
+            self.processed_hours.add(hour_key)
+            self._save_processed_hours()
+        
         self.count += 1
         delta = new_value - self.mean
         self.mean += delta / self.count
         delta2 = new_value - self.mean
         self.M2 += delta * delta2
         
-        # Сохраняем каждые 10 обновлений
-        if self.count % 10 == 0:
-            self._save_stats()
+        # Сохраняем статистику
+        self._save_stats()
+        
+        bot_logger.info(f"📊 Обновлена статистика активности: час={hour_key}, значение={new_value:.1f}мин, среднее={self.mean:.1f}мин, count={self.count}")
     
     def get_variance(self) -> float:
         """Возвращает дисперсию"""
