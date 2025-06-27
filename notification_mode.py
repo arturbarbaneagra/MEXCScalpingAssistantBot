@@ -47,7 +47,6 @@ class NotificationMode:
         if not self.running:
             return
 
-        bot_logger.info("🛑 Остановка режима уведомлений")
         self.running = False
 
         # Отменяем основную задачу

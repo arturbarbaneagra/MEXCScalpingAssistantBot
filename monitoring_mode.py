@@ -49,7 +49,6 @@ class MonitoringMode:
         if not self.running:
             return
 
-        bot_logger.info("🛑 Остановка режима мониторинга")
         self.running = False
 
         # Отменяем основную задачу
