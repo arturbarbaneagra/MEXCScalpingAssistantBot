@@ -910,13 +910,7 @@ class TradingTelegramBot:
                         parse_mode=ParseMode.HTML,
                         reply_markup=self.back_keyboard
                     )
-                await update.message.reply_text(
-                    f"❌ <b>Монета '{symbol}' не найдена на MEXC</b>\n\n"
-                    "💡 Попробуйте ввести другой символ или нажмите '🔙 Назад'",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=self.back_keyboard
-                )
-            return self.ADDING_COIN  # Продолжаем ждать ввод
+                return self.ADDING_COIN  # Продолжаем ждать ввод
 
         except asyncio.TimeoutError:
             try:
