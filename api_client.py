@@ -44,9 +44,8 @@ class APIClient:
                     limit_per_host=5,
                     ttl_dns_cache=300,
                     use_dns_cache=True,
-                    keepalive_timeout=30,
-                    enable_cleanup_closed=True,
-                    force_close=True  # Принудительное закрытие соединений
+                    enable_cleanup_closed=True
+                    # Убираем force_close=True для совместимости с keepalive_timeout
                 )
 
                 self.session = aiohttp.ClientSession(
