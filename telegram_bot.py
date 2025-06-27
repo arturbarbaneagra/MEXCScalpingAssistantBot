@@ -59,8 +59,8 @@ class TradingTelegramBot:
             ["🔔 Уведомления", "📊 Мониторинг"],
             ["➕ Добавить", "➖ Удалить"],
             ["📋 Список", "⚙ Настройки"],
-            ["🛑 Стоп", "ℹ Статус"],
-            ["🔄 Сбросить API"]
+            ["📈 Активность 24ч", "ℹ Статус"],
+            ["🛑 Стоп", "🔄 Сбросить API"]
         ], resize_keyboard=True, one_time_keyboard=False)
 
         self.settings_keyboard = ReplyKeyboardMarkup([
@@ -495,6 +495,8 @@ class TradingTelegramBot:
                 return await self._handle_natr_setting_start(update)
             elif text == "🔄 Сброс":
                 await self._handle_reset_settings(update)
+            elif text == "📈 Активность 24ч":
+                await self._handle_activity_24h(update)
             elif text == "ℹ Статус":
                 await self._handle_status(update)
             elif text == "🔄 Сбросить API":
@@ -724,6 +726,158 @@ class TradingTelegramBot:
             reply_markup=self.main_keyboard,
             parse_mode=ParseMode.HTML
         )
+
+    async def _handle_activity_24h(self, update: Update):
+        """Показ активности монет за последние 24 часа"""
+        try:
+            from datetime import datetime, timedelta
+            import json
+            import os
+            
+            # Определяем даты для проверки (сегодня и вчера)
+            today = datetime.now().strftime('%Y-%m-%d')
+            yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+            
+            # Время 24 часа назад
+            cutoff_time = time.time() - 24 * 3600
+            
+            all_sessions = []
+            total_sessions = 0
+            total_duration = 0
+            total_volume = 0
+            total_trades = 0
+            unique_coins = set()
+            
+            # Читаем файлы за сегодня и вчера
+            for date in [today, yesterday]:
+                filename = f"sessions_{date}.json"
+                filepath = os.path.join("session_data", filename)
+                
+                if os.path.exists(filepath):
+                    try:
+                        with open(filepath, 'r', encoding='utf-8') as f:
+                            daily_data = json.load(f)
+                            
+                        # Фильтруем сессии по времени (последние 24 часа)
+                        for session in daily_data.get('sessions', []):
+                            start_time = session.get('start_time', 0)
+                            if start_time >= cutoff_time:
+                                all_sessions.append(session)
+                                total_sessions += 1
+                                total_duration += session.get('total_duration', 0)
+                                summary = session.get('summary', {})
+                                total_volume += summary.get('total_volume', 0)
+                                total_trades += summary.get('total_trades', 0)
+                                unique_coins.add(session.get('symbol', ''))
+                                
+                    except Exception as e:
+                        bot_logger.debug(f"Ошибка чтения {filename}: {e}")
+            
+            if not all_sessions:
+                await update.message.reply_text(
+                    "📈 <b>Активность за последние 24 часа</b>\n\n"
+                    "❌ Нет данных об активности за последние 24 часа.",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=self.main_keyboard
+                )
+                return
+            
+            # Сортируем сессии по времени начала (новые сначала)
+            all_sessions.sort(key=lambda x: x.get('start_time', 0), reverse=True)
+            
+            # Формируем отчет
+            report_parts = [
+                "📈 <b>Активность за последние 24 часа</b>\n",
+                f"📊 <b>Общая статистика:</b>",
+                f"• Всего сессий: <b>{total_sessions}</b>",
+                f"• Уникальных монет: <b>{len(unique_coins)}</b>",
+                f"• Общая длительность: <b>{total_duration/60:.1f}</b> минут",
+                f"• Общий объем торгов: <b>${total_volume:,.0f}</b>",
+                f"• Общее количество сделок: <b>{total_trades:,}</b>\n"
+            ]
+            
+            # Топ-5 монет по длительности активности
+            coin_durations = {}
+            for session in all_sessions:
+                symbol = session.get('symbol', '')
+                duration = session.get('total_duration', 0)
+                if symbol in coin_durations:
+                    coin_durations[symbol] += duration
+                else:
+                    coin_durations[symbol] = duration
+            
+            top_coins = sorted(coin_durations.items(), key=lambda x: x[1], reverse=True)[:5]
+            
+            if top_coins:
+                report_parts.append("🏆 <b>Топ-5 монет по активности:</b>")
+                for i, (symbol, duration) in enumerate(top_coins, 1):
+                    report_parts.append(f"{i}. <b>{symbol}</b> - {duration/60:.1f} мин")
+                report_parts.append("")
+            
+            # Последние 10 сессий
+            recent_sessions = all_sessions[:10]
+            if recent_sessions:
+                report_parts.append("🕐 <b>Последние сессии:</b>")
+                for session in recent_sessions:
+                    symbol = session.get('symbol', '')
+                    duration = session.get('total_duration', 0) / 60
+                    summary = session.get('summary', {})
+                    volume = summary.get('total_volume', 0)
+                    trades = summary.get('total_trades', 0)
+                    start_time = session.get('start_time', 0)
+                    time_str = datetime.fromtimestamp(start_time).strftime('%H:%M')
+                    
+                    report_parts.append(
+                        f"• <b>{symbol}</b> ({time_str}) - {duration:.1f}м, "
+                        f"${volume:,.0f}, {trades} сделок"
+                    )
+            
+            # Разбиваем сообщение на части если слишком длинное
+            report_text = "\n".join(report_parts)
+            max_length = 4000
+            
+            if len(report_text) <= max_length:
+                await update.message.reply_text(
+                    report_text,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=self.main_keyboard
+                )
+            else:
+                # Разбиваем на части
+                parts = []
+                current_part = []
+                current_length = 0
+                
+                for line in report_parts:
+                    line_length = len(line) + 1  # +1 для \n
+                    if current_length + line_length > max_length and current_part:
+                        parts.append("\n".join(current_part))
+                        current_part = [line]
+                        current_length = line_length
+                    else:
+                        current_part.append(line)
+                        current_length += line_length
+                
+                if current_part:
+                    parts.append("\n".join(current_part))
+                
+                # Отправляем части
+                for i, part in enumerate(parts):
+                    reply_markup = self.main_keyboard if i == len(parts) - 1 else None
+                    await update.message.reply_text(
+                        part,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=reply_markup
+                    )
+                    if i < len(parts) - 1:
+                        await asyncio.sleep(0.5)  # Небольшая пауза между сообщениями
+            
+        except Exception as e:
+            bot_logger.error(f"Ошибка получения активности за 24ч: {e}")
+            await update.message.reply_text(
+                "❌ Ошибка получения данных об активности.",
+                reply_markup=self.main_keyboard
+            )
 
     async def _handle_reset_api(self, update: Update):
         """Сброс Circuit Breaker API"""
