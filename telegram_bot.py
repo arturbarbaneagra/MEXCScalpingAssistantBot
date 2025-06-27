@@ -794,14 +794,19 @@ class TradingTelegramBot:
                     "• Поддерживаются только пары с USDT\n"
                     "• Убедитесь что монета торгуется на MEXC\n\n"
                     "Примеры корректных символов: <code>BTC</code>, <code>ETH</code>, <code>ADA</code>",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=self.main_keyboard
+                    parse_mode=ParseMode.HTML
                 )
                 return
 
         except Exception as e:
             error_msg = str(e).lower()
-            if "invalid symbol" in error_msg or "400" in error_msg:
+            try:
+                # Удаляем сообщение "Проверяю монету..."
+                await loading_msg.delete()
+            except:
+                pass
+                
+            if "invalid symbol" in error_msg or "400" in error_msg or "inline keyboard expected" in error_msg:
                 await update.message.reply_text(
                     f"❌ <b>Символ '{symbol}' не существует</b>\n\n"
                     "Монета не найдена на бирже MEXC или имеет неправильный формат.\n"
