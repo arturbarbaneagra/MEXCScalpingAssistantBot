@@ -59,6 +59,19 @@ class MonitoringMode:
                 await asyncio.wait_for(self.task, timeout=2.0)
             except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
+            except Exception as e:
+                bot_logger.debug(f"Ошибка при остановке задачи мониторинга: {e}")
+
+        # Очищаем все pending корутины
+        try:
+            pending_tasks = [task for task in asyncio.all_tasks() 
+                           if not task.done() and 'get_trades_last_minute' in str(task)]
+            if pending_tasks:
+                for task in pending_tasks:
+                    task.cancel()
+                await asyncio.gather(*pending_tasks, return_exceptions=True)
+        except Exception as e:
+            bot_logger.debug(f"Ошибка очистки pending задач: {e}")
 
         # Удаляем сообщение мониторинга
         if self.monitoring_message_id:

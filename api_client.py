@@ -247,20 +247,30 @@ class APIClient:
 
         try:
             # 1. Получаем все book tickers одним запросом
-            book_tickers_task = self._make_request("/ticker/bookTicker")
+            book_tickers_task = asyncio.create_task(self._make_request("/ticker/bookTicker"))
 
             # 2. Создаем задачи для klines и trades параллельно
             klines_tasks = {}
             trades_tasks = {}
 
             for symbol in symbols:
-                klines_tasks[symbol] = self.get_klines(symbol, "1m", 2)
-                trades_tasks[symbol] = self.get_trades_last_minute(symbol)
+                klines_tasks[symbol] = asyncio.create_task(self.get_klines(symbol, "1m", 2))
+                trades_tasks[symbol] = asyncio.create_task(self.get_trades_last_minute(symbol))
 
-            # 3. Выполняем все запросы параллельно
-            book_tickers_data = await book_tickers_task
-            klines_results = await asyncio.gather(*klines_tasks.values(), return_exceptions=True)
-            trades_results = await asyncio.gather(*trades_tasks.values(), return_exceptions=True)
+            try:
+                # 3. Выполняем все запросы параллельно с правильной обработкой отмены
+                book_tickers_data = await book_tickers_task
+                klines_results = await asyncio.gather(*klines_tasks.values(), return_exceptions=True)
+                trades_results = await asyncio.gather(*trades_tasks.values(), return_exceptions=True)
+            except asyncio.CancelledError:
+                # При отмене корректно отменяем все задачи
+                all_tasks = [book_tickers_task] + list(klines_tasks.values()) + list(trades_tasks.values())
+                for task in all_tasks:
+                    if not task.done():
+                        task.cancel()
+                # Ждем завершения отмены
+                await asyncio.gather(*all_tasks, return_exceptions=True)
+                raise
 
             # 4. Создаем индекс book tickers
             book_ticker_dict = {}
@@ -439,12 +449,21 @@ class APIClient:
         try:
             # Получаем данные параллельно (3 запроса вместо 4)
             tasks = [
-                self.get_book_ticker(symbol),          # 1. Спред (bid/ask)
-                self.get_klines(symbol, "1m", 2),      # 2. 1-минутные данные
-                self.get_trades_last_minute(symbol)    # 3. Сделки за минуту
+                asyncio.create_task(self.get_book_ticker(symbol)),          # 1. Спред (bid/ask)
+                asyncio.create_task(self.get_klines(symbol, "1m", 2)),      # 2. 1-минутные данные
+                asyncio.create_task(self.get_trades_last_minute(symbol))    # 3. Сделки за минуту
             ]
 
-            book_data, klines_data, trades_1m = await asyncio.gather(*tasks, return_exceptions=True)
+            try:
+                book_data, klines_data, trades_1m = await asyncio.gather(*tasks, return_exceptions=True)
+            except asyncio.CancelledError:
+                # При отмене корректно отменяем все задачи
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                # Ждем завершения отмены
+                await asyncio.gather(*tasks, return_exceptions=True)
+                raise
 
             # Цену берем из klines (более эффективно)
             ticker_data = None
