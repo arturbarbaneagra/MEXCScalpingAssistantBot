@@ -138,8 +138,17 @@ class AutonomousActivityMonitor:
                 'natr': coin_data.get('natr', 0)
             })
             
-            # Передаем в Session Recorder
-            session_recorder.update_coin_activity(symbol, coin_data)
+            # Передаем в Session Recorder с правильной структурой данных
+            session_data = {
+                'active': True,
+                'volume': coin_data.get('volume', 0),
+                'trades': coin_data.get('trades', 0),
+                'price': coin_data.get('price', 0),
+                'change': coin_data.get('change', 0),
+                'spread': coin_data.get('spread', 0),
+                'natr': coin_data.get('natr', 0)
+            }
+            session_recorder.update_coin_activity(symbol, session_data)
             
     def _check_inactive_coins(self):
         """Проверяет и завершает неактивные монеты"""

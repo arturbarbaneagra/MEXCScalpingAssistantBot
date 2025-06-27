@@ -178,6 +178,13 @@ class NotificationMode:
                 bot_logger.debug(f"📊 Данные {symbol} переданы в Session Recorder")
             except Exception as e:
                 bot_logger.debug(f"Ошибка записи сессии {symbol}: {e}")
+        else:
+            # Уведомляем Session Recorder о неактивности
+            try:
+                from session_recorder import session_recorder
+                session_recorder.check_inactive_sessions({symbol: {} for symbol in self.active_coins.keys()})
+            except Exception as e:
+                bot_logger.debug(f"Ошибка проверки неактивных сессий: {e}")
 
         # Проверяем алерты
         try:
