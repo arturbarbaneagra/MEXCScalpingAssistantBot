@@ -59,7 +59,8 @@ class TradingTelegramBot:
             ["🔔 Уведомления", "📊 Мониторинг"],
             ["➕ Добавить", "➖ Удалить"],
             ["📋 Список", "⚙ Настройки"],
-            ["🛑 Стоп", "ℹ Статус"]
+            ["🛑 Стоп", "ℹ Статус"],
+            ["🔄 Сбросить API"]
         ], resize_keyboard=True, one_time_keyboard=False)
 
         self.settings_keyboard = ReplyKeyboardMarkup([
@@ -498,6 +499,8 @@ class TradingTelegramBot:
                 await self._handle_reset_settings(update)
             elif text == "ℹ Статус":
                 await self._handle_status(update)
+            elif text == "🔄 Сбросить API":
+                await self._handle_reset_api(update)
             elif text == "🔙 Назад":
                 await self._handle_back(update)
             else:
@@ -774,6 +777,34 @@ class TradingTelegramBot:
             parse_mode=ParseMode.HTML
         )
 
+    async def _handle_reset_api(self, update: Update):
+        """Сброс Circuit Breaker API"""
+        await self._stop_current_mode()
+        
+        try:
+            from circuit_breaker import api_circuit_breakers
+            reset_count = 0
+            
+            for name, cb in api_circuit_breakers.items():
+                cb.reset()
+                reset_count += 1
+            
+            await update.message.reply_text(
+                f"🔄 <b>API Circuit Breakers сброшены</b>\n\n"
+                f"Сброшено: <b>{reset_count}</b> circuit breaker'ов\n"
+                f"Теперь можно снова добавлять монеты.",
+                parse_mode=ParseMode.HTML,
+                reply_markup=self.main_keyboard
+            )
+            bot_logger.info(f"Circuit Breakers сброшены пользователем ({reset_count} штук)")
+            
+        except Exception as e:
+            bot_logger.error(f"Ошибка сброса Circuit Breakers: {e}")
+            await update.message.reply_text(
+                "❌ Ошибка сброса API. Попробуйте позже.",
+                reply_markup=self.main_keyboard
+            )
+
     async def _handle_back(self, update: Update):
         """Возврат в главное меню"""
         await update.message.reply_text(
@@ -928,6 +959,14 @@ class TradingTelegramBot:
 
         # Добавляем в список
         if watchlist_manager.add(symbol):
+            # Сбрасываем Circuit Breaker при успешной операции
+            try:
+                from circuit_breaker import api_circuit_breakers
+                if 'ticker' in api_circuit_breakers:
+                    api_circuit_breakers['ticker'].force_close()
+            except:
+                pass
+                
             price = float(ticker_data.get('lastPrice', 0))
             await update.message.reply_text(
                 f"✅ <b>Монета добавлена!</b>\n\n"

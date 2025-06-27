@@ -55,6 +55,11 @@ class CircuitBreaker:
             return result
 
         except Exception as e:
+            # Не считаем валидационные ошибки как failures
+            if isinstance(e, ValueError) and "Invalid symbol" in str(e):
+                bot_logger.debug(f"Circuit Breaker '{self.name}': пропускаем валидационную ошибку")
+                raise e
+            
             self.failure_count += 1
             self.last_failure_time = time.time()
 
@@ -84,6 +89,13 @@ class CircuitBreaker:
         self.failure_count = 0
         self.last_failure_time = 0
         bot_logger.info(f"Circuit Breaker '{self.name}' сброшен")
+
+    def force_close(self):
+        """Принудительно закрывает Circuit Breaker при успешных операциях"""
+        if self.state in [CircuitState.HALF_OPEN, CircuitState.OPEN]:
+            self.state = CircuitState.CLOSED
+            self.failure_count = max(0, self.failure_count - 2)  # Уменьшаем счетчик
+            bot_logger.info(f"Circuit Breaker '{self.name}' принудительно закрыт")
 
 # Глобальные Circuit Breaker для разных API endpoint'ов с более мягкими параметрами
 api_circuit_breakers = {

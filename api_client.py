@@ -98,11 +98,9 @@ class APIClient:
                     elif response.status == 400:  # Bad request (invalid symbol)
                         # Логируем как debug, а не error для 400 ошибок
                         bot_logger.debug(f"Invalid request for {endpoint}: 400 Bad Request")
-                        # Для валидации символов не считаем это failure для Circuit Breaker
-                        if "/ticker/24hr" in endpoint or "/ticker/bookTicker" in endpoint:
-                            return None  # Возвращаем None без исключения для валидации
-                        # Для других endpoint'ов тоже не считаем как circuit breaker failure
-                        return None
+                        # 400 ошибки НЕ считаются failure для Circuit Breaker
+                        # Это валидационные ошибки, а не проблемы API
+                        raise ValueError(f"Invalid symbol for {endpoint}")  # Специальное исключение
                     elif response.status in [404, 429]:  # Not found или rate limit
                         bot_logger.debug(f"API status {response.status} for {endpoint}")
                         if response.status == 429:
@@ -125,6 +123,13 @@ class APIClient:
                     return await circuit_breaker.call(_execute_request)
                 else:
                     return await _execute_request()
+
+            except ValueError as e:
+                # ValueError (400 ошибки) не должны влиять на Circuit Breaker
+                if "Invalid symbol" in str(e):
+                    bot_logger.debug(f"Символ не найден (400): {endpoint}")
+                    return None
+                raise
 
             except Exception as e:
                 error_msg = str(e).lower()
