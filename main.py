@@ -268,37 +268,58 @@ async def main():
     finally:
         # Корректное завершение работы
         try:
+            bot_logger.info("🔄 Начинаем процедуру корректного завершения...")
+            
             # Сначала останавливаем мониторинг
             telegram_bot.bot_running = False
             
-            # Закрываем API клиент с дополнительным ожиданием
+            # Ждем завершения текущих операций
+            await asyncio.sleep(1.0)
+            
+            # Закрываем API клиент с улучшенной обработкой
+            bot_logger.info("🔌 Закрываем API клиент...")
             await api_client.close()
             
-            # Дополнительная пауза для завершения всех pending tasks
-            await asyncio.sleep(1.0)
+            # Дополнительная пауза для стабилизации
+            await asyncio.sleep(0.5)
             
             # Принудительная очистка всех pending tasks
             try:
+                current_task = asyncio.current_task()
                 pending_tasks = [task for task in asyncio.all_tasks() 
-                               if not task.done() and task != asyncio.current_task()]
+                               if not task.done() and task != current_task]
+                
                 if pending_tasks:
-                    bot_logger.info(f"Отменяем {len(pending_tasks)} pending tasks")
+                    bot_logger.info(f"🧹 Обнаружено {len(pending_tasks)} pending tasks, отменяем...")
+                    
+                    # Отменяем все задачи
                     for task in pending_tasks:
-                        task.cancel()
-                    # Ждем отмены всех задач
-                    await asyncio.gather(*pending_tasks, return_exceptions=True)
+                        if not task.cancelled():
+                            task.cancel()
+                    
+                    # Ждем завершения с таймаутом
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.gather(*pending_tasks, return_exceptions=True),
+                            timeout=3.0
+                        )
+                        bot_logger.info("✅ Все pending tasks корректно отменены")
+                    except asyncio.TimeoutError:
+                        bot_logger.warning("⚠️ Таймаут отмены pending tasks")
+                        
             except Exception as e:
                 bot_logger.debug(f"Ошибка очистки pending tasks: {e}")
             
             # Сохраняем состояние активных монет
             if hasattr(telegram_bot, 'active_coins') and telegram_bot.active_coins:
                 try:
+                    import json
                     with open('active_coins_backup.json', 'w') as f:
                         json.dump({
                             k: {
-                                'start_time': v.get('start_time', 0),
+                                'start_time': v.get('start', 0),
                                 'last_active': v.get('last_active', 0),
-                                'initial_data': v.get('initial_data', {})
+                                'data': v.get('data', {})
                             } for k, v in telegram_bot.active_coins.items()
                         }, f)
                     bot_logger.info("💾 Состояние активных монет сохранено")
@@ -306,19 +327,28 @@ async def main():
                     bot_logger.warning(f"Не удалось сохранить активные монеты: {e}")
             
             # Очищаем кеши
-            cache_manager.clear_all()
+            try:
+                from cache_manager import cache_manager
+                cache_manager.clear_all()
+                bot_logger.info("🗑️ Кеши очищены")
+            except Exception as e:
+                bot_logger.debug(f"Ошибка очистки кешей: {e}")
             
             # Финальное сохранение метрик
             try:
+                from metrics_manager import metrics_manager
+                import json
                 metrics_summary = metrics_manager.get_summary()
                 with open('final_metrics.json', 'w') as f:
                     json.dump(metrics_summary, f, indent=2)
+                bot_logger.info("📊 Финальные метрики сохранены")
             except Exception as e:
                 bot_logger.debug(f"Не удалось сохранить финальные метрики: {e}")
             
-            # Даем время на полное закрытие соединений
-            await asyncio.sleep(1.0)
+            # Финальная пауза для полного закрытия всех соединений
+            await asyncio.sleep(0.5)
             bot_logger.info("🔒 Все компоненты корректно закрыты")
+            
         except Exception as e:
             bot_logger.error(f"Ошибка при завершении работы: {e}")
 

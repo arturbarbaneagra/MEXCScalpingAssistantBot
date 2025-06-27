@@ -573,18 +573,42 @@ class APIClient:
         """Правильно закрывает HTTP сессию для предотвращения pending tasks"""
         if self.session and not self.session.closed:
             try:
+                bot_logger.debug("Начинаем закрытие HTTP сессии...")
+                
                 # Получаем коннектор для принудительного закрытия
                 connector = self.session.connector
                 
-                # Закрываем сессию
-                await self.session.close()
+                # Сначала закрываем сессию с таймаутом
+                try:
+                    await asyncio.wait_for(self.session.close(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    bot_logger.debug("Таймаут закрытия сессии, принудительное закрытие")
                 
                 # Принудительно закрываем все соединения коннектора
                 if connector and not connector.closed:
-                    await connector.close()
+                    try:
+                        await asyncio.wait_for(connector.close(), timeout=1.0)
+                    except asyncio.TimeoutError:
+                        bot_logger.debug("Таймаут закрытия коннектора")
                 
-                # Увеличиваем время ожидания для полного закрытия
-                await asyncio.sleep(0.5)
+                # Ждем завершения всех pending tasks коннектора
+                await asyncio.sleep(0.1)
+                
+                # Принудительно отменяем все pending tasks связанные с aiohttp
+                try:
+                    current_task = asyncio.current_task()
+                    for task in asyncio.all_tasks():
+                        if (task != current_task and 
+                            not task.done() and 
+                            hasattr(task, 'get_coro') and
+                            '_wait_for_close' in str(task.get_coro())):
+                            task.cancel()
+                            try:
+                                await asyncio.wait_for(task, timeout=0.1)
+                            except (asyncio.CancelledError, asyncio.TimeoutError):
+                                pass
+                except Exception as e:
+                    bot_logger.debug(f"Ошибка отмены pending tasks: {e}")
                 
                 bot_logger.debug("HTTP сессия и коннектор корректно закрыты")
                 
