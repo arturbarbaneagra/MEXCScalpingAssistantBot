@@ -5,6 +5,7 @@ from logger import bot_logger
 from cache_manager import cache_manager
 from metrics_manager import metrics_manager
 from performance_optimizer import performance_optimizer
+from circuit_breaker import api_circuit_breakers
 
 class AutoMaintenance:
     """Автоматическое обслуживание системы"""
@@ -162,6 +163,52 @@ class AutoMaintenance:
             bot_logger.info("✅ Валидация системы завершена")
         except Exception as e:
             bot_logger.error(f"Ошибка валидации системы: {e}")
+
+    def _cleanup_old_files(self):
+        """Очистка старых файлов"""
+        try:
+            # Удаляем старые бэкапы старше 7 дней
+            cutoff_time = time.time() - (7 * 24 * 3600)
+
+            for filename in os.listdir('.'):
+                if filename.endswith('.backup') or filename.startswith('temp_'):
+                    file_path = os.path.join('.', filename)
+                    if os.path.getctime(file_path) < cutoff_time:
+                        os.remove(file_path)
+                        bot_logger.debug(f"Удален старый файл: {filename}")
+
+        except Exception as e:
+            bot_logger.debug(f"Ошибка очистки файлов: {e}")
+
+    def _auto_reset_circuit_breakers(self):
+        """Автоматический сброс Circuit Breaker'ов при необходимости"""
+        try:
+            reset_count = 0
+
+            for name, cb in api_circuit_breakers.items():
+                # Сбрасываем Circuit Breaker если он в состоянии OPEN больше 10 минут
+                if (cb.state.value == 'open' and 
+                    time.time() - cb.last_failure_time > 600):  # 10 минут
+                    cb.reset()
+                    reset_count += 1
+                    bot_logger.info(f"🔄 Автоматически сброшен Circuit Breaker '{name}'")
+
+                # Принудительно закрываем Circuit Breaker если много успешных операций
+                elif (cb.state.value in ['open', 'half_open'] and 
+                      cb.failure_count > 0):
+                    # Проверяем успешные операции из метрик
+                    from api_client import api_client
+                    if hasattr(api_client, '_successful_requests_count'):
+                        if api_client._successful_requests_count > 50:
+                            cb.force_close()
+                            reset_count += 1
+                            bot_logger.info(f"🔄 Принудительно закрыт Circuit Breaker '{name}' из-за успешных операций")
+
+            if reset_count > 0:
+                bot_logger.info(f"✅ Автоматически обслужено {reset_count} Circuit Breaker'ов")
+
+        except Exception as e:
+            bot_logger.debug(f"Ошибка автосброса Circuit Breakers: {e}")
 
 # Глобальный экземпляр автообслуживания
 auto_maintenance = AutoMaintenance()

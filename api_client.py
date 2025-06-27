@@ -18,6 +18,7 @@ class APIClient:
         self.request_count = 0
         self.start_time = time.time()
         self._session_lock = asyncio.Lock()
+        self._successful_requests_count = 0
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """Получает или создает HTTP сессию с правильной конфигурацией"""
