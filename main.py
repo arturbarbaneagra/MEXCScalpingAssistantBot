@@ -150,29 +150,128 @@ def health_check():
         </html>
         """
 
+@app.route('/api-performance')
+def api_performance():
+    """Endpoint для мониторинга производительности API"""
+    try:
+        from api_performance_monitor import api_performance_monitor
+        
+        stats = api_performance_monitor.get_all_stats()
+        slow_endpoints = api_performance_monitor.get_slow_endpoints()
+        error_endpoints = api_performance_monitor.get_error_prone_endpoints()
+        
+        # HTML отчет
+        html = f"""
+        <html>
+        <head>
+            <title>API Performance Monitor</title>
+            <meta http-equiv="refresh" content="30">
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }}
+                .container {{ max-width: 1000px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; }}
+                .metric {{ padding: 10px; margin: 5px 0; background: #f8f9fa; border-radius: 5px; }}
+                .warning {{ background: #fff3cd; border-left: 4px solid #ffc107; }}
+                .critical {{ background: #f8d7da; border-left: 4px solid #dc3545; }}
+                .healthy {{ background: #d4edda; border-left: 4px solid #28a745; }}
+                .endpoint-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>🚀 API Performance Monitor</h1>
+                
+                <div class="metric">
+                    <strong>📊 Общая статистика:</strong><br>
+                    Всего запросов: {stats.get('total_requests', 0)}<br>
+                    Всего ошибок: {stats.get('total_errors', 0)}<br>
+                    Общий процент ошибок: {stats.get('overall_error_rate', 0):.2%}<br>
+                    Средний ответ: {stats.get('overall_avg_response_time', 0):.3f}s
+                </div>
+                
+                {"<div class='metric critical'><strong>🐌 Медленные endpoints:</strong><br>" + "<br>".join(slow_endpoints) + "</div>" if slow_endpoints else ""}
+                
+                {"<div class='metric critical'><strong>❌ Проблемные endpoints:</strong><br>" + "<br>".join(error_endpoints) + "</div>" if error_endpoints else ""}
+                
+                <h2>📋 Детальная статистика по endpoints:</h2>
+                <div class="endpoint-grid">
+        """
+        
+        for endpoint, endpoint_stats in stats.get('endpoints', {}).items():
+            if endpoint_stats.get('status') != 'no_data':
+                status_class = endpoint_stats.get('status', 'healthy')
+                html += f"""
+                    <div class="metric {status_class}">
+                        <strong>{endpoint}</strong><br>
+                        Запросов: {endpoint_stats.get('total_requests', 0)}<br>
+                        Средний ответ: {endpoint_stats.get('avg_response_time', 0):.3f}s<br>
+                        Ошибок: {endpoint_stats.get('error_rate', 0):.2%}<br>
+                        Статус: {status_class}
+                    </div>
+                """
+        
+        html += """
+                </div>
+                <p><small>Страница обновляется каждые 30 секунд</small></p>
+            </div>
+        </body>
+        </html>
+        """
+        
+        return html
+        
+    except Exception as e:
+        return f"<html><body><h1>API Performance Monitor</h1><p>Ошибка: {e}</p></body></html>"
+
 @app.route('/health')
 def health():
     """Health check endpoint"""
     try:
         from health_check import health_checker
-        # Flask не поддерживает async напрямую, используем синхронную версию
+        # Безопасная обработка async операций во Flask
         import asyncio
+        
+        # Проверяем существующий event loop
         try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            health_data = loop.run_until_complete(health_checker.full_health_check())
-            loop.close()
-            return health_data
-        except Exception as async_error:
+            # Пытаемся получить текущий loop
+            current_loop = asyncio.get_running_loop()
+            # Если loop уже работает, используем синхронные методы
             return {
-                'status': 'error', 
-                'error': f'Async error: {async_error}', 
-                'version': '2.0',
-                'system_basic': health_checker.get_system_info(),
-                'bot_basic': health_checker.get_bot_status()
+                'status': 'running', 
+                'version': '2.1',
+                'system': health_checker.get_system_info(),
+                'bot': health_checker.get_bot_status(),
+                'timestamp': time.time()
             }
+        except RuntimeError:
+            # Нет активного loop, можем создать новый
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    health_data = loop.run_until_complete(health_checker.full_health_check())
+                    return health_data
+                finally:
+                    loop.close()
+                    # Очищаем thread-local event loop
+                    asyncio.set_event_loop(None)
+            except Exception as async_error:
+                bot_logger.warning(f"Async health check failed: {async_error}")
+                return {
+                    'status': 'partial', 
+                    'error': f'Async check failed: {str(async_error)[:100]}', 
+                    'version': '2.1',
+                    'system_basic': health_checker.get_system_info(),
+                    'bot_basic': health_checker.get_bot_status(),
+                    'timestamp': time.time()
+                }
     except Exception as e:
-        return {'status': 'error', 'error': str(e), 'version': '2.0'}
+        bot_logger.error(f"Health check error: {e}")
+        return {
+            'status': 'error', 
+            'error': str(e)[:100], 
+            'version': '2.1',
+            'timestamp': time.time()
+        }
 
 def run_flask():
     """Запуск Flask сервера"""

@@ -108,36 +108,36 @@ class AutoMaintenance:
     async def force_maintenance(self):
         """Принудительное выполнение всех задач обслуживания"""
         bot_logger.info("🔧 Принудительное обслуживание системы")
-        
+
         try:
             # Принудительно выполняем все задачи
             await self._cleanup_cache()
             await self._optimize_performance()
             await self._garbage_collection()
-            
+
             # Дополнительная очистка
             await self._cleanup_logs()
             await self._validate_system()
-            
+
             bot_logger.info("✅ Принудительное обслуживание завершено")
         except Exception as e:
             bot_logger.error(f"Ошибка принудительного обслуживания: {e}")
 
     async def _cleanup_logs(self):
-        """Очистка старых логов"""
+        """Очистка и ротация логов"""
         try:
-            import os
-            log_file = "trading_bot.log"
-            
-            if os.path.exists(log_file):
-                file_size = os.path.getsize(log_file)
-                # Если лог больше 50MB, ротируем
-                if file_size > 50 * 1024 * 1024:
-                    backup_file = f"{log_file}.backup"
-                    if os.path.exists(backup_file):
-                        os.remove(backup_file)
-                    os.rename(log_file, backup_file)
-                    bot_logger.info(f"✅ Лог файл ротирован ({file_size / 1024 / 1024:.1f}MB)")
+            from log_rotator import log_rotator
+
+            # Ротация основного лог файла
+            main_log = "trading_bot.log"
+            if log_rotator.should_rotate(main_log):
+                log_rotator.rotate_log(main_log)
+
+            # Очистка старых логов (старше 30 дней)
+            log_rotator.cleanup_by_age(max_days=30)
+
+            bot_logger.debug("✅ Очистка логов завершена")
+
         except Exception as e:
             bot_logger.error(f"Ошибка очистки логов: {e}")
 
@@ -146,19 +146,19 @@ class AutoMaintenance:
         try:
             from data_validator import data_validator
             from config import config_manager
-            
+
             # Проверяем конфигурацию
             critical_configs = ['VOLUME_THRESHOLD', 'SPREAD_THRESHOLD', 'NATR_THRESHOLD']
             for config_key in critical_configs:
                 value = config_manager.get(config_key)
                 if not data_validator.validate_config_value(config_key, value):
                     bot_logger.warning(f"⚠️ Некорректная конфигурация: {config_key}={value}")
-            
+
             # Проверяем валидационную статистику
             validation_stats = data_validator.get_validation_stats()
             if validation_stats['success_rate'] < 90:
                 bot_logger.warning(f"⚠️ Низкое качество данных: {validation_stats['success_rate']:.1f}%")
-            
+
             bot_logger.info("✅ Валидация системы завершена")
         except Exception as e:
             bot_logger.error(f"Ошибка валидации системы: {e}")

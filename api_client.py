@@ -80,7 +80,7 @@ class APIClient:
         async def _execute_request():
             """Внутренняя функция для выполнения запроса"""
             session = await self._get_session()
-            
+
             try:
                 async with session.get(url, params=params) as response:
                     request_time = time.time() - start_time
@@ -193,7 +193,7 @@ class APIClient:
             cache_manager.set_ticker_cache(symbol, data)
             api_recovery_manager.store_successful_data("/ticker/24hr", symbol, data)
             return data
-        
+
         # Пытаемся получить fallback данные при неудаче
         fallback_data = api_recovery_manager.get_fallback_data("/ticker/24hr", symbol)
         if fallback_data:
@@ -643,11 +643,11 @@ class APIClient:
                     if not self.session.closed:
                         connector = self.session.connector
                         await self.session.close()
-                        
+
                         # Ждем закрытия коннектора
                         if connector and not connector.closed:
                             await connector.close()
-                        
+
                         await asyncio.sleep(0.1)
                 except Exception as e:
                     bot_logger.debug(f"Ошибка принудительного закрытия: {type(e).__name__}")
