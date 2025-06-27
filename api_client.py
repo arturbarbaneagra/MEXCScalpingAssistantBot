@@ -62,7 +62,7 @@ class APIClient:
             if cb_name in endpoint:
                 circuit_breaker = cb
                 break
-        
+
         max_retries = config_manager.get('MAX_RETRIES', 2)
 
         async def _execute_request():
@@ -70,7 +70,7 @@ class APIClient:
             session = await self._get_session()
             async with session.get(url, params=params) as response:
                 request_time = time.time() - start_time
-                
+
                 # Логируем запрос и записываем метрики
                 bot_logger.api_request("GET", url, response.status, request_time)
                 metrics_manager.record_api_request(endpoint, request_time, response.status)
@@ -95,7 +95,7 @@ class APIClient:
 
             except Exception as e:
                 error_msg = str(e).lower()
-                
+
                 if "rate limit" in error_msg and attempt < max_retries:
                     await asyncio.sleep(2 ** attempt)
                     continue
@@ -144,15 +144,15 @@ class APIClient:
         cached_data = cache_manager.get_ticker_cache(symbol)
         if cached_data:
             return cached_data
-            
+
         # Запрашиваем данные
         params = {'symbol': f"{symbol}USDT"}
         data = await self._make_request("/ticker/24hr", params)
-        
+
         # Сохраняем в кеш
         if data:
             cache_manager.set_ticker_cache(symbol, data)
-            
+
         return data
 
     async def get_book_ticker(self, symbol: str) -> Optional[Dict]:
@@ -172,7 +172,7 @@ class APIClient:
     async def get_multiple_tickers_batch(self, symbols: List[str]) -> Dict[str, Optional[Dict]]:
         """Получает данные тикеров для списка символов (ультра оптимизированная версия)"""
         results = {}
-        
+
         try:
             # Сразу получаем ВСЕ тикеры одним запросом (самый быстрый способ)
             all_tickers = await self._make_request("/ticker/24hr")
@@ -219,24 +219,24 @@ class APIClient:
     async def get_batch_coin_data(self, symbols: List[str]) -> Dict[str, Optional[Dict]]:
         """Получает данные для группы монет с максимальной оптимизацией"""
         results = {}
-        
+
         try:
             # 1. Получаем все book tickers одним запросом
             book_tickers_task = self._make_request("/ticker/bookTicker")
-            
+
             # 2. Создаем задачи для klines и trades параллельно
             klines_tasks = {}
             trades_tasks = {}
-            
+
             for symbol in symbols:
                 klines_tasks[symbol] = self.get_klines(symbol, "1m", 2)
                 trades_tasks[symbol] = self.get_trades_last_minute(symbol)
-            
+
             # 3. Выполняем все запросы параллельно
             book_tickers_data = await book_tickers_task
             klines_results = await asyncio.gather(*klines_tasks.values(), return_exceptions=True)
             trades_results = await asyncio.gather(*trades_tasks.values(), return_exceptions=True)
-            
+
             # 4. Создаем индекс book tickers
             book_ticker_dict = {}
             if book_tickers_data:
@@ -244,35 +244,35 @@ class APIClient:
                     if book_ticker['symbol'].endswith('USDT'):
                         symbol = book_ticker['symbol'].replace('USDT', '')
                         book_ticker_dict[symbol] = book_ticker
-            
+
             # 5. Собираем результаты
             klines_dict = dict(zip(symbols, klines_results))
             trades_dict = dict(zip(symbols, trades_results))
-            
+
             for symbol in symbols:
                 try:
                     # Получаем данные для символа
                     book_data = book_ticker_dict.get(symbol)
                     klines_data = klines_dict.get(symbol)
                     trades_1m = trades_dict.get(symbol)
-                    
+
                     if not book_data or isinstance(klines_data, Exception) or not klines_data:
                         results[symbol] = None
                         continue
-                    
+
                     # Обрабатываем данные
                     last_candle = klines_data[-1]
                     price = float(last_candle[4])  # close price
                     volume_1m_usdt = float(last_candle[7])  # quote volume
-                    
+
                     open_price = float(last_candle[1])
                     close_price = float(last_candle[4])
                     high_price = float(last_candle[2])
                     low_price = float(last_candle[3])
-                    
+
                     # Изменение за 1 минуту
                     change_1m = ((close_price - open_price) / open_price) * 100 if open_price > 0 else 0
-                    
+
                     # NATR
                     if open_price > 0:
                         true_range = max(
@@ -283,26 +283,26 @@ class APIClient:
                         natr = (true_range / open_price) * 100
                     else:
                         natr = 0
-                    
+
                     # Спред
                     bid_price = float(book_data['bidPrice'])
                     ask_price = float(book_data['askPrice'])
                     spread = ((ask_price - bid_price) / bid_price) * 100 if bid_price > 0 else 0
-                    
+
                     # Количество сделок
                     trades_count = trades_1m if isinstance(trades_1m, int) else 0
-                    
+
                     # Проверяем активность
                     vol_thresh = config_manager.get('VOLUME_THRESHOLD')
                     spread_thresh = config_manager.get('SPREAD_THRESHOLD')
                     natr_thresh = config_manager.get('NATR_THRESHOLD')
-                    
+
                     is_active = (
                         volume_1m_usdt >= vol_thresh and
                         spread >= spread_thresh and
                         natr >= natr_thresh
                     )
-                    
+
                     coin_data = {
                         'symbol': symbol,
                         'price': price,
@@ -315,23 +315,23 @@ class APIClient:
                         'has_recent_trades': trades_count > 0,
                         'timestamp': time.time()
                     }
-                    
+
                     # Валидируем данные
                     if data_validator.validate_coin_data(coin_data):
                         results[symbol] = coin_data
                     else:
                         results[symbol] = None
-                        
+
                 except Exception as e:
                     bot_logger.error(f"Ошибка обработки данных для {symbol}: {e}")
                     results[symbol] = None
-            
+
         except Exception as e:
             bot_logger.error(f"Ошибка batch получения данных: {e}")
             # Fallback - используем старый метод
             for symbol in symbols:
                 results[symbol] = await self.get_coin_data(symbol)
-        
+
         return results
 
     def _calculate_natr(self, klines: List) -> float:
@@ -420,7 +420,7 @@ class APIClient:
             ]
 
             book_data, klines_data, trades_1m = await asyncio.gather(*tasks, return_exceptions=True)
-            
+
             # Цену берем из klines (более эффективно)
             ticker_data = None
             if not isinstance(klines_data, Exception) and klines_data:
@@ -515,12 +515,12 @@ class APIClient:
                 'has_recent_trades': has_recent_trades,
                 'timestamp': time.time()
             }
-            
+
             # Валидируем данные перед возвратом
             if not data_validator.validate_coin_data(coin_data):
                 bot_logger.warning(f"Данные для {symbol} не прошли валидацию")
                 return None
-                
+
             return coin_data
 
         except asyncio.CancelledError:
@@ -533,20 +533,20 @@ class APIClient:
     async def _rate_limit(self):
         """Реализует улучшенный rate limiting для MEXC API"""
         current_time = time.time()
-        
+
         # MEXC API лимит: 20 запросов в секунду
         min_interval = 0.05  # 50ms между запросами
-        
+
         # Проверяем интервал с последним запросом
         interval = current_time - self.last_request_time
         if interval < min_interval:
             sleep_time = min_interval - interval
             await asyncio.sleep(sleep_time)
-        
+
         # Обновляем счетчики
         self.last_request_time = time.time()
         self.request_count += 1
-        
+
         # Дополнительная защита от burst запросов
         if self.request_count % 15 == 0:  # Каждые 15 запросов пауза
             await asyncio.sleep(0.1)
@@ -558,7 +558,7 @@ class APIClient:
             cached_price = cache_manager.get_price_cache(symbol)
             if cached_price:
                 return cached_price
-                
+
             ticker_data = await self.get_ticker_data(symbol)
             if ticker_data and 'lastPrice' in ticker_data:
                 price = float(ticker_data['lastPrice'])
@@ -574,15 +574,15 @@ class APIClient:
         if self.session and not self.session.closed:
             try:
                 bot_logger.debug("Закрываем HTTP сессию...")
-                
+
                 # Простое закрытие без сложной логики
                 await self.session.close()
-                
+
                 # Короткая пауза для завершения внутренних операций aiohttp
                 await asyncio.sleep(0.05)
-                
+
                 bot_logger.debug("HTTP сессия закрыта")
-                
+
             except Exception as e:
                 bot_logger.debug(f"Ошибка закрытия HTTP сессии: {type(e).__name__}")
             finally:

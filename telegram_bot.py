@@ -769,9 +769,11 @@ class TradingTelegramBot:
         await update.message.reply_text("🔄 Проверяю доступность монеты...")
 
         try:
+            # Пытаемся получить данные монеты
             coin_data = await api_client.get_coin_data(symbol)
 
-            if coin_data:
+            if coin_data and coin_data.get('price', 0) > 0:
+                # Монета найдена и имеет валидные данные
                 watchlist_manager.add(symbol)
                 await update.message.reply_text(
                     f"✅ <b>{symbol}_USDT</b> добавлена в список отслеживания\n"
@@ -783,18 +785,36 @@ class TradingTelegramBot:
                     parse_mode=ParseMode.HTML
                 )
             else:
+                # Монета не найдена или нет данных
                 await update.message.reply_text(
-                    f"❌ <b>{symbol}_USDT</b> не найдена или недоступна для торговли.",
+                    f"❌ <b>{symbol}_USDT</b> не найдена на бирже MEXC\n\n"
+                    f"💡 <b>Возможные причины:</b>\n"
+                    f"• Неправильное название монеты\n"
+                    f"• Торговая пара не существует\n"
+                    f"• Монета не торгуется на MEXC\n\n"
+                    f"Проверьте правильность символа и попробуйте снова.",
                     reply_markup=self.main_keyboard,
                     parse_mode=ParseMode.HTML
                 )
         except Exception as e:
             bot_logger.error(f"Ошибка при добавлении монеты {symbol}: {e}")
-            await update.message.reply_text(
-                f"❌ Ошибка при проверке <b>{symbol}</b>. Попробуйте позже.",
-                reply_markup=self.main_keyboard,
-                parse_mode=ParseMode.HTML
-            )
+            
+            # Более детальное сообщение об ошибке
+            if "400" in str(e) or "Bad Request" in str(e):
+                await update.message.reply_text(
+                    f"❌ <b>{symbol}_USDT</b> не существует на бирже\n\n"
+                    f"Проверьте правильность написания символа.\n"
+                    f"Пример: BTC, ETH, ADA",
+                    reply_markup=self.main_keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+            else:
+                await update.message.reply_text(
+                    f"❌ Временная ошибка при проверке <b>{symbol}</b>\n"
+                    f"Попробуйте позже или проверьте соединение.",
+                    reply_markup=self.main_keyboard,
+                    parse_mode=ParseMode.HTML
+                )
 
         return ConversationHandler.END
 
