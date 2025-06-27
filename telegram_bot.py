@@ -65,8 +65,8 @@ class TradingTelegramBot:
 
         self.settings_keyboard = ReplyKeyboardMarkup([
             ["📊 Объём", "⇄ Спред"],
-            ["📈 NATR", "🚨 Алерты"],
-            ["🔄 Сброс", "🔙 Назад"]
+            ["📈 NATR", "🔄 Сброс"],
+            ["🔙 Назад"]
         ], resize_keyboard=True)
 
         self.back_keyboard = ReplyKeyboardMarkup([
@@ -493,8 +493,6 @@ class TradingTelegramBot:
                 return await self._handle_spread_setting_start(update)
             elif text == "📈 NATR":
                 return await self._handle_natr_setting_start(update)
-            elif text == "🚨 Алерты":
-                await self._handle_alerts(update)
             elif text == "🔄 Сброс":
                 await self._handle_reset_settings(update)
             elif text == "ℹ Статус":
@@ -579,7 +577,6 @@ class TradingTelegramBot:
 
     async def _handle_add_coin_start(self, update: Update):
         """Начало добавления монеты"""
-        await self._stop_current_mode()
         await update.message.reply_text(
             "➕ <b>Добавление монеты</b>\n\n"
             "Введите символ монеты (например: <code>BTC</code> или <code>BTC_USDT</code>):",
@@ -590,8 +587,6 @@ class TradingTelegramBot:
 
     async def _handle_remove_coin_start(self, update: Update):
         """Начало удаления монеты"""
-        await self._stop_current_mode()
-
         if watchlist_manager.size() == 0:
             await update.message.reply_text(
                 "❌ Список отслеживания пуст.",
@@ -614,20 +609,18 @@ class TradingTelegramBot:
 
     async def _handle_volume_setting_start(self, update: Update):
         """Начало настройки объёма"""
-        await self._stop_current_mode()
         current_value = config_manager.get('VOLUME_THRESHOLD')
         await update.message.reply_text(
             f"📊 <b>Настройка минимального объёма</b>\n\n"
             f"Текущее значение: <code>${current_value:,}</code>\n\n"
             f"Введите новое значение в долларах (например: 1500):",
             reply_markup=self.back_keyboard,
-            parse_mode=ParseMode.HTML
+            parse_mode=Parse_Mode.HTML
         )
         return self.SETTING_VOLUME
 
     async def _handle_spread_setting_start(self, update: Update):
         """Начало настройки спреда"""
-        await self._stop_current_mode()
         current_value = config_manager.get('SPREAD_THRESHOLD')
         await update.message.reply_text(
             f"⇄ <b>Настройка минимального спреда</b>\n\n"
@@ -640,7 +633,6 @@ class TradingTelegramBot:
 
     async def _handle_natr_setting_start(self, update: Update):
         """Начало настройки NATR"""
-        await self._stop_current_mode()
         current_value = config_manager.get('NATR_THRESHOLD')
         await update.message.reply_text(
             f"📈 <b>Настройка минимального NATR</b>\n\n"
@@ -653,8 +645,6 @@ class TradingTelegramBot:
 
     async def _handle_show_list(self, update: Update):
         """Показ списка монет"""
-        await self._stop_current_mode()
-
         coins = watchlist_manager.get_all()
         if not coins:
             text = "📋 <b>Список отслеживания пуст</b>"
@@ -670,8 +660,6 @@ class TradingTelegramBot:
 
     async def _handle_settings(self, update: Update):
         """Обработка настроек"""
-        await self._stop_current_mode()
-
         current_settings = (
             "⚙ <b>Текущие настройки фильтров:</b>\n\n"
             f"📊 Минимальный объём: <code>${config_manager.get('VOLUME_THRESHOLD'):,}</code>\n"
@@ -718,48 +706,8 @@ class TradingTelegramBot:
             parse_mode=ParseMode.HTML
         )
 
-    async def _handle_alerts(self, update: Update):
-        """Обработка алертов"""
-        await self._stop_current_mode()
-
-        stats = advanced_alert_manager.get_alert_stats()
-        active_alerts = advanced_alert_manager.get_active_alerts()
-        recent_history = advanced_alert_manager.get_alert_history(5)
-
-        alerts_text = f"🚨 <b>Система алертов:</b>\n\n"
-        alerts_text += f"📊 <b>Статистика:</b>\n"
-        alerts_text += f"• Всего алертов: {stats['total_alerts']}\n"
-        alerts_text += f"• Активных: {stats['active_alerts']}\n"
-        alerts_text += f"• Общих срабатываний: {stats['total_triggers']}\n\n"
-
-        if active_alerts:
-            alerts_text += f"🔴 <b>Активные алерты ({len(active_alerts)}):</b>\n"
-            for alert in active_alerts[:3]:
-                alerts_text += f"• {alert['title']} [{alert['severity'].upper()}]\n"
-            if len(active_alerts) > 3:
-                alerts_text += f"• ... и еще {len(active_alerts) - 3}\n"
-            alerts_text += "\n"
-
-        if recent_history:
-            alerts_text += f"📋 <b>Последние срабатывания:</b>\n"
-            for alert in recent_history:
-                time_str = time.strftime("%H:%M", time.localtime(alert['timestamp']))
-                alerts_text += f"• {time_str} - {alert['title']} ({alert['symbol']})\n"
-        else:
-            alerts_text += f"✅ <b>Нет недавних срабатываний</b>\n"
-
-        alerts_text += f"\n💡 Алерты работают автоматически в фоновом режиме"
-
-        await update.message.reply_text(
-            alerts_text,
-            reply_markup=self.main_keyboard,
-            parse_mode=ParseMode.HTML
-        )
-
     async def _handle_reset_settings(self, update: Update):
         """Сброс настроек к значениям по умолчанию"""
-        await self._stop_current_mode()
-
         config_manager.set('VOLUME_THRESHOLD', 1000)
         config_manager.set('SPREAD_THRESHOLD', 0.1)
         config_manager.set('NATR_THRESHOLD', 0.5)
@@ -779,8 +727,6 @@ class TradingTelegramBot:
 
     async def _handle_reset_api(self, update: Update):
         """Сброс Circuit Breaker API"""
-        await self._stop_current_mode()
-
         try:
             from circuit_breaker import api_circuit_breakers
             reset_count = 0
@@ -847,8 +793,7 @@ class TradingTelegramBot:
         # Дополнительная валидация - проверяем на известные некорректные символы
         invalid_symbols = [
             'ADAD', 'XXXX', 'NULL', 'UNDEFINED', 'TEST', 'FAKE',
-            'SCAM', '123', 'ABC', 'XYZ', 'QQQ', 'WWW', 'EEE'
-        ]
+            'SCAM', '123', 'ABC', 'XYZ', 'QQQ', 'WWW', 'EEE'        ]
 
         if symbol in invalid_symbols or len(symbol) < 2 or len(symbol) > 10:
             await update.message.reply_text(
