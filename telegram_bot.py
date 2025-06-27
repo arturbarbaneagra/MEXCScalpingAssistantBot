@@ -51,6 +51,49 @@ class TradingTelegramBot:
             bot_logger.error(f"Ошибка настройки Telegram приложения: {e}")
             raise
     
+    async def send_startup_message(self):
+        """Отправка приветственного сообщения при запуске"""
+        try:
+            welcome_message = """
+👋 *Привет! Я тут!*
+
+🤖 *Торговый бот v2.1* запущен и готов к работе!
+
+Выберите действие:
+            """
+            
+            # Создаем клавиатуру с кнопками
+            keyboard = [
+                [
+                    InlineKeyboardButton("📊 Начать мониторинг", callback_data="start_monitoring"),
+                    InlineKeyboardButton("📈 Статус", callback_data="show_status")
+                ],
+                [
+                    InlineKeyboardButton("📋 Watchlist", callback_data="show_watchlist"),
+                    InlineKeyboardButton("⚙️ Настройки", callback_data="show_settings")
+                ],
+                [
+                    InlineKeyboardButton("🛑 Стоп", callback_data="stop_bot"),
+                    InlineKeyboardButton("ℹ️ Помощь", callback_data="show_help")
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            chat_id = config_manager.get('telegram_chat_id')
+            if chat_id and self.application and self.application.bot:
+                await self.application.bot.send_message(
+                    chat_id=chat_id,
+                    text=welcome_message,
+                    parse_mode='Markdown',
+                    reply_markup=reply_markup
+                )
+                
+                self.bot_running = True
+                bot_logger.info("🎉 Автоматическое приветственное сообщение отправлено")
+                
+        except Exception as e:
+            bot_logger.error(f"Ошибка отправки приветственного сообщения: {e}")
+    
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик команды /start"""
         try:

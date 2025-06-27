@@ -346,6 +346,9 @@ async def main():
         async with app:
             await app.start()
             await app.updater.start_polling(drop_pending_updates=True)
+            
+            # Отправляем автоматическое приветствие
+            await telegram_bot.send_startup_message()
 
             # Держим приложение работающим
             try:
