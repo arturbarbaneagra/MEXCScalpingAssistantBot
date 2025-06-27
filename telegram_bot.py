@@ -1058,6 +1058,172 @@ class TradingTelegramBot:
 
         return ConversationHandler.END
 
+    async def _monitor_coins(self):
+        """Мониторинг списка монет"""
+        self.bot_running = True
+
+        last_report_time = 0
+        report_interval = 300  # 5 минут
+
+        try:
+            while self.bot_running:
+                try:
+                    current_time = time.time()
+
+                    # Получаем данные с кеширования  
+                    watchlist_symbols = watchlist_manager.get_symbols()
+
+                    if not watchlist_symbols:
+                        bot_logger.warning("Список для мониторинга пуст")
+                        await asyncio.sleep(10)
+                        continue
+
+                    # Анализируем данные для всех монет одновременно
+                    coins_data = await self._get_all_coins_data(watchlist_symbols)
+
+                    # Проверяем активность каждой монеты
+                    for symbol in watchlist_symbols:
+                        coin_data = coins_data.get(symbol)
+                        if coin_data and data_validator.validate_coin_data(coin_data):
+                            await self._check_coin_activity(symbol, coin_data)
+
+                            # Обновляем данные в Session Recorder
+                            try:
+                                from session_recorder import session_recorder
+                                session_recorder.update_coin_activity(symbol, coin_data)
+                            except Exception as e:
+                                bot_logger.debug(f"Ошибка обновления Session Recorder для {symbol}: {e}")
+
+                    # Проверяем неактивные сессии в Session Recorder
+                    try:
+                        from session_recorder import session_recorder
+                        session_recorder.check_inactive_sessions(self.active_coins)
+                    except Exception as e:
+                        bot_logger.debug(f"Ошибка проверки неактивных сессий: {e}")
+
+                    # Очистка неактивных монет
+                    await self._cleanup_inactive_coins()
+
+                except Exception as e:
+                    bot_logger.error(f"Ошибка мониторинга монет: {e}")
+                    await asyncio.sleep(10)
+
+                # Отправляем отчет раз в report_interval секунд
+                if current_time - last_report_time >= report_interval:
+                    await self._generate_and_send_report()
+                    last_report_time = current_time
+
+                await asyncio.sleep(5)
+
+        except asyncio.CancelledError:
+            bot_logger.info("Мониторинг монет остановлен")
+        except Exception as e:
+            bot_logger.error(f"Критическая ошибка в мониторинге монет: {e}")
+        finally:
+            self.bot_running = False
+
+    async def _get_all_coins_data(self, symbols: List[str]) -> Dict[str, Dict]:
+        """Получает данные сразу для всех монет"""
+        tasks = [api_client.get_ticker_data(symbol) for symbol in symbols]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        coins_data = {}
+        for i, symbol in enumerate(symbols):
+            if isinstance(results[i], Exception):
+                bot_logger.error(f"Ошибка получения данных для {symbol}: {results[i]}")
+            else:
+                coins_data[symbol] = results[i]
+        return coins_data
+
+    async def _check_coin_activity(self, symbol: str, coin_data: Dict):
+        """Проверяет активность монеты и обрабатывает ее"""
+        volume = float(coin_data.get('quoteVolume', 0))
+        spread = data_validator.calculate_spread(coin_data)
+        natr = await data_validator.calculate_natr(symbol)
+
+        # Получаем пороги из конфига
+        volume_threshold = config_manager.get('VOLUME_THRESHOLD')
+        spread_threshold = config_manager.get('SPREAD_THRESHOLD')
+        natr_threshold = config_manager.get('NATR_THRESHOLD')
+
+        is_active = (
+            volume >= volume_threshold and
+            spread >= spread_threshold and
+            natr >= natr_threshold
+        )
+
+        if is_active:
+            if symbol not in self.active_coins:
+                self.active_coins[symbol] = {
+                    'last_active': time.time(),
+                    'last_price': float(coin_data.get('lastPrice', 0)),
+                    'highest_price': float(coin_data.get('lastPrice', 0)),
+                    'lowest_price': float(coin_data.get('lastPrice', 0))
+                }
+
+                alert_text = (
+                    f"🔥 <b>{symbol} Активна!</b>\n\n"
+                    f"💰 Цена: <code>${self.active_coins[symbol]['last_price']:.6f}</code>\n"
+                    f"📊 Объём: <code>${volume:,.2f}</code>\n"
+                    f"⇄ Спред: <code>{spread:.2f}%</code>\n"
+                    f"📈 NATR: <code>{natr:.2f}%</code>"
+                )
+                await self.send_message(alert_text)
+                bot_logger.info(f"Обнаружена активная монета: {symbol}")
+            else:
+                # Обновляем last_active
+                self.active_coins[symbol]['last_active'] = time.time()
+
+                # Проверяем High/Low
+                current_price = float(coin_data.get('lastPrice', 0))
+                if current_price > self.active_coins[symbol]['highest_price']:
+                    self.active_coins[symbol]['highest_price'] = current_price
+                if current_price < self.active_coins[symbol]['lowest_price']:
+                    self.active_coins[symbol]['lowest_price'] = current_price
+        else:
+            if symbol in self.active_coins:
+                del self.active_coins[symbol]
+                bot_logger.info(f"Монета {symbol} более не активна")
+
+    async def _cleanup_inactive_coins(self):
+        """Удаляет неактивные монеты из списка активных"""
+        inactive_time = 300  # 5 минут
+        current_time = time.time()
+        inactive_coins = [
+            symbol for symbol, data in self.active_coins.items()
+            if current_time - data['last_active'] > inactive_time
+        ]
+
+        for symbol in inactive_coins:
+            del self.active_coins[symbol]
+            bot_logger.info(f"Удалена неактивная монета: {symbol}")
+
+    async def _generate_and_send_report(self):
+        """Генерирует и отправляет отчет о состоянии монет"""
+        if not self.active_coins:
+            bot_logger.debug("Нет активных монет для отчета")
+            return
+
+        report_parts = ["📊 <b>Отчет об активных монетах:</b>\n"]
+
+        total_volume = 0
+        for symbol, data in self.active_coins.items():
+            volume = float(await api_client.get_quote_volume(symbol))
+            total_volume += volume
+            price_change = data['last_price'] - data['lowest_price']
+            report_parts.append(
+                f"• <b>{symbol}</b>: <code>${data['last_price']:.6f}</code> "
+                f"(<code>+${price_change:.6f}</code>)\n"
+                f"  Min: <code>${data['lowest_price']:.6f}</code> "
+                f"Max: <code>${data['highest_price']:.6f}</code>"
+            )
+
+        report_parts.append(f"\n💰 Общий объём: <code>${total_volume:,.2f}</code>")
+        report_text = "\n".join(report_parts)
+
+        await self.send_message(report_text)
+        bot_logger.info("Отправлен отчет об активных монетах")
+
     async def _queue_message(self, message_data: Dict[str, Any]):
         """Добавляет сообщение в очередь для отправки"""
         try:
