@@ -23,8 +23,7 @@ from circuit_breaker import CircuitBreaker, CircuitState
 from data_validator import data_validator
 from logger import bot_logger
 from alert_manager import alert_manager
-from bot_state import bot_state_manager
-from auto_maintenance import auto_maintenance performance_optimizer import performance_optimizer
+from performance_optimizer import performance_optimizer
 from auto_maintenance import auto_maintenance
 
 class TestConfigManager(unittest.TestCase):

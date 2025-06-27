@@ -21,8 +21,8 @@ load_dotenv()
 from logger import bot_logger
 from config import config_manager
 from watchlist_manager import watchlist_manager
-from api_client import api_client
 from telegram_bot import telegram_bot
+from api_client import api_client
 
 # Проверяем, что переменные загружены (без вывода значений)
 bot_logger.info("Проверка переменных окружения...")
@@ -310,9 +310,8 @@ async def main():
         bot_logger.info("🚀 Запуск торгового бота v2.1")
         bot_logger.info("=" * 50)
 
-        # Проверяем переменные окружения ПЕРЕД всеми инициализациями
+        # Проверяем переменные окружения
         if not validate_environment():
-            bot_logger.error("❌ Проверьте переменные окружения в Secrets")
             sys.exit(1)
 
         # Инициализируем состояние бота
@@ -336,7 +335,6 @@ async def main():
         app = telegram_bot.setup_application()
 
         bot_logger.info("🤖 Telegram бот готов к работе")
-        bot_logger.warning("⚠️  Убедитесь, что это единственный запущенный экземпляр бота!")
         bot_logger.info("🔧 Автоматическое обслуживание активно")
         bot_logger.info("=" * 50)
 
@@ -346,9 +344,6 @@ async def main():
         async with app:
             await app.start()
             await app.updater.start_polling(drop_pending_updates=True)
-            
-            # Отправляем автоматическое приветствие
-            await telegram_bot.send_startup_message()
 
             # Держим приложение работающим
             try:

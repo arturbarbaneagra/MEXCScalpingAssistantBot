@@ -52,18 +52,7 @@ class ConfigManager:
             bot_logger.error(f"Ошибка сохранения конфигурации: {e}")
 
     def get(self, key: str, default=None) -> Any:
-        """Получает значение конфигурации с поддержкой переменных окружения"""
-        # Сначала пробуем получить из переменных окружения
-        if key.upper() == 'TELEGRAM_TOKEN':
-            env_value = os.getenv('TELEGRAM_TOKEN')
-            if env_value:
-                return env_value
-        elif key.upper() == 'TELEGRAM_CHAT_ID':
-            env_value = os.getenv('TELEGRAM_CHAT_ID')
-            if env_value:
-                return env_value
-        
-        # Затем из конфига
+        """Получает значение конфигурации"""
         return self.config.get(key, default)
 
     def set(self, key: str, value: Any):
