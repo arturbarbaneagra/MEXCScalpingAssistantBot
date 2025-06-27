@@ -23,6 +23,7 @@ from config import config_manager
 from watchlist_manager import watchlist_manager
 from telegram_bot import telegram_bot
 from api_client import api_client
+from session_recorder import session_recorder
 
 # Проверяем, что переменные загружены (без вывода значений)
 bot_logger.info("Проверка переменных окружения...")
@@ -65,6 +66,9 @@ def health_check():
         metrics = metrics_manager.get_summary()
         cache_stats = cache_manager.get_stats()
         alerts = alert_manager.get_active_alerts()
+
+        # Получаем статистику записи сессий
+        session_stats = session_recorder.get_stats()
 
         # Получаем алерты из единой системы
         advanced_alerts = alert_manager.get_active_alerts()
@@ -140,6 +144,8 @@ def health_check():
                     <div class="metric-box">
                         <strong>System:</strong><br>
                         Version: 2.1<br>
+                        Session Recorder: {'🟢 Active' if session_stats['recording'] else '🔴 Stopped'}<br>
+                        Active sessions: {session_stats['active_sessions']}<br>
                         Last update: {time.strftime('%H:%M:%S')}
                     </div>
                 </div>
@@ -233,6 +239,95 @@ def api_performance():
 
     except Exception as e:
         return f"<html><body><h1>API Performance Monitor</h1><p>Ошибка: {e}</p></body></html>"
+
+@app.route('/sessions')
+def sessions_view():
+    """Endpoint для просмотра записанных сессий"""
+    try:
+        from datetime import datetime, timedelta
+        
+        # Получаем статистику
+        stats = session_recorder.get_stats()
+        
+        # Получаем данные за последние 7 дней
+        sessions_data = {}
+        for i in range(7):
+            date = (datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d')
+            daily_data = session_recorder.get_daily_summary(date)
+            if daily_data:
+                sessions_data[date] = daily_data
+
+        html = f"""
+        <html>
+        <head>
+            <title>Session Recorder</title>
+            <meta http-equiv="refresh" content="60">
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }}
+                .container {{ max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; }}
+                .metric {{ padding: 10px; margin: 5px 0; background: #f8f9fa; border-radius: 5px; }}
+                .session {{ padding: 8px; margin: 3px 0; background: #e9ecef; border-radius: 3px; }}
+                .active {{ background: #d4edda; border-left: 4px solid #28a745; }}
+                .date-section {{ margin: 15px 0; padding: 10px; background: #fff3cd; border-radius: 5px; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>📝 Session Recorder</h1>
+                
+                <div class="metric {'active' if stats['recording'] else ''}">
+                    <strong>Статус:</strong> {'🟢 Запись активна' if stats['recording'] else '🔴 Запись остановлена'}<br>
+                    <strong>Активных сессий:</strong> {stats['active_sessions']}<br>
+                    <strong>Директория данных:</strong> {stats['data_directory']}<br>
+                    {"<strong>Текущие символы:</strong> " + ", ".join(stats['session_symbols']) if stats['session_symbols'] else ""}
+                </div>
+
+                <h2>📊 Последние 7 дней</h2>
+        """
+
+        if sessions_data:
+            for date, daily_data in sorted(sessions_data.items(), reverse=True):
+                metadata = daily_data.get('metadata', {})
+                sessions = daily_data.get('sessions', [])
+                
+                html += f"""
+                <div class="date-section">
+                    <h3>{date}</h3>
+                    <p>Всего сессий: {metadata.get('total_sessions', 0)}, 
+                       Общая длительность: {metadata.get('total_duration', 0)/60:.1f} минут</p>
+                    
+                    <div style="max-height: 300px; overflow-y: auto;">
+                """
+                
+                for session in sessions[-10:]:  # Показываем последние 10 сессий
+                    duration_min = session.get('total_duration', 0) / 60
+                    summary = session.get('summary', {})
+                    
+                    html += f"""
+                    <div class="session">
+                        <strong>{session['symbol']}</strong> - {duration_min:.1f} мин 
+                        ({session.get('total_minutes', 0)} интервалов)<br>
+                        Сделок: {summary.get('total_trades', 0)}, 
+                        Оборот: ${summary.get('total_volume', 0):,.0f}<br>
+                        <small>{session.get('start_datetime', '')[:19]} - {session.get('end_datetime', '')[:19]}</small>
+                    </div>
+                    """
+                
+                html += "</div></div>"
+        else:
+            html += "<p>Нет данных о сессиях за последние 7 дней</p>"
+
+        html += """
+                <p><small>Страница обновляется каждую минуту</small></p>
+            </div>
+        </body>
+        </html>
+        """
+
+        return html
+
+    except Exception as e:
+        return f"<html><body><h1>Session Recorder</h1><p>Ошибка: {e}</p></body></html>"
 
 @app.route('/health')
 def health():
@@ -334,6 +429,9 @@ async def main():
         from auto_maintenance import auto_maintenance
         maintenance_task = asyncio.create_task(auto_maintenance.start_maintenance_loop())
 
+        # Запускаем запись сессий
+        session_recorder.start_recording()
+
         # Запускаем Flask сервер в отдельном потоке
         flask_thread = threading.Thread(target=run_flask, daemon=True)
         flask_thread.start()
@@ -403,6 +501,9 @@ async def main():
                 # Останавливаем автоматическое обслуживание
                 auto_maintenance.stop_maintenance()
                 maintenance_task.cancel()
+
+                # Останавливаем запись сессий
+                session_recorder.stop_recording()
 
                 # Сохраняем время работы
                 uptime = time.time() - start_time

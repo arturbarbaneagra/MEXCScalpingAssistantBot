@@ -11,6 +11,7 @@ from logger import bot_logger
 from config import config_manager
 from api_client import api_client
 from watchlist_manager import watchlist_manager
+from session_recorder import session_recorder
 
 
 class MonitoringMode:
@@ -105,6 +106,11 @@ class MonitoringMode:
 
                 # Получаем данные монет
                 results, failed_coins = await self._fetch_monitoring_data()
+
+                # Записываем данные активных монет в сессии
+                for coin_data in results:
+                    if coin_data.get('active'):
+                        session_recorder.update_coin_activity(coin_data['symbol'], coin_data)
 
                 # Обновляем отчет
                 if results:
