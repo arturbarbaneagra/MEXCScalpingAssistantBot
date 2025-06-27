@@ -79,11 +79,11 @@ class TradingTelegramBot:
                     except RuntimeError:
                         # Очередь привязана к другому loop
                         self._message_queue = None
-                
+
                 if self._message_queue is None:
                     self._message_queue = asyncio.Queue()
                     bot_logger.debug("🔄 Создана новая очередь сообщений")
-                    
+
             except Exception as e:
                 bot_logger.debug(f"Пересоздание очереди: {e}")
                 self._message_queue = asyncio.Queue()
@@ -99,7 +99,7 @@ class TradingTelegramBot:
             # Запускаем новую задачу
             self._queue_processor_task = asyncio.create_task(self._process_message_queue())
             bot_logger.debug("🔄 Процессор очереди сообщений запущен")
-            
+
         except Exception as e:
             bot_logger.error(f"Ошибка запуска процессора очереди: {e}")
 
@@ -107,7 +107,7 @@ class TradingTelegramBot:
         """Обрабатывает очередь сообщений последовательно"""
         consecutive_errors = 0
         max_consecutive_errors = 5
-        
+
         while self.bot_running and consecutive_errors < max_consecutive_errors:
             try:
                 if self._message_queue is None:
@@ -121,10 +121,10 @@ class TradingTelegramBot:
                         timeout=2.0
                     )
                     consecutive_errors = 0  # Сбрасываем счетчик при успехе
-                    
+
                     await self._execute_telegram_message(message_data)
                     await asyncio.sleep(0.1)  # Минимальная задержка между сообщениями
-                    
+
                 except asyncio.TimeoutError:
                     consecutive_errors = 0  # Таймаут не считается ошибкой
                     continue
@@ -141,7 +141,7 @@ class TradingTelegramBot:
                 consecutive_errors += 1
                 bot_logger.error(f"Ошибка в процессоре очереди сообщений ({consecutive_errors}/{max_consecutive_errors}): {e}")
                 await asyncio.sleep(min(0.5 * consecutive_errors, 3.0))  # Экспоненциальная задержка
-        
+
         if consecutive_errors >= max_consecutive_errors:
             bot_logger.error("🚨 Процессор очереди остановлен из-за множественных ошибок")
             self._queue_processor_task = None
@@ -267,7 +267,7 @@ class TradingTelegramBot:
                     return await self._direct_telegram_send(text, reply_markup, parse_mode)
                 else:
                     raise
-            
+
             # Ждем результат с таймаутом
             result = await asyncio.wait_for(result_future, timeout=10.0)
 
@@ -372,7 +372,7 @@ class TradingTelegramBot:
 
         bot_logger.info("✅ Режим успешно остановлен")
 
-    
+
 
     # Telegram Handlers
     async def start_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -638,13 +638,13 @@ class TradingTelegramBot:
 
         if self.bot_running:
             status_parts.append(f"🟢 Работает в режиме: <b>{self.bot_mode}</b>")
-            
+
             if self.bot_mode == 'notification':
                 notification_stats = self.notification_mode.get_stats()
                 status_parts.append(f"📊 Активных монет: <b>{notification_stats['active_coins_count']}</b>")
                 if notification_stats['active_coins']:
                     status_parts.append(f"• Монеты: {', '.join(notification_stats['active_coins'][:5])}")
-            
+
             elif self.bot_mode == 'monitoring':
                 monitoring_stats = self.monitoring_mode.get_stats()
                 status_parts.append(f"📋 Отслеживается: <b>{monitoring_stats['watchlist_size']}</b> монет")
@@ -798,7 +798,7 @@ class TradingTelegramBot:
                 )
         except Exception as e:
             bot_logger.error(f"Ошибка при добавлении монеты {symbol}: {e}")
-            
+
             # Более детальное сообщение об ошибке
             if "400" in str(e) or "Bad Request" in str(e):
                 await update.message.reply_text(

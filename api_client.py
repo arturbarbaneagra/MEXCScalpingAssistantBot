@@ -80,6 +80,10 @@ class APIClient:
                     return data
                 elif response.status == 429:  # Rate limit
                     raise Exception(f"Rate limit hit for {endpoint}")
+                elif response.status == 400:  # Bad request (invalid symbol)
+                    # Логируем как debug, а не error для 400 ошибок
+                    bot_logger.debug(f"Invalid request for {endpoint}: 400 Bad Request")
+                    raise Exception(f"Invalid symbol or request for {endpoint}")
                 else:
                     raise Exception(f"API error {response.status} for {endpoint}")
 
@@ -579,18 +583,25 @@ class APIClient:
             return None
 
     async def close(self):
-        """Корректно закрывает HTTP сессию с минимизацией pending tasks"""
+        """Корректно закрывает HTTP сессию с принудительным закрытием коннектора"""
         if self.session and not self.session.closed:
             try:
                 bot_logger.debug("Закрываем HTTP сессию...")
 
-                # Простое закрытие без сложной логики
+                # Получаем коннектор перед закрытием сессии
+                connector = self.session.connector
+
+                # Закрываем сессию
                 await self.session.close()
 
-                # Короткая пауза для завершения внутренних операций aiohttp
-                await asyncio.sleep(0.05)
+                # Принудительно закрываем коннектор если он есть
+                if connector and not connector.closed:
+                    await connector.close()
 
-                bot_logger.debug("HTTP сессия закрыта")
+                # Короткая пауза для завершения внутренних операций aiohttp
+                await asyncio.sleep(0.1)
+
+                bot_logger.debug("HTTP сессия и коннектор закрыты")
 
             except Exception as e:
                 bot_logger.debug(f"Ошибка закрытия HTTP сессии: {type(e).__name__}")
