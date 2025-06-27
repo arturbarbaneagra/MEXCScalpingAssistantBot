@@ -102,7 +102,10 @@ class APIClient:
                 elif attempt < max_retries:
                     await asyncio.sleep(1)
                     # Пересоздаем сессию при ошибке
-                    await self.close()
+                    try:
+                        await self.close()
+                    except Exception:
+                        self.session = None  # Принудительно обнуляем при ошибке
                     continue
                 else:
                     return None
@@ -118,7 +121,10 @@ class APIClient:
                 if attempt < max_retries:
                     await asyncio.sleep(1)
                     # Пересоздаем сессию при ошибке
-                    await self.close()
+                    try:
+                        await self.close()
+                    except Exception:
+                        self.session = None  # Принудительно обнуляем при ошибке
                     continue
                 return None
             except Exception as e:
@@ -132,7 +138,10 @@ class APIClient:
                 if attempt < max_retries:
                     await asyncio.sleep(1)
                     # Пересоздаем сессию при ошибке
-                    await self.close()
+                    try:
+                        await self.close()
+                    except Exception:
+                        self.session = None  # Принудительно обнуляем при ошибке
                     continue
                 return None
 
