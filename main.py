@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Торговый бот для мониторинга криптовалют на MEXC
+MEXCScalping Assistant для мониторинга криптовалют на MEXC
 Версия: 2.0
 """
 
@@ -92,7 +92,7 @@ def health_check():
         return f"""
         <html>
         <head>
-            <title>Trading Bot Status v2.1</title>
+            <title>MEXCScalping Assistant Status v2.1</title>
             <meta http-equiv="refresh" content="30">
             <style>
                 body {{ font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }}
@@ -319,7 +319,7 @@ async def main():
     """Основная функция"""
     try:
         bot_logger.info("=" * 50)
-        bot_logger.info("🚀 Запуск торгового бота v2.1")
+        bot_logger.info("🚀 Запуск MEXCScalping Assistant v2.1")
         bot_logger.info("=" * 50)
 
         # Проверяем переменные окружения
@@ -364,7 +364,7 @@ async def main():
                 chat_id=telegram_bot.chat_id,
                 text=(
                     "👋 <b>Привет! Я тут и жду указаний</b>\n\n"
-                    "🤖 Торговый бот v2.1 успешно запущен и готов к работе!\n\n"
+                    "🤖 MEXCScalping Assistant v2.1 успешно запущен и готов к работе!\n\n"
                     "💡 <b>Что можно делать:</b>\n"
                     "• 🔔 Запустить режим уведомлений\n"
                     "• 📊 Включить мониторинг списка\n"
@@ -508,7 +508,7 @@ async def main():
         except Exception as e:
             bot_logger.error(f"Ошибка при завершении работы: {e}")
 
-        bot_logger.info("👋 Торговый бот остановлен")
+        bot_logger.info("👋 MEXCScalping Assistant остановлен")
 
 if __name__ == "__main__":
     asyncio.run(main())
