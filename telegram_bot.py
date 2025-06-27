@@ -883,10 +883,10 @@ class TradingTelegramBot:
                         # Показываем список монет с их суммарным временем
                         coins_text_parts = []
                         for symbol, duration in sorted_coins:
-                            coins_text_parts.append(f"{symbol} ({duration:.1f}м)")
+                            coins_text_parts.append(f"• {symbol} ({duration:.1f}м)")
                         
-                        coins_text = ", ".join(coins_text_parts)
-                        report_parts.append(f"Монеты: {coins_text}")
+                        coins_text = "\n".join(coins_text_parts)
+                        report_parts.append(f"Монеты:\n{coins_text}")
                         
                     else:
                         report_parts.append(f"\n<b>{hour}</b> ⚫ 💤 <i>Нет активности</i>")
