@@ -791,8 +791,6 @@ class TradingTelegramBot:
                 f"📊 <b>Общая статистика:</b>",
                 f"• Всего сессий: <b>{total_sessions}</b>",
                 f"• Уникальных монет: <b>{len(unique_coins)}</b>",
-                f"• Общая длительность: <b>{total_duration/60:.1f}</b> минут",
-                f"• Общий объем торгов: <b>${total_volume:,.0f}</b>",
                 f"• Общее количество сделок: <b>{total_trades:,}</b>\n"
             ]
             
@@ -825,10 +823,12 @@ class TradingTelegramBot:
                     volume = summary.get('total_volume', 0)
                     trades = summary.get('total_trades', 0)
                     start_time = session.get('start_time', 0)
-                    time_str = datetime.fromtimestamp(start_time).strftime('%H:%M')
+                    end_time = session.get('end_time', 0)
+                    start_str = datetime.fromtimestamp(start_time).strftime('%H:%M')
+                    end_str = datetime.fromtimestamp(end_time).strftime('%H:%M')
                     
                     report_parts.append(
-                        f"• <b>{symbol}</b> ({time_str}) - {duration:.1f}м, "
+                        f"• <b>{symbol}</b> ({start_str}-{end_str}) - {duration:.1f}м, "
                         f"${volume:,.0f}, {trades} сделок"
                     )
             
