@@ -123,39 +123,75 @@ class ActivityLevelCalculator:
         """
         z_score = self.get_z_score(total_activity_minutes)
         
-        # Определяем уровень активности и эмодзи на основе z-score
-        if z_score >= 2.0:
-            level = "Экстремально высокая"
-            emoji = "🔥🔥🔥"
-            color = "🟥"  # Красный
-        elif z_score >= 1.5:
-            level = "Очень высокая"
-            emoji = "🔥🔥"
-            color = "🟧"  # Оранжевый
-        elif z_score >= 1.0:
-            level = "Высокая"
-            emoji = "🔥"
-            color = "🟨"  # Желтый
-        elif z_score >= 0.5:
-            level = "Выше средней"
-            emoji = "📈"
-            color = "🟩"  # Зеленый
-        elif z_score >= -0.5:
-            level = "Средняя"
-            emoji = "📊"
-            color = "🟦"  # Синий
-        elif z_score >= -1.0:
-            level = "Ниже средней"
-            emoji = "📉"
-            color = "🟪"  # Фиолетовый
-        elif z_score >= -1.5:
-            level = "Низкая"
-            emoji = "❄️"
-            color = "⬜"  # Белый
+        # Если статистики еще недостаточно, используем простые пороги
+        if self.count < 5:
+            # Простая классификация по абсолютным значениям
+            if total_activity_minutes >= 20:
+                level = "Экстремально высокая"
+                emoji = "🔥🔥🔥"
+                color = "🟥"  # Красный
+            elif total_activity_minutes >= 15:
+                level = "Очень высокая"
+                emoji = "🔥🔥"
+                color = "🟧"  # Оранжевый
+            elif total_activity_minutes >= 10:
+                level = "Высокая"
+                emoji = "🔥"
+                color = "🟨"  # Желтый
+            elif total_activity_minutes >= 7:
+                level = "Выше средней"
+                emoji = "📈"
+                color = "🟩"  # Зеленый
+            elif total_activity_minutes >= 4:
+                level = "Средняя"
+                emoji = "📊"
+                color = "🟦"  # Синий
+            elif total_activity_minutes >= 2:
+                level = "Ниже средней"
+                emoji = "📉"
+                color = "🟪"  # Фиолетовый
+            elif total_activity_minutes >= 1:
+                level = "Низкая"
+                emoji = "❄️"
+                color = "⬜"  # Белый
+            else:
+                level = "Очень низкая"
+                emoji = "💤"
+                color = "⬛"  # Черный
         else:
-            level = "Очень низкая"
-            emoji = "💤"
-            color = "⬛"  # Черный
+            # Определяем уровень активности и эмодзи на основе z-score
+            if z_score >= 2.0:
+                level = "Экстремально высокая"
+                emoji = "🔥🔥🔥"
+                color = "🟥"  # Красный
+            elif z_score >= 1.5:
+                level = "Очень высокая"
+                emoji = "🔥🔥"
+                color = "🟧"  # Оранжевый
+            elif z_score >= 1.0:
+                level = "Высокая"
+                emoji = "🔥"
+                color = "🟨"  # Желтый
+            elif z_score >= 0.5:
+                level = "Выше средней"
+                emoji = "📈"
+                color = "🟩"  # Зеленый
+            elif z_score >= -0.5:
+                level = "Средняя"
+                emoji = "📊"
+                color = "🟦"  # Синий
+            elif z_score >= -1.0:
+                level = "Ниже средней"
+                emoji = "📉"
+                color = "🟪"  # Фиолетовый
+            elif z_score >= -1.5:
+                level = "Низкая"
+                emoji = "❄️"
+                color = "⬜"  # Белый
+            else:
+                level = "Очень низкая"
+                emoji = "💤"
+                color = "⬛"  # Черный
         
         return {
             'level': level,
@@ -171,6 +207,7 @@ class ActivityLevelCalculator:
     def calculate_hourly_activity(self, sessions: List[Dict], hour_start: datetime) -> float:
         """
         Рассчитывает общее время активности для определенного часа
+        Простая сумма длительностей всех сессий в этом часу
         
         Args:
             sessions: Список сессий
@@ -179,23 +216,11 @@ class ActivityLevelCalculator:
         Returns:
             Общее время активности в минутах
         """
-        hour_end = hour_start + timedelta(hours=1)
-        hour_start_ts = hour_start.timestamp()
-        hour_end_ts = hour_end.timestamp()
-        
         total_activity = 0.0
         
         for session in sessions:
-            session_start = session.get('start_time', 0)
-            session_end = session.get('end_time', 0)
-            
-            # Проверяем пересечение сессии с часом
-            overlap_start = max(session_start, hour_start_ts)
-            overlap_end = min(session_end, hour_end_ts)
-            
-            if overlap_start < overlap_end:
-                overlap_duration = (overlap_end - overlap_start) / 60  # В минутах
-                total_activity += overlap_duration
+            duration = session.get('total_duration', 0) / 60  # В минутах
+            total_activity += duration
         
         return total_activity
     

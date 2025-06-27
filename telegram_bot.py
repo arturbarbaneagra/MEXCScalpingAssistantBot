@@ -839,25 +839,30 @@ class TradingTelegramBot:
                     hour_datetime = hour_data['hour_datetime']
                     
                     # Рассчитываем уровень активности для этого часа
-                    total_activity = activity_calculator.calculate_hourly_activity(
-                        hour_sessions, hour_datetime
-                    )
+                    # Сумма длительностей всех сессий в минутах
+                    total_activity = sum(session.get('total_duration', 0) / 60 for session in hour_sessions)
                     
                     # Получаем информацию об уровне активности
                     activity_info = activity_calculator.get_activity_level_info(total_activity)
                     
                     # Обновляем статистику (если час завершился)
                     current_hour = datetime.now().replace(minute=0, second=0, microsecond=0)
-                    if hour_datetime < current_hour:
+                    if hour_datetime < current_hour and total_activity > 0:
                         activity_calculator.update_activity_stats(total_activity)
                     
                     # Формируем заголовок часа с уровнем активности
                     if total_activity > 0:
+                        session_count = len(hour_sessions)
+                        avg_session_duration = total_activity / session_count if session_count > 0 else 0
+                        
                         z_score_text = f" (z={activity_info['z_score']:.1f})" if activity_info['count'] > 1 else ""
                         report_parts.append(
                             f"\n<b>{hour}</b> {activity_info['color']} {activity_info['emoji']} "
-                            f"<i>{activity_info['level']}</i>\n"
-                            f"<i>Активность: {total_activity:.1f} мин{z_score_text}</i>"
+                            f"<i>{activity_info['level']}</i>"
+                        )
+                        report_parts.append(
+                            f"<i>Активность: {total_activity:.1f} мин ({session_count} сессий, "
+                            f"ср. {avg_session_duration:.1f}м){z_score_text}</i>"
                         )
                     else:
                         report_parts.append(f"\n<b>{hour}</b> ⚫ 💤 <i>Нет активности</i>")
