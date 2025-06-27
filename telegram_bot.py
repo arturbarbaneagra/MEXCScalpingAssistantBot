@@ -617,7 +617,7 @@ class TradingTelegramBot:
             f"Текущее значение: <code>${current_value:,}</code>\n\n"
             f"Введите новое значение в долларах (например: 1500):",
             reply_markup=self.back_keyboard,
-            parse_mode=Parse_Mode.HTML
+            parse_mode=ParseMode.HTML
         )
         return self.SETTING_VOLUME
 
