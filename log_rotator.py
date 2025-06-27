@@ -12,105 +12,126 @@ from datetime import datetime, timedelta
 from logger import bot_logger
 
 class LogRotator:
-    def __init__(self, log_dir="logs", max_size_mb=50, max_files=10, compress_old=True):
+    """Ротатор логов с сжатием и автоочисткой"""
+    
+    def __init__(self, log_dir: str = "logs", max_age_days: int = 7):
         self.log_dir = log_dir
-        self.max_size_bytes = max_size_mb * 1024 * 1024
-        self.max_files = max_files
-        self.compress_old = compress_old
+        self.max_age_days = max_age_days
         
-        # Создаем директорию если не существует
+        # Создаем папку логов если не существует
         os.makedirs(log_dir, exist_ok=True)
     
-    def should_rotate(self, log_file_path):
-        """Проверяет нужна ли ротация лога"""
+    def rotate_logs(self):
+        """Ротирует и сжимает старые логи"""
         try:
-            if not os.path.exists(log_file_path):
-                return False
+            current_time = time.time()
+            cutoff_time = current_time - (self.max_age_days * 24 * 3600)
             
-            # Проверяем размер файла
-            file_size = os.path.getsize(log_file_path)
-            return file_size >= self.max_size_bytes
-        except Exception as e:
-            bot_logger.error(f"Ошибка проверки ротации лога: {e}")
-            return False
-    
-    def rotate_log(self, log_file_path):
-        """Выполняет ротацию лог файла"""
-        try:
-            if not os.path.exists(log_file_path):
-                return
+            log_files = [
+                'trading_bot.log',
+                'trading_bot.log.1',
+                'trading_bot.log.2',
+                'trading_bot.log.3',
+                'trading_bot.log.4'
+            ]
             
-            base_name = os.path.splitext(log_file_path)[0]
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            compressed_count = 0
+            deleted_count = 0
             
-            # Новое имя для ротированного файла
-            rotated_name = f"{base_name}_{timestamp}.log"
+            for log_file in log_files:
+                file_path = os.path.join(self.log_dir, log_file)
+                
+                if not os.path.exists(file_path):
+                    continue
+                
+                file_time = os.path.getmtime(file_path)
+                
+                # Если файл старый
+                if file_time < cutoff_time:
+                    # Сжимаем если еще не сжат
+                    if not log_file.endswith('.gz'):
+                        compressed_path = f"{file_path}.gz"
+                        try:
+                            with open(file_path, 'rb') as f_in:
+                                with gzip.open(compressed_path, 'wb') as f_out:
+                                    shutil.copyfileobj(f_in, f_out)
+                            os.remove(file_path)
+                            compressed_count += 1
+                        except Exception as e:
+                            bot_logger.error(f"Ошибка сжатия {log_file}: {e}")
+                    
+                    # Удаляем очень старые сжатые файлы
+                    gz_path = f"{file_path}.gz"
+                    if os.path.exists(gz_path):
+                        gz_time = os.path.getmtime(gz_path)
+                        if gz_time < cutoff_time - (7 * 24 * 3600):  # Старше 14 дней
+                            os.remove(gz_path)
+                            deleted_count += 1
             
-            # Перемещаем текущий лог
-            shutil.move(log_file_path, rotated_name)
-            
-            # Сжимаем если нужно
-            if self.compress_old:
-                self._compress_file(rotated_name)
-            
-            # Очищаем старые файлы
-            self._cleanup_old_logs(base_name)
-            
-            bot_logger.info(f"Лог ротирован: {rotated_name}")
-            
-        except Exception as e:
-            bot_logger.error(f"Ошибка ротации лога: {e}")
-    
-    def _compress_file(self, file_path):
-        """Сжимает лог файл"""
-        try:
-            compressed_path = f"{file_path}.gz"
-            with open(file_path, 'rb') as f_in:
-                with gzip.open(compressed_path, 'wb') as f_out:
-                    shutil.copyfileobj(f_in, f_out)
-            
-            # Удаляем несжатый файл
-            os.remove(file_path)
-            
-        except Exception as e:
-            bot_logger.error(f"Ошибка сжатия файла {file_path}: {e}")
-    
-    def _cleanup_old_logs(self, base_name):
-        """Удаляет старые лог файлы"""
-        try:
-            log_files = []
-            
-            # Находим все файлы логов
-            for file in os.listdir(self.log_dir):
-                if file.startswith(os.path.basename(base_name)) and file != os.path.basename(base_name):
-                    file_path = os.path.join(self.log_dir, file)
-                    if os.path.isfile(file_path):
-                        log_files.append((file_path, os.path.getmtime(file_path)))
-            
-            # Сортируем по времени модификации
-            log_files.sort(key=lambda x: x[1], reverse=True)
-            
-            # Удаляем лишние файлы
-            for file_path, _ in log_files[self.max_files:]:
-                os.remove(file_path)
-                bot_logger.debug(f"Удален старый лог: {file_path}")
+            if compressed_count > 0 or deleted_count > 0:
+                bot_logger.info(f"Ротация логов: сжато {compressed_count}, удалено {deleted_count}")
                 
         except Exception as e:
-            bot_logger.error(f"Ошибка очистки старых логов: {e}")
+            bot_logger.error(f"Ошибка ротации логов: {e}")
     
-    def cleanup_by_age(self, max_days=30):
-        """Удаляет логи старше указанного количества дней"""
+    def get_log_stats(self) -> dict:
+        """Возвращает статистику логов"""
+        stats = {
+            'total_files': 0,
+            'total_size_mb': 0,
+            'compressed_files': 0,
+            'oldest_file': None
+        }
+        
         try:
-            cutoff_time = time.time() - (max_days * 24 * 3600)
+            oldest_time = float('inf')
             
-            for file in os.listdir(self.log_dir):
-                file_path = os.path.join(self.log_dir, file)
-                if os.path.isfile(file_path) and os.path.getmtime(file_path) < cutoff_time:
-                    os.remove(file_path)
-                    bot_logger.debug(f"Удален устаревший лог: {file_path}")
+            for file_name in os.listdir(self.log_dir):
+                if file_name.startswith('trading_bot.log'):
+                    file_path = os.path.join(self.log_dir, file_name)
+                    file_size = os.path.getsize(file_path)
+                    file_time = os.path.getmtime(file_path)
                     
+                    stats['total_files'] += 1
+                    stats['total_size_mb'] += file_size / (1024 * 1024)
+                    
+                    if file_name.endswith('.gz'):
+                        stats['compressed_files'] += 1
+                    
+                    if file_time < oldest_time:
+                        oldest_time = file_time
+                        stats['oldest_file'] = {
+                            'name': file_name,
+                            'age_days': (time.time() - file_time) / (24 * 3600)
+                        }
+        
         except Exception as e:
-            bot_logger.error(f"Ошибка очистки устаревших логов: {e}")
+            bot_logger.error(f"Ошибка получения статистики логов: {e}")
+        
+        return stats
+    
+    def cleanup_old_logs(self, force_days: int = None):
+        """Принудительная очистка старых логов"""
+        days = force_days or self.max_age_days
+        cutoff_time = time.time() - (days * 24 * 3600)
+        
+        try:
+            removed_count = 0
+            
+            for file_name in os.listdir(self.log_dir):
+                if file_name.startswith('trading_bot.log'):
+                    file_path = os.path.join(self.log_dir, file_name)
+                    file_time = os.path.getmtime(file_path)
+                    
+                    if file_time < cutoff_time:
+                        os.remove(file_path)
+                        removed_count += 1
+            
+            if removed_count > 0:
+                bot_logger.info(f"Принудительно удалено {removed_count} старых логов")
+                
+        except Exception as e:
+            bot_logger.error(f"Ошибка принудительной очистки логов: {e}")
 
-# Глобальный экземпляр
+# Глобальный экземпляр ротатора
 log_rotator = LogRotator()

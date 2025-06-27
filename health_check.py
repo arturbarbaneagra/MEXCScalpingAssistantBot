@@ -1,4 +1,3 @@
-
 import time
 import psutil
 import asyncio
@@ -14,11 +13,11 @@ from circuit_breaker import api_circuit_breakers
 
 class HealthChecker:
     """Комплексная проверка состояния системы"""
-    
+
     def __init__(self):
         self.last_check_time = 0
         self.check_interval = 30  # секунд
-        
+
     def get_system_info(self) -> Dict[str, Any]:
         """Получает информацию о системе"""
         try:
@@ -69,22 +68,22 @@ class HealthChecker:
             'circuit_breakers': {},
             'last_successful_request': 0
         }
-        
+
         try:
             start_time = time.time()
             # Простой запрос для проверки доступности
             result = await api_client._make_request("/ping")
             health_status['response_time'] = time.time() - start_time
             health_status['api_accessible'] = result is not None
-            
+
             # Статус Circuit Breaker'ов
             for name, cb in api_circuit_breakers.items():
                 health_status['circuit_breakers'][name] = cb.get_stats()
-                
+
         except Exception as e:
             bot_logger.debug(f"Проверка API здоровья: {e}")
             health_status['error'] = str(e)
-        
+
         return health_status
 
     async def run_diagnostics(self) -> Dict[str, Any]:
@@ -94,29 +93,29 @@ class HealthChecker:
             'version': '2.1',
             'status': 'healthy'
         }
-        
+
         # Системная информация
         system_info = self.get_system_info()
         diagnostics['system'] = system_info
-        
+
         # Статус бота
         bot_status = self.get_bot_status()
         diagnostics['bot'] = bot_status
-        
+
         # API здоровье
         api_health = await self.check_api_health()
         diagnostics['api'] = api_health
-        
+
         # Метрики
         diagnostics['metrics'] = metrics_manager.get_summary()
-        
+
         # Кеш
         diagnostics['cache'] = cache_manager.get_stats()
-        
+
         # Алерты
         alerts = alert_manager.get_alert_summary()
         diagnostics['alerts'] = alerts
-        
+
         # Конфигурация
         diagnostics['config'] = {
             'volume_threshold': config_manager.get('VOLUME_THRESHOLD'),
@@ -124,7 +123,7 @@ class HealthChecker:
             'natr_threshold': config_manager.get('NATR_THRESHOLD'),
             'batch_size': config_manager.get('CHECK_BATCH_SIZE')
         }
-        
+
         # Определяем общий статус
         if alerts['active_count'] > 0:
             critical_alerts = [a for a in alerts['active_alerts'] if a.get('severity') == 'critical']
@@ -132,38 +131,38 @@ class HealthChecker:
                 diagnostics['status'] = 'critical'
             else:
                 diagnostics['status'] = 'warning'
-        
+
         # Проверяем системные ресурсы
         if system_info.get('memory_percent', 0) > 90 or system_info.get('cpu_percent', 0) > 90:
             diagnostics['status'] = 'critical'
         elif system_info.get('memory_percent', 0) > 80 or system_info.get('cpu_percent', 0) > 80:
             if diagnostics['status'] == 'healthy':
                 diagnostics['status'] = 'warning'
-        
+
         return diagnostics
 
     async def full_health_check(self) -> Dict[str, Any]:
         """Полная проверка здоровья системы"""
         current_time = time.time()
-        
+
         # Проверяем интервал
         if current_time - self.last_check_time < self.check_interval:
             return {'status': 'cached', 'message': 'Используются кешированные данные'}
-        
+
         try:
             diagnostics = await self.run_diagnostics()
-            
+
             # Обновляем алерты на основе диагностики
             system_alerts = alert_manager.check_system_alerts(diagnostics['system'])
             api_alerts = alert_manager.check_api_alerts(diagnostics['metrics'].get('api_stats', {}))
-            
+
             all_alerts = system_alerts + api_alerts
             if all_alerts:
                 alert_manager.process_alerts(all_alerts)
-            
+
             self.last_check_time = current_time
             return diagnostics
-            
+
         except Exception as e:
             bot_logger.error(f"Ошибка полной проверки здоровья: {e}")
             return {
@@ -172,6 +171,44 @@ class HealthChecker:
                 'timestamp': current_time,
                 'version': '2.1'
             }
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Возвращает статистику"""
+        stats = {
+            'last_check_time': self.last_check_time,
+            'check_interval': self.check_interval
+        }
+        return stats
+
+    async def start_health_monitoring(self):
+        """Запускает автоматический мониторинг здоровья"""
+        while True:
+            try:
+                diagnostics = await self.run_diagnostics()
+
+                # Если система нездорова, записываем в лог
+                if diagnostics['status'] in ['warning', 'critical']:
+                    bot_logger.warning(f"🏥 Проблемы со здоровьем системы: {diagnostics['status']}")
+
+                    # При критических проблемах можно отправить уведомление
+                    if diagnostics['status'] == 'critical':
+                        try:
+                            from telegram_bot import telegram_bot
+                            if telegram_bot.bot_running:
+                                await telegram_bot.send_message(
+                                    "🚨 <b>КРИТИЧЕСКОЕ СОСТОЯНИЕ СИСТЕМЫ</b>\n"
+                                    "Обнаружены серьезные проблемы с производительностью."
+                                )
+                        except Exception as e:
+                            bot_logger.error(f"Не удалось отправить критическое уведомление: {e}")
+
+                await asyncio.sleep(300)  # Проверяем каждые 5 минут
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                bot_logger.error(f"Ошибка в мониторинге здоровья: {e}")
+                await asyncio.sleep(60)
 
 # Глобальный экземпляр проверки здоровья
 health_checker = HealthChecker()

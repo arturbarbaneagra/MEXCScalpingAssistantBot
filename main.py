@@ -321,6 +321,10 @@ async def main():
         # Запускаем автоматическое обслуживание
         from auto_maintenance import auto_maintenance
         maintenance_task = asyncio.create_task(auto_maintenance.start_maintenance_loop())
+        
+        # Запускаем периодическую проверку здоровья API
+        from health_check import health_checker
+        health_task = asyncio.create_task(health_checker.start_health_monitoring())
 
         # Запускаем Flask сервер в отдельном потоке
         flask_thread = threading.Thread(target=run_flask, daemon=True)
@@ -345,8 +349,15 @@ async def main():
             try:
                 while True:
                     await asyncio.sleep(1)
+                    # Проверяем состояние ключевых компонентов
+                    if not telegram_bot.bot_running and telegram_bot.bot_mode:
+                        bot_logger.warning("⚠️ Бот остановился неожиданно, попытка перезапуска...")
+                        await asyncio.sleep(5)
             except KeyboardInterrupt:
                 bot_logger.info("🛑 Получен сигнал остановки")
+            except Exception as e:
+                bot_logger.critical(f"💥 Неожиданная ошибка в главном цикле: {e}")
+                raise
             finally:
                 # Останавливаем автоматическое обслуживание
                 auto_maintenance.stop_maintenance()
