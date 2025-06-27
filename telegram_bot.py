@@ -733,7 +733,14 @@ class TradingTelegramBot:
     # Handlers для ConversationHandler
     async def add_coin_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик добавления монеты"""
-        text = update.message.text.strip().upper()
+        text = update.message.text.strip()
+
+        # Обработка кнопки "Назад"
+        if text == "🔙 Назад":
+            await self._handle_back(update)
+            return ConversationHandler.END
+
+        text = text.upper()
 
         # Убираем префиксы команд
         if text.startswith('/ADD'):
@@ -748,7 +755,7 @@ class TradingTelegramBot:
                 parse_mode=ParseMode.HTML,
                 reply_markup=self.main_keyboard
             )
-            return
+            return ConversationHandler.END
 
         symbol = text.replace('USDT', '').replace('_', '')
 
@@ -766,7 +773,7 @@ class TradingTelegramBot:
                 parse_mode=ParseMode.HTML,
                 reply_markup=self.main_keyboard
             )
-            return
+            return ConversationHandler.END
 
         if watchlist_manager.contains(symbol):
             await update.message.reply_text(
@@ -774,7 +781,7 @@ class TradingTelegramBot:
                 parse_mode=ParseMode.HTML,
                 reply_markup=self.main_keyboard
             )
-            return
+            return ConversationHandler.END
 
         # Проверяем существование монеты через API с улучшенной обработкой ошибок
         try:
@@ -822,7 +829,7 @@ class TradingTelegramBot:
                     parse_mode=ParseMode.HTML,
                     reply_markup=self.main_keyboard
                 )
-            return
+            return ConversationHandler.END
 
         # Добавляем в список
         if watchlist_manager.add(symbol):
@@ -849,6 +856,7 @@ class TradingTelegramBot:
         """Обработчик удаления монеты"""
         text = update.message.text.strip()
 
+        # Обработка кнопки "Назад"
         if text == "🔙 Назад":
             await self._handle_back(update)
             return ConversationHandler.END
