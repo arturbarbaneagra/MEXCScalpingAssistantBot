@@ -1,0 +1,30 @@
+2025-06-27 07:46:35 - TradingBot - INFO - 🛑 Остановка режима мониторинга
+2025-06-27 07:46:35 - TradingBot - INFO - 📝 Сообщение мониторинга удалено
+2025-06-27 07:46:36 - TradingBot - INFO - ✅ Режим успешно остановлен
+2025-06-27 07:46:38 - TradingBot - INFO - API GET MEXC_API/api/v3/ticker/bookTicker - 400 (0.171s)
+2025-06-27 07:46:38 - TradingBot - INFO - API GET MEXC_API/api/v3/klines - 400 (0.124s)
+2025-06-27 07:46:38 - TradingBot - INFO - API GET MEXC_API/api/v3/trades - 400 (0.136s)
+2025-06-27 07:46:40 - TradingBot - INFO - API GET MEXC_API/api/v3/trades - 400 (0.232s)
+2025-06-27 07:46:40 - TradingBot - INFO - API GET MEXC_API/api/v3/ticker/bookTicker - 400 (0.268s)
+2025-06-27 07:46:41 - TradingBot - WARNING - Circuit Breaker 'klines_api' сработал - OPEN (ошибок: 3/3)
+Unclosed client session
+client_session: <aiohttp.client.ClientSession object at 0x7ff880bceb50>
+Unclosed connector
+connections: ['deque([(<aiohttp.client_proto.ResponseHandler object at 0x7ff881d06740>, 163925.012301017)])']
+connector: <aiohttp.connector.TCPConnector object at 0x7ff880abea90>
+2025-06-27 07:46:41 - TradingBot - INFO - API GET MEXC_API/api/v3/trades - 400 (0.151s)
+2025-06-27 07:46:41 - TradingBot - INFO - API GET MEXC_API/api/v3/ticker/bookTicker - 400 (0.194s)
+2025-06-27 07:46:41 - TradingBot - WARNING - Circuit Breaker 'ticker_api' сработал - OPEN (ошибок: 3/3)
+Unclosed client session
+client_session: <aiohttp.client.ClientSession object at 0x7ff880abecd0>
+Unclosed connector
+connections: ['deque([(<aiohttp.client_proto.ResponseHandler object at 0x7ff881d04600>, 163926.207435583)])']
+connector: <aiohttp.connector.TCPConnector object at 0x7ff880abea90>
+2025-06-27 07:46:41 - TradingBot - WARNING - Нет данных цены для VANKE
+2025-06-27 07:46:52 - TradingBot - INFO - API GET MEXC_API/api/v3/trades - 400 (0.125s)
+172.31.128.82 - - [27/Jun/2025 07:46:52] "GET / HTTP/1.1" 200 -
+2025-06-27 07:46:53 - TradingBot - INFO - API GET MEXC_API/api/v3/trades - 400 (0.156s)
+2025-06-27 07:46:53 - TradingBot - WARNING - Circuit Breaker 'trades_api' сработал - OPEN (ошибок: 5/5)
+2025-06-27 07:46:54 - TradingBot - WARNING - Нет данных цены для VANKEDI
+172.31.128.82 - - [27/Jun/2025 07:47:24] "GET / HTTP/1.1" 200 -
+172.31.128.82 - - [27/Jun/2025 07:47:56] "GET / HTTP/1.1" 200 -
