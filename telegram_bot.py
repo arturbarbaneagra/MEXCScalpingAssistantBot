@@ -869,26 +869,30 @@ class TradingTelegramBot:
                             f"<i>Активность: {total_activity:.1f} мин ({session_count} сессий, "
                             f"ср. {avg_session_duration:.1f}м){z_score_text}</i>"
                         )
+                        
+                        # Группируем по монетам и суммируем их время
+                        coin_activity = {}
+                        for session in hour_sessions:
+                            symbol = session.get('symbol', '')
+                            duration = session.get('total_duration', 0) / 60
+                            if symbol in coin_activity:
+                                coin_activity[symbol] += duration
+                            else:
+                                coin_activity[symbol] = duration
+                        
+                        # Сортируем монеты по времени активности (убывание)
+                        sorted_coins = sorted(coin_activity.items(), key=lambda x: x[1], reverse=True)
+                        
+                        # Показываем список монет с их суммарным временем
+                        coins_text_parts = []
+                        for symbol, duration in sorted_coins:
+                            coins_text_parts.append(f"{symbol} ({duration:.1f}м)")
+                        
+                        coins_text = ", ".join(coins_text_parts)
+                        report_parts.append(f"Монеты: {coins_text}")
+                        
                     else:
                         report_parts.append(f"\n<b>{hour}</b> ⚫ 💤 <i>Нет активности</i>")
-                    
-                    # Показываем сессии
-                    for session in hour_sessions[:6]:  # Максимум 6 сессий на час
-                        symbol = session.get('symbol', '')
-                        duration = session.get('total_duration', 0) / 60
-                        summary = session.get('summary', {})
-                        volume = summary.get('total_volume', 0)
-                        trades = summary.get('total_trades', 0)
-                        start_time = session.get('start_time', 0)
-                        end_time = session.get('end_time', 0)
-                        # Московское время для отображения
-                        start_str = datetime.fromtimestamp(start_time + 3*3600).strftime('%H:%M')
-                        end_str = datetime.fromtimestamp(end_time + 3*3600).strftime('%H:%M')
-                        
-                        report_parts.append(
-                            f"• <b>{symbol}</b> ({start_str}-{end_str}) - {duration:.1f}м, "
-                            f"${volume:,.0f}, {trades} сделок"
-                        )
                 
                 # Добавляем сводку статистики активности
                 if activity_calculator.count > 0:

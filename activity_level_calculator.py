@@ -273,6 +273,15 @@ class ActivityLevelCalculator:
     
     def get_stats_summary(self) -> Dict:
         """Возвращает сводку статистики"""
+        # Если данных недостаточно, возвращаем None для средних значений
+        if self.count < 2:
+            return {
+                'count': self.count,
+                'mean': self.mean if self.count > 0 else 0.0,
+                'std_dev': 0.0,
+                'variance': 0.0
+            }
+        
         return {
             'count': self.count,
             'mean': self.mean,
