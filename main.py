@@ -70,6 +70,13 @@ def health_check():
         # Получаем статистику записи сессий
         session_stats = session_recorder.get_stats()
 
+        # Получаем статистику автономного мониторинга
+        try:
+            from autonomous_activity_monitor import autonomous_monitor
+            monitor_stats = autonomous_monitor.get_stats()
+        except:
+            monitor_stats = {'running': False, 'active_activities': 0}
+
         # Получаем алерты из единой системы
         advanced_alerts = alert_manager.get_active_alerts()
         alert_stats = alert_manager.get_alert_stats()
@@ -146,6 +153,8 @@ def health_check():
                         Version: 2.1<br>
                         Session Recorder: {'🟢 Active' if session_stats['recording'] else '🔴 Stopped'}<br>
                         Active sessions: {session_stats['active_sessions']}<br>
+                        Autonomous Monitor: {'🟢 Active' if monitor_stats['running'] else '🔴 Stopped'}<br>
+                        Tracking: {monitor_stats['active_activities']} activities<br>
                         Last update: {time.strftime('%H:%M:%S')}
                     </div>
                 </div>
@@ -432,6 +441,10 @@ async def main():
         # Запускаем запись сессий
         session_recorder.start_recording()
 
+        # Запускаем автономный монитор активности
+        from autonomous_activity_monitor import autonomous_monitor
+        await autonomous_monitor.start()
+
         # Запускаем Flask сервер в отдельном потоке
         flask_thread = threading.Thread(target=run_flask, daemon=True)
         flask_thread.start()
@@ -501,6 +514,9 @@ async def main():
                 # Останавливаем автоматическое обслуживание
                 auto_maintenance.stop_maintenance()
                 maintenance_task.cancel()
+
+                # Останавливаем автономный монитор
+                await autonomous_monitor.stop()
 
                 # Останавливаем запись сессий
                 session_recorder.stop_recording()
