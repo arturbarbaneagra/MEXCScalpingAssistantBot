@@ -214,3 +214,146 @@ class ExtendedTelegramHandlers:
 def create_extended_handlers(bot_instance):
     """Создает экземпляр расширенных обработчиков"""
     return ExtendedTelegramHandlers(bot_instance)
+#!/usr/bin/env python3
+"""
+Расширенные обработчики команд Telegram бота
+Версия: 2.1
+"""
+
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ContextTypes
+from datetime import datetime
+import json
+
+from logger import bot_logger
+from config import config_manager
+from api_client import api_client
+from watchlist_manager import watchlist_manager
+
+class ExtendedTelegramHandlers:
+    """Расширенные обработчики команд Telegram"""
+    
+    def __init__(self, bot_instance):
+        self.bot = bot_instance
+    
+    async def watchlist_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Показать текущий watchlist"""
+        try:
+            symbols = watchlist_manager.get_all()
+            if not symbols:
+                await update.message.reply_text("📋 Watchlist пуст")
+                return
+            
+            message = "📋 *Текущий Watchlist:*\n\n"
+            for i, symbol in enumerate(symbols, 1):
+                message += f"{i}. {symbol}\n"
+            
+            message += f"\nВсего: {len(symbols)} монет"
+            
+            await update.message.reply_text(message, parse_mode='Markdown')
+            
+        except Exception as e:
+            bot_logger.error(f"Ошибка в команде watchlist: {e}")
+            await update.message.reply_text("Ошибка получения watchlist")
+    
+    async def add_coin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Добавить монету в watchlist"""
+        try:
+            if not context.args:
+                await update.message.reply_text("Использование: /add_coin SYMBOL")
+                return
+            
+            symbol = context.args[0].upper()
+            
+            if watchlist_manager.add(symbol):
+                await update.message.reply_text(f"✅ {symbol} добавлен в watchlist")
+                bot_logger.info(f"Монета {symbol} добавлена в watchlist")
+            else:
+                await update.message.reply_text(f"❌ {symbol} уже в watchlist")
+                
+        except Exception as e:
+            bot_logger.error(f"Ошибка добавления монеты: {e}")
+            await update.message.reply_text("Ошибка добавления монеты")
+    
+    async def remove_coin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Удалить монету из watchlist"""
+        try:
+            if not context.args:
+                await update.message.reply_text("Использование: /remove_coin SYMBOL")
+                return
+            
+            symbol = context.args[0].upper()
+            
+            if watchlist_manager.remove(symbol):
+                await update.message.reply_text(f"✅ {symbol} удален из watchlist")
+                bot_logger.info(f"Монета {symbol} удалена из watchlist")
+            else:
+                await update.message.reply_text(f"❌ {symbol} не найден в watchlist")
+                
+        except Exception as e:
+            bot_logger.error(f"Ошибка удаления монеты: {e}")
+            await update.message.reply_text("Ошибка удаления монеты")
+    
+    async def health_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Показать здоровье системы"""
+        try:
+            from health_check import health_checker
+            
+            health_data = await health_checker.full_health_check()
+            
+            message = f"""
+🏥 *Состояние системы*
+
+• Статус: {'🟢 Работает' if health_data.get('bot', {}).get('bot_running') else '🔴 Остановлен'}
+• API: {'🟢 OK' if health_data.get('api', {}).get('api_accessible') else '🔴 Проблемы'}
+• Память: {health_data.get('system', {}).get('python_memory_mb', 0):.1f} MB
+• Uptime: {health_data.get('system', {}).get('uptime_hours', 0):.1f} часов
+
+• Watchlist: {health_data.get('bot', {}).get('watchlist_size', 0)} монет
+• Активных: {health_data.get('bot', {}).get('active_coins_count', 0)} монет
+            """
+            
+            await update.message.reply_text(message, parse_mode='Markdown')
+            
+        except Exception as e:
+            bot_logger.error(f"Ошибка команды health: {e}")
+            await update.message.reply_text("Ошибка получения состояния системы")
+    
+    async def metrics_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Показать метрики"""
+        try:
+            from metrics_manager import metrics_manager
+            
+            metrics = metrics_manager.get_summary()
+            
+            message = f"""
+📊 *Метрики системы*
+
+🔗 *API:*
+• Всего запросов: {metrics.get('total_api_requests', 0)}
+• Средний ответ: {metrics.get('avg_response_time', 0):.3f}s
+• Ошибок: {metrics.get('total_api_errors', 0)}
+
+⏰ *Время работы:*
+• Текущая сессия: {metrics.get('uptime_seconds', 0) / 3600:.1f}ч
+• Всего: {metrics.get('total_uptime_hours', 0):.1f}ч
+
+💾 *Кеш:*
+• Попаданий: {metrics.get('cache_hits', 0)}
+• Промахов: {metrics.get('cache_misses', 0)}
+            """
+            
+            await update.message.reply_text(message, parse_mode='Markdown')
+            
+        except Exception as e:
+            bot_logger.error(f"Ошибка команды metrics: {e}")
+            await update.message.reply_text("Ошибка получения метрик")
+
+# Создаем экземпляр обработчиков
+extended_handlers = None
+
+def setup_extended_handlers(bot_instance):
+    """Настройка расширенных обработчиков"""
+    global extended_handlers
+    extended_handlers = ExtendedTelegramHandlers(bot_instance)
+    return extended_handlers

@@ -21,8 +21,8 @@ load_dotenv()
 from logger import bot_logger
 from config import config_manager
 from watchlist_manager import watchlist_manager
-from telegram_bot import telegram_bot
 from api_client import api_client
+from telegram_bot import telegram_bot
 
 # Проверяем, что переменные загружены (без вывода значений)
 bot_logger.info("Проверка переменных окружения...")
