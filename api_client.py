@@ -16,38 +16,50 @@ class APIClient:
         self.last_request_time = 0
         self.request_count = 0
         self.start_time = time.time()
+        self._session_lock = asyncio.Lock()
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """Получает или создает HTTP сессию с правильной конфигурацией"""
-        if self.session is None or self.session.closed:
-            # Правильная конфигурация таймаутов
-            timeout = aiohttp.ClientTimeout(
-                total=config_manager.get('API_TIMEOUT', 12),
-                connect=5,
-                sock_read=10
-            )
+        async with self._session_lock:
+            if self.session is None or self.session.closed:
+                # Если старая сессия не закрыта, принудительно закрываем
+                if self.session is not None and not self.session.closed:
+                    try:
+                        await self.session.close()
+                        await asyncio.sleep(0.1)  # Пауза для завершения закрытия
+                    except Exception:
+                        pass
 
-            # Настройки коннектора для оптимизации
-            connector = aiohttp.TCPConnector(
-                limit=20,
-                limit_per_host=10,
-                ttl_dns_cache=300,
-                use_dns_cache=True,
-                keepalive_timeout=30,
-                enable_cleanup_closed=True
-            )
+                # Правильная конфигурация таймаутов
+                timeout = aiohttp.ClientTimeout(
+                    total=config_manager.get('API_TIMEOUT', 12),
+                    connect=5,
+                    sock_read=10
+                )
 
-            self.session = aiohttp.ClientSession(
-                timeout=timeout,
-                connector=connector,
-                headers={
-                    'User-Agent': 'TradingBot/2.0',
-                    'Accept': 'application/json'
-                }
-            )
-            bot_logger.debug("🔄 HTTP сессия создана")
+                # Настройки коннектора для оптимизации
+                connector = aiohttp.TCPConnector(
+                    limit=10,  # Уменьшаем лимиты
+                    limit_per_host=5,
+                    ttl_dns_cache=300,
+                    use_dns_cache=True,
+                    keepalive_timeout=30,
+                    enable_cleanup_closed=True,
+                    force_close=True  # Принудительное закрытие соединений
+                )
 
-        return self.session
+                self.session = aiohttp.ClientSession(
+                    timeout=timeout,
+                    connector=connector,
+                    headers={
+                        'User-Agent': 'TradingBot/2.0',
+                        'Accept': 'application/json'
+                    },
+                    connector_owner=True  # Сессия владеет коннектором
+                )
+                bot_logger.debug("🔄 HTTP сессия создана")
+
+            return self.session
 
     async def _make_request(self, endpoint: str, params: Dict = None) -> Optional[Dict]:
         """Выполняет HTTP запрос с обработкой ошибок, retry логикой и Circuit Breaker"""
@@ -68,24 +80,31 @@ class APIClient:
         async def _execute_request():
             """Внутренняя функция для выполнения запроса"""
             session = await self._get_session()
-            async with session.get(url, params=params) as response:
-                request_time = time.time() - start_time
+            
+            try:
+                async with session.get(url, params=params) as response:
+                    request_time = time.time() - start_time
 
-                # Логируем запрос и записываем метрики
-                bot_logger.api_request("GET", url, response.status, request_time)
-                metrics_manager.record_api_request(endpoint, request_time, response.status)
+                    # Логируем запрос и записываем метрики
+                    bot_logger.api_request("GET", url, response.status, request_time)
+                    metrics_manager.record_api_request(endpoint, request_time, response.status)
 
-                if response.status == 200:
-                    data = await response.json()
-                    return data
-                elif response.status == 429:  # Rate limit
-                    raise Exception(f"Rate limit hit for {endpoint}")
-                elif response.status == 400:  # Bad request (invalid symbol)
-                    # Логируем как debug, а не error для 400 ошибок
-                    bot_logger.debug(f"Invalid request for {endpoint}: 400 Bad Request")
-                    raise Exception(f"Invalid symbol or request for {endpoint}")
-                else:
-                    raise Exception(f"API error {response.status} for {endpoint}")
+                    if response.status == 200:
+                        data = await response.json()
+                        return data
+                    elif response.status == 429:  # Rate limit
+                        raise Exception(f"Rate limit hit for {endpoint}")
+                    elif response.status == 400:  # Bad request (invalid symbol)
+                        # Логируем как debug, а не error для 400 ошибок
+                        bot_logger.debug(f"Invalid request for {endpoint}: 400 Bad Request")
+                        raise Exception(f"Invalid symbol or request for {endpoint}")
+                    else:
+                        raise Exception(f"API error {response.status} for {endpoint}")
+            except aiohttp.ClientError as e:
+                # При ошибке клиента пересоздаем сессию
+                bot_logger.debug(f"Client error, recreating session: {type(e).__name__}")
+                await self._force_close_session()
+                raise
 
         for attempt in range(max_retries + 1):
             start_time = time.time()
@@ -106,10 +125,7 @@ class APIClient:
                 elif attempt < max_retries:
                     await asyncio.sleep(1)
                     # Пересоздаем сессию при ошибке
-                    try:
-                        await self.close()
-                    except Exception:
-                        self.session = None  # Принудительно обнуляем при ошибке
+                    await self._force_close_session()
                     continue
                 else:
                     return None
@@ -118,6 +134,8 @@ class APIClient:
                 bot_logger.debug(f"Timeout on attempt {attempt + 1} for {endpoint}")
                 if attempt < max_retries:
                     await asyncio.sleep(1)
+                    # При таймауте тоже пересоздаем сессию
+                    await self._force_close_session()
                     continue
                 return None
             except aiohttp.ClientError as e:
@@ -125,10 +143,7 @@ class APIClient:
                 if attempt < max_retries:
                     await asyncio.sleep(1)
                     # Пересоздаем сессию при ошибке
-                    try:
-                        await self.close()
-                    except Exception:
-                        self.session = None  # Принудительно обнуляем при ошибке
+                    await self._force_close_session()
                     continue
                 return None
             except Exception as e:
@@ -142,10 +157,7 @@ class APIClient:
                 if attempt < max_retries:
                     await asyncio.sleep(1)
                     # Пересоздаем сессию при ошибке
-                    try:
-                        await self.close()
-                    except Exception:
-                        self.session = None  # Принудительно обнуляем при ошибке
+                    await self._force_close_session()
                     continue
                 return None
 
@@ -582,31 +594,51 @@ class APIClient:
             bot_logger.debug(f"Ошибка получения цены {symbol}: {e}")
             return None
 
+    async def _force_close_session(self):
+        """Принудительно закрывает и пересоздает сессию"""
+        async with self._session_lock:
+            if self.session is not None:
+                try:
+                    if not self.session.closed:
+                        connector = self.session.connector
+                        await self.session.close()
+                        
+                        # Ждем закрытия коннектора
+                        if connector and not connector.closed:
+                            await connector.close()
+                        
+                        await asyncio.sleep(0.1)
+                except Exception as e:
+                    bot_logger.debug(f"Ошибка принудительного закрытия: {type(e).__name__}")
+                finally:
+                    self.session = None
+
     async def close(self):
         """Корректно закрывает HTTP сессию с принудительным закрытием коннектора"""
-        if self.session and not self.session.closed:
-            try:
-                bot_logger.debug("Закрываем HTTP сессию...")
+        async with self._session_lock:
+            if self.session and not self.session.closed:
+                try:
+                    bot_logger.debug("Закрываем HTTP сессию...")
 
-                # Получаем коннектор перед закрытием сессии
-                connector = self.session.connector
+                    # Получаем коннектор перед закрытием сессии
+                    connector = self.session.connector
 
-                # Закрываем сессию
-                await self.session.close()
+                    # Закрываем сессию
+                    await self.session.close()
 
-                # Принудительно закрываем коннектор если он есть
-                if connector and not connector.closed:
-                    await connector.close()
+                    # Принудительно закрываем коннектор если он есть
+                    if connector and not connector.closed:
+                        await connector.close()
 
-                # Короткая пауза для завершения внутренних операций aiohttp
-                await asyncio.sleep(0.1)
+                    # Увеличиваем паузу для полного завершения операций
+                    await asyncio.sleep(0.25)
 
-                bot_logger.debug("HTTP сессия и коннектор закрыты")
+                    bot_logger.debug("HTTP сессия и коннектор закрыты")
 
-            except Exception as e:
-                bot_logger.debug(f"Ошибка закрытия HTTP сессии: {type(e).__name__}")
-            finally:
-                self.session = None
+                except Exception as e:
+                    bot_logger.debug(f"Ошибка закрытия HTTP сессии: {type(e).__name__}")
+                finally:
+                    self.session = None
 
 # Глобальный экземпляр
 api_client = APIClient()

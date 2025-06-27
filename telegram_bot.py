@@ -769,23 +769,27 @@ class TradingTelegramBot:
         await update.message.reply_text("🔄 Проверяю доступность монеты...")
 
         try:
-            # Пытаемся получить данные монеты
-            coin_data = await api_client.get_coin_data(symbol)
-
-            if coin_data and coin_data.get('price', 0) > 0:
-                # Монета найдена и имеет валидные данные
+            # Сначала проверяем существование торговой пары через ticker
+            ticker_data = await api_client.get_ticker_data(symbol)
+            
+            if ticker_data and ticker_data.get('lastPrice'):
+                # Монета существует, добавляем в список
                 watchlist_manager.add(symbol)
+                
+                price = float(ticker_data['lastPrice'])
+                volume = float(ticker_data.get('quoteVolume', 0))
+                change = float(ticker_data.get('priceChangePercent', 0))
+                
                 await update.message.reply_text(
                     f"✅ <b>{symbol}_USDT</b> добавлена в список отслеживания\n"
-                    f"💰 Текущая цена: ${coin_data['price']:.6f}\n"
-                    f"📊 1м объём: ${coin_data['volume']:,.2f}\n"
-                    f"🔄 1м изменение: {coin_data['change']:+.2f}%\n"
-                    f"⇄ Спред: {coin_data['spread']:.2f}%",
+                    f"💰 Текущая цена: ${price:.6f}\n"
+                    f"📊 24ч объём: ${volume:,.2f}\n"
+                    f"🔄 24ч изменение: {change:+.2f}%",
                     reply_markup=self.main_keyboard,
                     parse_mode=ParseMode.HTML
                 )
             else:
-                # Монета не найдена или нет данных
+                # Монета не найдена
                 await update.message.reply_text(
                     f"❌ <b>{symbol}_USDT</b> не найдена на бирже MEXC\n\n"
                     f"💡 <b>Возможные причины:</b>\n"
