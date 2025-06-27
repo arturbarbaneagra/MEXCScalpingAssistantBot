@@ -96,6 +96,8 @@ class SessionRecorder:
         minute_data['change'] = coin_data.get('change', 0.0)
         minute_data['spread'] = coin_data.get('spread', 0.0)
         minute_data['natr'] = coin_data.get('natr', 0.0)
+        
+        bot_logger.debug(f"💾 Запись активности {symbol}: сделок {minute_data['trades']}, объём ${minute_data['volume']:,.0f}")
 
     def check_inactive_sessions(self, active_coins: Dict[str, Any]):
         """Проверяет и завершает неактивные сессии"""
@@ -172,7 +174,8 @@ class SessionRecorder:
         
         bot_logger.info(
             f"✅ Сессия {symbol} завершена: {session['total_duration']:.1f}s, "
-            f"{session['total_minutes']} минут, {session['summary']['total_trades']} сделок"
+            f"{session['total_minutes']} минут, {session['summary']['total_trades']} сделок, "
+            f"общий объём ${session['summary']['total_volume']:,.0f}"
         )
 
     def _save_session(self, session: Dict):
@@ -208,7 +211,7 @@ class SessionRecorder:
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(daily_data, f, indent=2, ensure_ascii=False)
                 
-            bot_logger.debug(f"💾 Сессия {session['symbol']} сохранена в {filename}")
+            bot_logger.info(f"💾 Сессия {session['symbol']} сохранена в {filename} (всего сессий в файле: {daily_data['metadata']['total_sessions']})")
             
         except Exception as e:
             bot_logger.error(f"Ошибка сохранения сессии {session['symbol']}: {e}")
