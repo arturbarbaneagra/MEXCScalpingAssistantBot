@@ -61,37 +61,82 @@ class TradingTelegramBot:
     async def _start_message_queue_processor(self):
         """Запускает процессор очереди сообщений"""
         try:
-            if self._message_queue is None:
+            # Принудительно пересоздаем очередь в текущем event loop
+            try:
+                current_loop = asyncio.get_running_loop()
+                if self._message_queue is not None:
+                    # Проверяем привязку к event loop
+                    try:
+                        self._message_queue.qsize()  # Тест доступности
+                    except RuntimeError:
+                        # Очередь привязана к другому loop
+                        self._message_queue = None
+                
+                if self._message_queue is None:
+                    self._message_queue = asyncio.Queue()
+                    bot_logger.debug("🔄 Создана новая очередь сообщений")
+                    
+            except Exception as e:
+                bot_logger.debug(f"Пересоздание очереди: {e}")
                 self._message_queue = asyncio.Queue()
 
-            if self._queue_processor_task is None or self._queue_processor_task.done():
-                self._queue_processor_task = asyncio.create_task(self._process_message_queue())
-                bot_logger.debug("🔄 Процессор очереди сообщений запущен")
+            # Останавливаем старую задачу если есть
+            if self._queue_processor_task and not self._queue_processor_task.done():
+                self._queue_processor_task.cancel()
+                try:
+                    await self._queue_processor_task
+                except asyncio.CancelledError:
+                    pass
+
+            # Запускаем новую задачу
+            self._queue_processor_task = asyncio.create_task(self._process_message_queue())
+            bot_logger.debug("🔄 Процессор очереди сообщений запущен")
+            
         except Exception as e:
             bot_logger.error(f"Ошибка запуска процессора очереди: {e}")
 
     async def _process_message_queue(self):
         """Обрабатывает очередь сообщений последовательно"""
-        while self.bot_running:
+        consecutive_errors = 0
+        max_consecutive_errors = 5
+        
+        while self.bot_running and consecutive_errors < max_consecutive_errors:
             try:
                 if self._message_queue is None:
                     await asyncio.sleep(1.0)
                     continue
 
                 # Ждем сообщение из очереди с таймаутом
-                message_data = await asyncio.wait_for(
-                    self._message_queue.get(), 
-                    timeout=1.0
-                )
+                try:
+                    message_data = await asyncio.wait_for(
+                        self._message_queue.get(), 
+                        timeout=2.0
+                    )
+                    consecutive_errors = 0  # Сбрасываем счетчик при успехе
+                    
+                    await self._execute_telegram_message(message_data)
+                    await asyncio.sleep(0.1)  # Минимальная задержка между сообщениями
+                    
+                except asyncio.TimeoutError:
+                    consecutive_errors = 0  # Таймаут не считается ошибкой
+                    continue
+                except RuntimeError as e:
+                    if "different event loop" in str(e):
+                        bot_logger.warning("🔄 Переинициализация очереди из-за смены event loop")
+                        self._message_queue = asyncio.Queue()
+                        consecutive_errors = 0
+                        continue
+                    else:
+                        raise
 
-                await self._execute_telegram_message(message_data)
-                await asyncio.sleep(0.1)  # Минимальная задержка между сообщениями
-
-            except asyncio.TimeoutError:
-                continue
             except Exception as e:
-                bot_logger.error(f"Ошибка в процессоре очереди сообщений: {e}")
-                await asyncio.sleep(0.5)
+                consecutive_errors += 1
+                bot_logger.error(f"Ошибка в процессоре очереди сообщений ({consecutive_errors}/{max_consecutive_errors}): {e}")
+                await asyncio.sleep(min(0.5 * consecutive_errors, 3.0))  # Экспоненциальная задержка
+        
+        if consecutive_errors >= max_consecutive_errors:
+            bot_logger.error("🚨 Процессор очереди остановлен из-за множественных ошибок")
+            self._queue_processor_task = None
 
     async def _execute_telegram_message(self, message_data: Dict):
         """Выполняет отправку Telegram сообщения"""
@@ -183,6 +228,11 @@ class TradingTelegramBot:
         if not self.bot_running:
             return None
 
+        # Проверяем доступность очереди
+        if self._message_queue is None:
+            bot_logger.warning("Очередь недоступна, прямая отправка")
+            return await self._direct_telegram_send(text, reply_markup, parse_mode)
+
         # Создаем Future для получения результата
         result_future = asyncio.Future()
 
@@ -200,7 +250,16 @@ class TradingTelegramBot:
         }
 
         try:
-            await self._message_queue.put(message_data)
+            # Проверяем возможность добавления в очередь
+            try:
+                await self._message_queue.put(message_data)
+            except RuntimeError as e:
+                if "different event loop" in str(e):
+                    bot_logger.warning("Event loop конфликт, прямая отправка")
+                    return await self._direct_telegram_send(text, reply_markup, parse_mode)
+                else:
+                    raise
+            
             # Ждем результат с таймаутом
             result = await asyncio.wait_for(result_future, timeout=10.0)
 
@@ -213,7 +272,8 @@ class TradingTelegramBot:
             return None
         except Exception as e:
             bot_logger.error(f"[SEND_MESSAGE_ERROR] Ошибка отправки: {e}")
-            return None
+            # Fallback на прямую отправку
+            return await self._direct_telegram_send(text, reply_markup, parse_mode)
 
     async def edit_message(self, message_id: int, text: str, reply_markup=None):
         """Редактирует сообщение через очередь"""
@@ -270,23 +330,37 @@ class TradingTelegramBot:
 
             # Останавливаем циклы
             self.bot_running = False
-            await asyncio.sleep(1.5)
+            await asyncio.sleep(1.0)
 
             # Останавливаем процессор очереди
             if self._queue_processor_task and not self._queue_processor_task.done():
                 self._queue_processor_task.cancel()
                 try:
-                    await self._queue_processor_task
-                except asyncio.CancelledError:
+                    await asyncio.wait_for(self._queue_processor_task, timeout=2.0)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
                     pass
                 self._queue_processor_task = None
 
-            # Очищаем очередь
-            while not self._message_queue.empty():
+            # Безопасная очистка очереди
+            if self._message_queue is not None:
                 try:
-                    self._message_queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    break
+                    while not self._message_queue.empty():
+                        try:
+                            self._message_queue.get_nowait()
+                        except asyncio.QueueEmpty:
+                            break
+                        except RuntimeError:
+                            # Очередь привязана к другому event loop
+                            break
+                except Exception as e:
+                    bot_logger.debug(f"Ошибка очистки очереди: {e}")
+                
+                # Пересоздаем очередь для следующего использования
+                try:
+                    self._message_queue = asyncio.Queue()
+                except Exception as e:
+                    bot_logger.debug(f"Ошибка пересоздания очереди: {e}")
+                    self._message_queue = None
 
             # Очищаем активные уведомления
             deleted_count = 0

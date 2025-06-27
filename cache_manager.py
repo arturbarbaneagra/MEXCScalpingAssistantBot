@@ -153,31 +153,31 @@ class CacheManager:
         total = self.cache_stats['hits'] + self.cache_stats['misses']
         return (self.cache_stats['hits'] / total * 100) if total > 0 else 0
 
-    def clear_expired(self):
-        """Очищает устаревшие записи из кеша"""
-        current_time = time.time()
-        cleaned_count = 0
-        
-        for cache_name, cache in self.caches.items():
-            expired_keys = []
-            for key, (data, timestamp) in cache.items():
-                if current_time - timestamp > self.cache_duration:
-                    expired_keys.append(key)
-            
-            for key in expired_keys:
-                cache.pop(key, None)
-                cleaned_count += 1
-        
-        if cleaned_count > 0:
-            self.cache_stats['cleanups'] += 1
-            bot_logger.debug(f"🧹 Очищено {cleaned_count} устаревших записей кеша")
-
     def clear_all(self):
         """Очищает все кеши"""
         for cache in self.caches.values():
             cache.clear()
         self.cache_stats = {'hits': 0, 'misses': 0, 'cleanups': 0}
         bot_logger.debug("🧹 Все кеши очищены")
+
+    def clear_expired(self):
+        """Очищает устаревшие записи из кеша"""
+        current_time = time.time()
+        cleaned_count = 0
+
+        for cache_name, cache in self.caches.items():
+            expired_keys = []
+            for key, entry in cache.items():
+                if current_time - entry['timestamp'] > self.default_ttl:
+                    expired_keys.append(key)
+
+            for key in expired_keys:
+                del cache[key]
+                cleaned_count += 1
+
+        if cleaned_count > 0:
+            self.cache_stats['cleanups'] += 1
+            bot_logger.debug(f"🧹 Очищено {cleaned_count} устаревших записей кеша")
 
     def get_stats(self) -> Dict[str, Any]:
         """Возвращает статистику кеша"""
