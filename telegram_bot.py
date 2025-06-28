@@ -849,7 +849,7 @@ class TradingTelegramBot:
                         bot_logger.debug(f"Ошибка проверки сессий: {e}")
                     cleanup_counter = 0
 
-                # Получаем данные монет
+                # Получаем данные монет (активность уже рассчитана внутри)
                 results, failed_coins = await self._fetch_bot_data()
 
                 # Обрабатываем каждую монету для уведомлений
@@ -912,6 +912,12 @@ class TradingTelegramBot:
         results = []
         failed_coins = []
 
+        # Получаем фильтры из настроек администратора
+        admin_config = user_manager.get_user_config(user_manager.admin_chat_id)
+        vol_threshold = admin_config.get('VOLUME_THRESHOLD', 1000)
+        spread_threshold = admin_config.get('SPREAD_THRESHOLD', 0.1)
+        natr_threshold = admin_config.get('NATR_THRESHOLD', 0.5)
+
         batch_size = config_manager.get('CHECK_BATCH_SIZE', 15)
         for batch in self._chunks(watchlist, batch_size):
             if not self.bot_running:
@@ -921,6 +927,13 @@ class TradingTelegramBot:
                 batch_data = await api_client.get_batch_coin_data(batch)
                 for symbol, coin_data in batch_data.items():
                     if coin_data:
+                        # Применяем правильные фильтры для определения активности
+                        coin_data['active'] = (
+                            coin_data.get('volume', 0) >= vol_threshold and
+                            coin_data.get('spread', 0) >= spread_threshold and
+                            coin_data.get('natr', 0) >= natr_threshold and
+                            coin_data.get('trades', 0) > 0
+                        )
                         results.append(coin_data)
                     else:
                         # Пробуем получить из кеша при ошибке API
@@ -1154,12 +1167,22 @@ class TradingTelegramBot:
 
         parts = ["<b>📊 Скальпинг мониторинг (1м данные)</b>\n"]
 
-        vol_thresh = config_manager.get('VOLUME_THRESHOLD')
-        spread_thresh = config_manager.get('SPREAD_THRESHOLD')
-        natr_thresh = config_manager.get('NATR_THRESHOLD')
+        # Для админа показываем глобальные настройки, для обычных пользователей - их личные
+        if user_manager.is_admin(self.chat_id):
+            vol_thresh = config_manager.get('VOLUME_THRESHOLD')
+            spread_thresh = config_manager.get('SPREAD_THRESHOLD')
+            natr_thresh = config_manager.get('NATR_THRESHOLD')
+            filter_prefix = "Глобальные фильтры"
+        else:
+            # Получаем конфигурацию администратора (основного пользователя)
+            admin_config = user_manager.get_user_config(user_manager.admin_chat_id)
+            vol_thresh = admin_config.get('VOLUME_THRESHOLD', 1000)
+            spread_thresh = admin_config.get('SPREAD_THRESHOLD', 0.1)
+            natr_thresh = admin_config.get('NATR_THRESHOLD', 0.5)
+            filter_prefix = "Фильтры"
 
         parts.append(
-            f"<i>Фильтры: 1м оборот ≥${vol_thresh:,}, "
+            f"<i>{filter_prefix}: 1м оборот ≥${vol_thresh:,}, "
             f"Спред ≥{spread_thresh}%, NATR ≥{natr_thresh}%</i>\n"
         )
 
