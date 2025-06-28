@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 MEXCScalping Assistant для мониторинга криптовалют на MEXC
-Версия: 2.1 - Умный скальпинг бот
+Версия: 2.0
 """
 
 import os
@@ -24,7 +24,6 @@ from watchlist_manager import watchlist_manager
 from telegram_bot import telegram_bot
 from api_client import api_client
 from session_recorder import session_recorder
-from user_manager import user_manager
 
 # Проверяем, что переменные загружены (без вывода значений)
 bot_logger.info("Проверка переменных окружения...")
@@ -59,7 +58,7 @@ def health_check():
         # Получаем базовую информацию
         status = {
             'bot_running': telegram_bot.bot_running,
-            'active_coins_count': len(telegram_bot.active_coins),
+            'bot_mode': telegram_bot.bot_mode,
             'watchlist_size': watchlist_manager.size()
         }
 
@@ -101,16 +100,10 @@ def health_check():
             else:
                 alert_status = f'🟡 {len(alerts)} Warning'
 
-        # Получаем реальную статистику пользователей
-        user_stats = user_manager.get_stats()
-
-        # Реальное число активных пользователей
-        active_users = user_stats.get('total_users', 0)
-
         return f"""
         <html>
         <head>
-            <title>MEXCScalping Assistant Status v2.1 - Объединенный режим</title>
+            <title>MEXCScalping Assistant Status v2.1</title>
             <meta http-equiv="refresh" content="30">
             <style>
                 body {{ font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }}
@@ -126,16 +119,25 @@ def health_check():
         <body>
             <div class="container">
                 <h1>🤖 MEXCScalping Assistant Status v2.1</h1>
-                <h2>🚀 Умный скальпинг бот</h2>
 
-                <div class="metric-box">
-                    <strong>Uptime:</strong> {uptime_hours:.1f} hours
+                <div class="status-grid">
+                    <div class="metric-box {'success' if status['bot_running'] else 'critical'}">
+                        <strong>Bot Status:</strong> {'🟢 Running' if status['bot_running'] else '🔴 Stopped'}<br>
+                        <strong>Mode:</strong> {status['bot_mode'] or 'None'}<br>
+                        <strong>Uptime:</strong> {uptime_hours:.1f} hours
+                    </div>
+
+                    <div class="metric-box">
+                        <strong>Watchlist:</strong> {status['watchlist_size']} coins<br>
+                        <strong>Active Coins:</strong> {len(telegram_bot.active_coins)}<br>
+                        <strong>Cache Entries:</strong> {cache_stats.get('total_entries', 0)}
+                    </div>
                 </div>
 
                 <div class="metric-box">
-                    <strong>👥 Пользователи:</strong><br>
-                    Всего пользователей: {active_users}<br>
-                    Активных сессий: {session_stats.get('active_sessions', 0)}
+                    <strong>🚨 Alerts:</strong> {alert_status}<br>
+                    {f"Recent alerts: {', '.join([a.get('message', '')[:50] + '...' if len(a.get('message', '')) > 50 else a.get('message', '') for a in alerts[:2]])}" if alerts else "No active alerts"}<br>
+                    <strong>Advanced:</strong> {len(advanced_alerts)} active, {alert_stats.get('total_triggers', 0)} total triggers
                 </div>
 
                 <div class="status-grid">
@@ -148,21 +150,13 @@ def health_check():
 
                     <div class="metric-box">
                         <strong>System:</strong><br>
-                        Version: 2.1 (Scalping Bot)<br>
+                        Version: 2.1<br>
+                        Session Recorder: {'🟢 Active' if session_stats['recording'] else '🔴 Stopped'}<br>
+                        Active sessions: {session_stats['active_sessions']}<br>
+                        Autonomous Monitor: {'🟢 Active' if monitor_stats['running'] else '🔴 Stopped'}<br>
+                        Tracking: {monitor_stats['active_activities']} activities<br>
                         Last update: {time.strftime('%H:%M:%S')}
                     </div>
-                </div>
-
-                <div class="metric-box success">
-                    <strong>🚀 MEXCScalping Assistant:</strong><br>
-                    • Автоматический мониторинг списка монет<br>
-                    • Мгновенные уведомления об активности<br>
-                    • Автоудаление коротких уведомлений (< 1 мин)<br>
-                    • Единая сводка в реальном времени<br><br>
-                    <strong>🎯 Глобальные фильтры:</strong><br>
-                    • 1м оборот ≥$1,000.0<br>
-                    • Спред ≥0.1%<br>
-                    • NATR ≥0.5%
                 </div>
 
                 <p><small>Page auto-refreshes every 30 seconds</small></p>
@@ -175,9 +169,8 @@ def health_check():
         <html>
         <body>
             <h1>🤖 MEXCScalping Assistant Status v2.1</h1>
-            <h2>🚀 Скальпинг бот</h2>
             <p><strong>Status:</strong> {'🟢 Running' if telegram_bot.bot_running else '🔴 Stopped'}</p>
-            <p><strong>Active Coins:</strong> {len(telegram_bot.active_coins) if hasattr(telegram_bot, 'active_coins') else 0}</p>
+            <p><strong>Mode:</strong> {telegram_bot.bot_mode or 'None'}</p>
             <p><strong>Watchlist:</strong> {watchlist_manager.size()} coins</p>
             <p><strong>Error:</strong> {str(e)}</p>
         </body>
@@ -261,10 +254,10 @@ def sessions_view():
     """Endpoint для просмотра записанных сессий"""
     try:
         from datetime import datetime, timedelta
-
+        
         # Получаем статистику
         stats = session_recorder.get_stats()
-
+        
         # Получаем данные за последние 7 дней
         sessions_data = {}
         for i in range(7):
@@ -290,7 +283,7 @@ def sessions_view():
         <body>
             <div class="container">
                 <h1>📝 Session Recorder</h1>
-
+                
                 <div class="metric {'active' if stats['recording'] else ''}">
                     <strong>Статус:</strong> {'🟢 Запись активна' if stats['recording'] else '🔴 Запись остановлена'}<br>
                     <strong>Активных сессий:</strong> {stats['active_sessions']}<br>
@@ -305,20 +298,20 @@ def sessions_view():
             for date, daily_data in sorted(sessions_data.items(), reverse=True):
                 metadata = daily_data.get('metadata', {})
                 sessions = daily_data.get('sessions', [])
-
+                
                 html += f"""
                 <div class="date-section">
                     <h3>{date}</h3>
                     <p>Всего сессий: {metadata.get('total_sessions', 0)}, 
                        Общая длительность: {metadata.get('total_duration', 0)/60:.1f} минут</p>
-
+                    
                     <div style="max-height: 300px; overflow-y: auto;">
                 """
-
+                
                 for session in sessions[-10:]:  # Показываем последние 10 сессий
                     duration_min = session.get('total_duration', 0) / 60
                     summary = session.get('summary', {})
-
+                    
                     html += f"""
                     <div class="session">
                         <strong>{session['symbol']}</strong> - {duration_min:.1f} мин 
@@ -328,7 +321,7 @@ def sessions_view():
                         <small>{session.get('start_datetime', '')[:19]} - {session.get('end_datetime', '')[:19]}</small>
                     </div>
                     """
-
+                
                 html += "</div></div>"
         else:
             html += "<p>Нет данных о сессиях за последние 7 дней</p>"
@@ -359,12 +352,12 @@ def health():
             current_loop = asyncio.get_running_loop()
             # Если loop уже работает, используем синхронные методы
             return {
-                    'status': 'running', 
-                    'version': '2.1',
-                    'system': health_checker.get_system_info(),
-                    'bot': health_checker.get_bot_status(),
-                    'timestamp': time.time()
-                }
+                'status': 'running', 
+                'version': '2.1',
+                'system': health_checker.get_system_info(),
+                'bot': health_checker.get_bot_status(),
+                'timestamp': time.time()
+            }
         except RuntimeError:
             # Нет активного loop, можем создать новый
             try:
@@ -372,7 +365,6 @@ def health():
                 asyncio.set_event_loop(loop)
                 try:
                     health_data = loop.run_until_complete(health_checker.full_health_check())
-                    health_data['mode'] = 'combined'
                     return health_data
                 finally:
                     loop.close()
@@ -384,7 +376,6 @@ def health():
                     'status': 'partial', 
                     'error': f'Async check failed: {str(async_error)[:100]}', 
                     'version': '2.1',
-                    'mode': 'combined',
                     'system_basic': health_checker.get_system_info(),
                     'bot_basic': health_checker.get_bot_status(),
                     'timestamp': time.time()
@@ -395,7 +386,6 @@ def health():
             'status': 'error', 
             'error': str(e)[:100], 
             'version': '2.1',
-            'mode': 'combined',
             'timestamp': time.time()
         }
 
@@ -433,7 +423,7 @@ async def main():
     """Основная функция"""
     try:
         bot_logger.info("=" * 50)
-        bot_logger.info("🚀 Запуск MEXCScalping Assistant v2.1 - Умный скальпинг бот")
+        bot_logger.info("🚀 Запуск MEXCScalping Assistant v2.1")
         bot_logger.info("=" * 50)
 
         # Проверяем переменные окружения
@@ -460,13 +450,10 @@ async def main():
         flask_thread.start()
         bot_logger.info("🌐 Flask сервер запущен на порту 8080")
 
-        
-
         # Настраиваем и запускаем Telegram бота
-        app = await telegram_bot.setup_application()
+        app = telegram_bot.setup_application()
 
         bot_logger.info("🤖 Telegram бот готов к работе")
-        bot_logger.info("🚀 Мониторинг и уведомления активны")
         bot_logger.info("🔧 Автоматическое обслуживание активно")
         bot_logger.info("=" * 50)
 
@@ -488,14 +475,10 @@ async def main():
                 chat_id=telegram_bot.chat_id,
                 text=(
                     "👋 <b>Привет! Я тут и жду указаний</b>\n\n"
-                    "🤖 MEXCScalping Assistant v2.1 успешно запущен!\n\n"
-                    "🚀 <b>Возможности бота:</b>\n"
-                    "• Автоматический мониторинг списка монет\n"
-                    "• Мгновенные уведомления об активности\n"
-                    "• Автоудаление коротких уведомлений\n"
-                    "• Единая сводка в реальном времени\n\n"
+                    "🤖 MEXCScalping Assistant v2.1 успешно запущен и готов к работе!\n\n"
                     "💡 <b>Что можно делать:</b>\n"
-                    "• 🚀 Запустить бота\n"
+                    "• 🔔 Запустить режим уведомлений\n"
+                    "• 📊 Включить мониторинг списка\n"
                     "• ➕ Добавить новые монеты\n"
                     "• ⚙ Настроить фильтры\n\n"
                     "Выберите действие из меню ниже! 👇"

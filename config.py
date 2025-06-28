@@ -1,6 +1,5 @@
 import json
 import os
-import asyncio
 from typing import Dict, Any
 from logger import bot_logger
 
@@ -8,7 +7,6 @@ class ConfigManager:
     def __init__(self, config_file: str = "config.json"):
         self.config_file = config_file
         self.config: Dict[str, Any] = {}
-        self.change_callbacks = []  # Список callback функций для уведомления об изменениях
         self.default_config = {
             "VOLUME_THRESHOLD": 1500,
             "SPREAD_THRESHOLD": 0.1,
@@ -57,7 +55,17 @@ class ConfigManager:
         """Получает значение конфигурации"""
         return self.config.get(key, default)
 
-    
+    def set(self, key: str, value: Any):
+        """Устанавливает значение конфигурации"""
+        self.config[key] = value
+        self.save()
+        bot_logger.debug(f"Параметр {key} установлен в {value}")
+
+    def reset_to_defaults(self):
+        """Сбрасывает конфигурацию к значениям по умолчанию"""
+        self.config = self.default_config.copy()
+        self.save()
+        bot_logger.info("Конфигурация сброшена к значениям по умолчанию")
 
     def get_all(self) -> Dict[str, Any]:
         """Возвращает всю конфигурацию"""

@@ -77,5 +77,5 @@ class WatchlistManager:
         self.save()
         bot_logger.info("Список отслеживания очищен")
 
-# Экземпляр менеджера списка администратора
+# Глобальный экземпляр менеджера
 watchlist_manager = WatchlistManager()

@@ -221,7 +221,7 @@ class MonitoringMode:
         natr_thresh = config_manager.get('NATR_THRESHOLD')
 
         parts.append(
-            f"<i>Глобальные фильтры: 1м оборот ≥${vol_thresh:,}, "
+            f"<i>Фильтры: 1м оборот ≥${vol_thresh:,}, "
             f"Спред ≥{spread_thresh}%, NATR ≥{natr_thresh}%</i>\n"
         )
 
@@ -260,27 +260,6 @@ class MonitoringMode:
             report = report[:4000] + "\n... <i>(отчет обрезан)</i>"
 
         return report
-
-    async def update_filters(self):
-        """Обновляет фильтры без полного перезапуска"""
-        if not self.running:
-            return
-            
-        try:
-            bot_logger.info("🔄 Обновление фильтров мониторинга")
-            
-            # Отправляем сообщение об обновлении фильтров
-            update_text = "🔄 <b>Обновление фильтров...</b>\n<i>Применяются новые настройки</i>"
-            if self.monitoring_message_id:
-                await self.bot.edit_message(self.monitoring_message_id, update_text)
-            
-            # Ждем один цикл и сразу обновляем с новыми фильтрами
-            await asyncio.sleep(1.0)
-            
-            bot_logger.info("✅ Фильтры мониторинга обновлены")
-            
-        except Exception as e:
-            bot_logger.error(f"Ошибка обновления фильтров: {e}")
 
     def get_stats(self):
         """Возвращает статистику режима"""
