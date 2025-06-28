@@ -278,10 +278,10 @@ class UserMonitoringMode(UserMode):
             try:
                 # Получаем список монет в зависимости от роли
                 if user_manager.is_admin(self.user_id):
-                    # Для админа используем глобальный список
+                    # Для админа используем его личный список
                     from watchlist_manager import watchlist_manager
                     user_watchlist = list(watchlist_manager.get_all())
-                    empty_message = "❌ <b>Глобальный список отслеживания пуст</b>\nДобавьте монеты для мониторинга."
+                    empty_message = "❌ <b>Ваш список отслеживания пуст</b>\nДобавьте монеты для мониторинга."
                 else:
                     # Для обычного пользователя используем его личный список
                     user_watchlist = user_manager.get_user_watchlist(self.user_id)

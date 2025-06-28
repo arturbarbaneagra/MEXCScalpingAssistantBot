@@ -47,7 +47,7 @@ class TradingTelegramBot:
         # Многопользовательские модули
         self.admin_handlers = create_admin_handlers(self)
         self.user_session_recorders: Dict[str, UserSessionRecorder] = {}
-        
+
         # Инициализируем менеджер пользовательских режимов
         from user_modes_manager import UserModesManager
         self.user_modes_manager = UserModesManager(self)
@@ -1636,7 +1636,7 @@ class TradingTelegramBot:
         # Получаем список в зависимости от роли
         if user_manager.is_admin(chat_id):
             coins = list(watchlist_manager.get_all())
-            list_title = "Глобальный список отслеживания"
+            list_title = "📋 Ваш список отслеживания"
         else:
             coins = user_manager.get_user_watchlist(chat_id)
             list_title = "Ваш список отслеживания"
