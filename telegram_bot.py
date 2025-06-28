@@ -718,9 +718,10 @@ class TradingTelegramBot:
                 await self.admin_handlers.handle_user_management(update, context)
             elif message_text == "🧹 Очистить пользователей":
                 await self.admin_handlers.handle_clear_all_users(update, context)
+                return ConversationHandler.END  # Добавляем return чтобы не попасть в обработку общих кнопок
 
             # Общие кнопки для всех пользователей
-            if text == "🔔 Уведомления":
+            elif text == "🔔 Уведомления":
                 await self._handle_notification_mode(update)
             elif text == "📊 Мониторинг":
                 await self._handle_monitoring_mode(update)
