@@ -878,7 +878,7 @@ class TradingTelegramBot:
                             from session_recorder import session_recorder
                             session_recorder.update_coin_activity(coin_data['symbol'], coin_data)
                         except Exception as e:
-                            bot_logger.debug(f"Ошибка записи сессии {coin_data['symbol']: {e}")
+                            bot_logger.debug(f"Ошибка записи сессии {coin_data['symbol']}: {e}")
 
                 # Обновляем отчет мониторинга
                 if results:
