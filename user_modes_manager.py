@@ -1,6 +1,7 @@
+
 """
-Менеджер персональных режимов для каждого пользователя
-Каждый пользователь может независимо запускать/останавливать своего бота
+Упрощенный менеджер режимов бота для каждого пользователя
+Каждый пользователь независимо запускает/останавливает свой мониторинг
 """
 
 import asyncio
@@ -10,8 +11,8 @@ from logger import bot_logger
 from user_manager import user_manager
 
 
-class PersonalBotMode:
-    """Персональный режим бота для конкретного пользователя"""
+class UserBotMode:
+    """Режим бота для конкретного пользователя"""
     
     def __init__(self, chat_id: str, bot_instance):
         self.chat_id = chat_id
@@ -23,7 +24,7 @@ class PersonalBotMode:
         self.task = None
         
     async def start(self) -> bool:
-        """Запускает персональный режим"""
+        """Запускает режим мониторинга для пользователя"""
         if self.running:
             return False
             
@@ -36,17 +37,17 @@ class PersonalBotMode:
         self.active_coins.clear()
         
         # Отправляем начальное сообщение
-        initial_text = f"🔄 <b>Ваш персональный мониторинг запущен</b>\nОтслеживается {len(user_watchlist)} монет"
+        initial_text = f"🔄 <b>Ваш мониторинг запущен</b>\nОтслеживается {len(user_watchlist)} монет"
         self.monitoring_message_id = await self.bot._send_personal_message(self.chat_id, initial_text)
         
-        # Запускаем персональный цикл
-        self.task = asyncio.create_task(self._personal_loop())
+        # Запускаем цикл мониторинга
+        self.task = asyncio.create_task(self._monitoring_loop())
         
-        bot_logger.info(f"Персональный режим запущен для пользователя {self.chat_id}")
+        bot_logger.info(f"Мониторинг запущен для пользователя {self.chat_id}")
         return True
         
     async def stop(self) -> bool:
-        """Останавливает персональный режим"""
+        """Останавливает режим мониторинга"""
         if not self.running:
             return False
             
@@ -71,17 +72,17 @@ class PersonalBotMode:
             await self.bot._delete_personal_message(self.chat_id, self.monitoring_message_id)
             
         # Отправляем уведомление об остановке
-        stop_text = "🛑 <b>Ваш персональный мониторинг остановлен</b>"
+        stop_text = "🛑 <b>Ваш мониторинг остановлен</b>"
         await self.bot._send_personal_message(self.chat_id, stop_text)
         
         self.active_coins.clear()
         self.monitoring_message_id = None
         
-        bot_logger.info(f"Персональный режим остановлен для пользователя {self.chat_id}")
+        bot_logger.info(f"Мониторинг остановлен для пользователя {self.chat_id}")
         return True
         
-    async def _personal_loop(self):
-        """Персональный цикл мониторинга для пользователя"""
+    async def _monitoring_loop(self):
+        """Цикл мониторинга для пользователя"""
         cycle_count = 0
         
         while self.running:
@@ -95,7 +96,7 @@ class PersonalBotMode:
                     continue
                     
                 # Получаем данные монет
-                results, failed_coins = await self.bot._fetch_personal_data(user_watchlist, self.chat_id)
+                results, failed_coins = await self.bot._fetch_user_data(user_watchlist, self.chat_id)
                 
                 # Обрабатываем уведомления
                 for coin_data in results:
@@ -103,11 +104,11 @@ class PersonalBotMode:
                         break
                         
                     symbol = coin_data['symbol']
-                    await self._process_personal_notification(symbol, coin_data)
+                    await self._process_notification(symbol, coin_data)
                     
                 # Обновляем отчет мониторинга
                 if results:
-                    report = self._format_personal_report(results, failed_coins)
+                    report = self._format_report(results, failed_coins)
                     if self.monitoring_message_id:
                         await self.bot._edit_personal_message(self.chat_id, self.monitoring_message_id, report)
                         
@@ -116,11 +117,11 @@ class PersonalBotMode:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                bot_logger.error(f"Ошибка в персональном цикле {self.chat_id}: {e}")
+                bot_logger.error(f"Ошибка в цикле мониторинга {self.chat_id}: {e}")
                 await asyncio.sleep(2)
                 
-    async def _process_personal_notification(self, symbol: str, data: Dict):
-        """Обработка персональных уведомлений"""
+    async def _process_notification(self, symbol: str, data: Dict):
+        """Обработка уведомлений"""
         now = time.time()
         
         # Получаем пользовательские фильтры
@@ -129,7 +130,7 @@ class PersonalBotMode:
         spread_threshold = user_config.get('SPREAD_THRESHOLD', 0.1)
         natr_threshold = user_config.get('NATR_THRESHOLD', 0.5)
         
-        # Проверяем активность по пользовательским фильтрам
+        # Проверяем активность по фильтрам
         is_active = (
             data.get('volume', 0) >= vol_threshold and
             data.get('spread', 0) >= spread_threshold and
@@ -140,21 +141,21 @@ class PersonalBotMode:
         if is_active:
             if symbol not in self.active_coins:
                 # Создаем новое уведомление
-                await self._create_personal_notification(symbol, data, now)
+                await self._create_notification(symbol, data, now)
             else:
                 # Обновляем существующее
-                await self._update_personal_notification(symbol, data, now)
+                await self._update_notification(symbol, data, now)
         else:
             # Завершаем активность если была
             if symbol in self.active_coins:
                 coin_info = self.active_coins[symbol]
                 if now - coin_info['last_active'] > 60:  # Таймаут неактивности
-                    await self._end_personal_activity(symbol, now)
+                    await self._end_activity(symbol, now)
                     
-    async def _create_personal_notification(self, symbol: str, data: Dict, now: float):
-        """Создает персональное уведомление"""
+    async def _create_notification(self, symbol: str, data: Dict, now: float):
+        """Создает уведомление"""
         message = (
-            f"🚨 <b>{symbol}_USDT активен (персонально)</b>\n"
+            f"🚨 <b>{symbol}_USDT активен</b>\n"
             f"🔄 Изм: {data['change']:+.2f}%  🔁 Сделок: {data['trades']}\n"
             f"📊 Объём: ${data['volume']:,.2f}  NATR: {data['natr']:.2f}%\n"
             f"⇄ Спред: {data['spread']:.2f}%"
@@ -170,8 +171,8 @@ class PersonalBotMode:
                 'msg_id': msg_id
             }
             
-    async def _update_personal_notification(self, symbol: str, data: Dict, now: float):
-        """Обновляет персональное уведомление"""
+    async def _update_notification(self, symbol: str, data: Dict, now: float):
+        """Обновляет уведомление"""
         coin_info = self.active_coins[symbol]
         coin_info['last_active'] = now
         coin_info['data'] = data
@@ -179,15 +180,15 @@ class PersonalBotMode:
         msg_id = coin_info.get('msg_id')
         if msg_id:
             new_message = (
-                f"🚨 <b>{symbol}_USDT активен (персонально)</b>\n"
+                f"🚨 <b>{symbol}_USDT активен</b>\n"
                 f"🔄 Изм: {data['change']:+.2f}%  🔁 Сделок: {data['trades']}\n"
                 f"📊 Объём: ${data['volume']:,.2f}  NATR: {data['natr']:.2f}%\n"
                 f"⇄ Спред: {data['spread']:.2f}%"
             )
             await self.bot._edit_personal_message(self.chat_id, msg_id, new_message)
             
-    async def _end_personal_activity(self, symbol: str, end_time: float):
-        """Завершает персональную активность"""
+    async def _end_activity(self, symbol: str, end_time: float):
+        """Завершает активность"""
         if symbol not in self.active_coins:
             return
             
@@ -211,11 +212,11 @@ class PersonalBotMode:
             
         del self.active_coins[symbol]
         
-    def _format_personal_report(self, results: List[Dict], failed_coins: List[str]) -> str:
-        """Форматирует персональный отчет"""
+    def _format_report(self, results: List[Dict], failed_coins: List[str]) -> str:
+        """Форматирует отчет"""
         results.sort(key=lambda x: x['volume'], reverse=True)
         
-        parts = ["<b>📊 Ваш персональный мониторинг</b>\n"]
+        parts = ["<b>📊 Ваш мониторинг</b>\n"]
         
         # Получаем пользовательские фильтры
         user_config = user_manager.get_user_config(self.chat_id)
@@ -224,7 +225,7 @@ class PersonalBotMode:
         natr_thresh = user_config.get('NATR_THRESHOLD', 0.5)
         
         parts.append(
-            f"<i>Ваши фильтры: 1м оборот ≥${vol_thresh:,}, "
+            f"<i>Фильтры: 1м оборот ≥${vol_thresh:,}, "
             f"Спред ≥{spread_thresh}%, NATR ≥{natr_thresh}%</i>\n"
         )
         
@@ -233,7 +234,7 @@ class PersonalBotMode:
             
         active_coins = [r for r in results if r.get('active', False)]
         if active_coins:
-            parts.append("<b>🟢 ВАШИ АКТИВНЫЕ:</b>")
+            parts.append("<b>🟢 АКТИВНЫЕ:</b>")
             for coin in active_coins[:8]:
                 parts.append(
                     f"• <b>{coin['symbol']}</b> "
@@ -258,14 +259,14 @@ class PersonalBotMode:
 
 
 class UserModesManager:
-    """Менеджер персональных режимов для всех пользователей"""
+    """Менеджер режимов для всех пользователей"""
     
     def __init__(self, bot_instance):
         self.bot = bot_instance
-        self.personal_modes: Dict[str, PersonalBotMode] = {}
+        self.user_modes: Dict[str, UserBotMode] = {}
         
-    async def start_personal_mode(self, chat_id: str) -> bool:
-        """Запускает персональный режим для пользователя"""
+    async def start_user_mode(self, chat_id: str) -> bool:
+        """Запускает режим для пользователя"""
         chat_id_str = str(chat_id)
         
         # Проверяем права пользователя
@@ -278,47 +279,47 @@ class UserModesManager:
             return False
             
         # Останавливаем существующий режим если есть
-        if chat_id_str in self.personal_modes:
-            await self.stop_personal_mode(chat_id_str)
+        if chat_id_str in self.user_modes:
+            await self.stop_user_mode(chat_id_str)
             
-        # Создаем новый персональный режим
-        personal_mode = PersonalBotMode(chat_id_str, self.bot)
-        success = await personal_mode.start()
+        # Создаем новый режим
+        user_mode = UserBotMode(chat_id_str, self.bot)
+        success = await user_mode.start()
         
         if success:
-            self.personal_modes[chat_id_str] = personal_mode
-            bot_logger.info(f"Персональный режим запущен для {chat_id_str}")
+            self.user_modes[chat_id_str] = user_mode
+            bot_logger.info(f"Режим запущен для пользователя {chat_id_str}")
             
         return success
         
-    async def stop_personal_mode(self, chat_id: str) -> bool:
-        """Останавливает персональный режим пользователя"""
+    async def stop_user_mode(self, chat_id: str) -> bool:
+        """Останавливает режим пользователя"""
         chat_id_str = str(chat_id)
         
-        if chat_id_str not in self.personal_modes:
+        if chat_id_str not in self.user_modes:
             return False
             
-        personal_mode = self.personal_modes[chat_id_str]
-        success = await personal_mode.stop()
+        user_mode = self.user_modes[chat_id_str]
+        success = await user_mode.stop()
         
         if success:
-            del self.personal_modes[chat_id_str]
-            bot_logger.info(f"Персональный режим остановлен для {chat_id_str}")
+            del self.user_modes[chat_id_str]
+            bot_logger.info(f"Режим остановлен для пользователя {chat_id_str}")
             
         return success
         
-    def is_personal_mode_running(self, chat_id: str) -> bool:
-        """Проверяет, запущен ли персональный режим у пользователя"""
+    def is_user_mode_running(self, chat_id: str) -> bool:
+        """Проверяет, запущен ли режим у пользователя"""
         chat_id_str = str(chat_id)
-        if chat_id_str in self.personal_modes:
-            return self.personal_modes[chat_id_str].running
+        if chat_id_str in self.user_modes:
+            return self.user_modes[chat_id_str].running
         return False
         
-    def get_personal_mode_stats(self, chat_id: str) -> Dict:
-        """Возвращает статистику персонального режима"""
+    def get_user_mode_stats(self, chat_id: str) -> Dict:
+        """Возвращает статистику режима пользователя"""
         chat_id_str = str(chat_id)
-        if chat_id_str in self.personal_modes:
-            mode = self.personal_modes[chat_id_str]
+        if chat_id_str in self.user_modes:
+            mode = self.user_modes[chat_id_str]
             return {
                 'running': mode.running,
                 'start_time': mode.start_time,
@@ -328,14 +329,14 @@ class UserModesManager:
         return {'running': False}
         
     def get_all_stats(self) -> Dict:
-        """Возвращает статистику всех персональных режимов"""
+        """Возвращает статистику всех режимов"""
         stats = {
-            'total_users': len(self.personal_modes),
-            'running_modes': sum(1 for mode in self.personal_modes.values() if mode.running),
+            'total_users': len(self.user_modes),
+            'running_modes': sum(1 for mode in self.user_modes.values() if mode.running),
             'users': {}
         }
         
-        for chat_id, mode in self.personal_modes.items():
+        for chat_id, mode in self.user_modes.items():
             stats['users'][chat_id] = {
                 'running': mode.running,
                 'active_coins': len(mode.active_coins),
@@ -344,10 +345,10 @@ class UserModesManager:
             
         return stats
         
-    async def stop_all_personal_modes(self):
-        """Останавливает все персональные режимы"""
-        for chat_id in list(self.personal_modes.keys()):
-            await self.stop_personal_mode(chat_id)
+    async def stop_all_user_modes(self):
+        """Останавливает все режимы"""
+        for chat_id in list(self.user_modes.keys()):
+            await self.stop_user_mode(chat_id)
 
 
 # Глобальный экземпляр менеджера (будет инициализирован в telegram_bot.py)

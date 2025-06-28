@@ -186,8 +186,30 @@ class UserManager:
 
     def get_user_watchlist(self, chat_id: str) -> List[str]:
         """Возвращает список монет пользователя"""
-        user_data = self.get_user_data(chat_id)
-        return user_data.get('watchlist', []) if user_data else []
+        if self.is_admin(chat_id):
+            # Для админа создаем личный список если его нет
+            user_data = self.get_user_data(chat_id)
+            if not user_data:
+                # Создаем данные админа если их нет
+                self.users_data[str(chat_id)] = {
+                    'chat_id': str(chat_id),
+                    'username': 'admin',
+                    'first_name': 'Administrator',
+                    'last_name': '',
+                    'approved_time': time.time(),
+                    'approved_datetime': datetime.now().isoformat(),
+                    'setup_completed': True,
+                    'watchlist': [],
+                    'active_coins': {},
+                    'last_activity': time.time(),
+                    'setup_state': 'completed'
+                }
+                self.save_data()
+                return []
+            return user_data.get('watchlist', [])
+        else:
+            user_data = self.get_user_data(chat_id)
+            return user_data.get('watchlist', []) if user_data else []
 
     def add_user_coin(self, chat_id: str, symbol: str) -> bool:
         """Добавляет монету в список пользователя"""
