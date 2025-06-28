@@ -66,7 +66,7 @@ class UserSessionRecorder:
                         'price_samples': []
                     }
                 }
-                bot_logger.debug(f"📝 Начата запись сессии {symbol} для пользователя {self.chat_id}")
+                bot_logger.info(f"📝 Начата запись сессии {symbol} для пользователя {self.chat_id} (объем: ${coin_data.get('volume', 0):,.0f})")
 
             # Обновляем сессию
             session = self.active_sessions[symbol]
@@ -144,6 +144,9 @@ class UserSessionRecorder:
 
         if duration >= self.session_start_threshold or force:
             self._save_session_to_file(session)
+            bot_logger.info(f"📝 Сессия {symbol} сохранена для пользователя {self.chat_id} (длительность: {duration:.1f}с)")
+        else:
+            bot_logger.debug(f"📝 Сессия {symbol} для пользователя {self.chat_id} пропущена (слишком короткая: {duration:.1f}с)")
 
         del self.active_sessions[symbol]
 
