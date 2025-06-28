@@ -241,7 +241,7 @@ class AdminHandlers:
                             await update.message.reply_document(
                                 document=f,
                                 caption=f"📋 {description} (последние 1000 строк)",
-                                filename=f"last1000_{log_file}"
+                                reply_markup=self.get_admin_keyboard()
                             )
 
                         # Удаляем временный файл
@@ -252,7 +252,8 @@ class AdminHandlers:
                             await update.message.reply_document(
                                 document=f,
                                 caption=f"📋 {description} ({file_size // 1024} KB)",
-                                filename=log_file
+                                filename=log_file,
+                                reply_markup=self.get_admin_keyboard()
                             )
 
                     await context.bot.send_chat_action(
@@ -515,7 +516,7 @@ class AdminHandlers:
             f"📋 <b>Ваш список:</b> {total_coins} монет\n" # Changed to "Ваш список"
             f"⏰ <b>Последнее обновление:</b> {last_update_time}\n"
         )
-        
+
         # Rearrange buttons, move refresh button after start and stop buttons
         admin_keyboard = ReplyKeyboardMarkup([
             ["🔔 Уведомления", "📊 Мониторинг"],
@@ -538,22 +539,22 @@ class AdminHandlers:
         if not user_manager.is_admin(update.effective_chat.id):
             await update.message.reply_text("❌ У вас нет прав администратора")
             return
-        
+
         try:
             # Get activity data from the ActivityMonitor instance
             activity_data = self.bot.activity_monitor.get_activity_data()
-            
+
             if not activity_data:
                 await update.message.reply_text("⚠️ Нет данных об активности за последние 24 часа.",
                                                   parse_mode=ParseMode.HTML)
                 return
-            
+
             text = "📈 <b>Активность за 24 часа:</b>\n\n"
             for coin, count in activity_data.items():
                 text += f"• <b>{coin}:</b> {count} упоминаний\n"
-            
+
             await update.message.reply_text(text, parse_mode=ParseMode.HTML)
-            
+
         except Exception as e:
             bot_logger.error(f"Ошибка при получении активности за 24 часа: {e}")
             await update.message.reply_text(f"❌ Ошибка при получении активности: {e}",
