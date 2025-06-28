@@ -16,11 +16,8 @@ class UserManager:
         self.users_data: Dict[str, Dict] = {}
         self.pending_requests: Dict[str, Dict] = {}
         self.admin_chat_id = os.getenv('TELEGRAM_CHAT_ID')
-        self.default_user_config = {
-            'VOLUME_THRESHOLD': 1000,
-            'SPREAD_THRESHOLD': 0.1,
-            'NATR_THRESHOLD': 0.5
-        }
+        # Убрали персональные настройки - используем только глобальные
+        self.default_user_config = {}
         self.load_data()
 
     def load_data(self):
@@ -115,7 +112,6 @@ class UserManager:
             'approved_datetime': datetime.now().isoformat(),
             'setup_completed': False,
             'watchlist': [],
-            'config': self.default_user_config.copy(),
             'active_coins': {},
             'last_activity': time.time(),
             'setup_state': '',  # Добавляем состояние настройки
@@ -223,19 +219,14 @@ class UserManager:
         return False
 
     def get_user_config(self, chat_id: str) -> Dict:
-        """Возвращает конфигурацию пользователя"""
-        user_data = self.get_user_data(chat_id)
-        if user_data:
-            return user_data.get('config', {})
+        """Возвращает конфигурацию пользователя (всегда пустая - используем глобальные)"""
+        # Персональные настройки убраны - все используют глобальные
         return {}
 
     def update_user_config(self, chat_id: str, config_updates: Dict[str, Any]):
-        """Обновляет конфигурацию пользователя"""
-        user_data = self.get_user_data(chat_id)
-        if user_data:
-            config = user_data.get('config', {})
-            config.update(config_updates)
-            self.update_user_data(chat_id, {'config': config})
+        """Обновляет конфигурацию пользователя (не используется - все настройки глобальные)"""
+        # Персональные настройки убраны - все используют глобальные
+        pass
 
     def get_all_users(self) -> List[Dict]:
         """Возвращает всех одобренных пользователей"""
@@ -349,30 +340,10 @@ class UserManager:
         return self.remove_user_coin(chat_id, symbol)
 
     def reset_user_config_to_defaults(self, chat_id: str) -> str:
-        """Сбрасывает настройки пользователя к значениям по умолчанию"""
-        chat_id = str(chat_id)
-
-        if chat_id not in self.users_data:
-            return "error"
-
-        current_config = self.users_data[chat_id].get('config', {})
-
-        # Проверяем, отличаются ли текущие настройки от дефолтных
-        is_already_default = True
-        for key, default_value in self.default_user_config.items():
-            if current_config.get(key) != default_value:
-                is_already_default = False
-                break
-
-        if is_already_default:
-            bot_logger.info(f"Настройки пользователя {chat_id} уже установлены по умолчанию")
-            return "already_default"
-
-        # Сбрасываем к дефолтным значениям
-        self.users_data[chat_id]['config'] = self.default_user_config.copy()
-        self.save_data()
-        bot_logger.info(f"Настройки пользователя {chat_id} сброшены к значениям по умолчанию")
-        return "reset"
+        """Сбрасывает настройки пользователя к значениям по умолчанию (не используется)"""
+        # Персональные настройки убраны - все используют глобальные
+        bot_logger.info(f"Сброс настроек не требуется - все пользователи используют глобальные настройки")
+        return "already_default"
 
 
 # Глобальный экземпляр менеджера пользователей

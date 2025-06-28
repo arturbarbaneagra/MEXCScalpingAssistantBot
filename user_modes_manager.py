@@ -90,18 +90,13 @@ class UserNotificationMode(UserMode):
                     await asyncio.sleep(30)
                     continue
 
-                # Получаем настройки пользователя
-                from user_manager import user_manager as um
-                if um.is_admin(self.user_id):
-                    # Для админа используем глобальные настройки
-                    from config import config_manager
-                    user_config = {
-                        'VOLUME_THRESHOLD': config_manager.get('VOLUME_THRESHOLD'),
-                        'SPREAD_THRESHOLD': config_manager.get('SPREAD_THRESHOLD'),
-                        'NATR_THRESHOLD': config_manager.get('NATR_THRESHOLD')
-                    }
-                else:
-                    user_config = um.get_user_config(self.user_id)
+                # Используем глобальные настройки для всех пользователей
+                from config import config_manager
+                user_config = {
+                    'VOLUME_THRESHOLD': config_manager.get('VOLUME_THRESHOLD'),
+                    'SPREAD_THRESHOLD': config_manager.get('SPREAD_THRESHOLD'),
+                    'NATR_THRESHOLD': config_manager.get('NATR_THRESHOLD')
+                }
 
                 # Проверяем каждую монету
                 for symbol in user_watchlist:
@@ -195,7 +190,7 @@ class UserNotificationMode(UserMode):
             bot_logger.error(f"Ошибка отправки уведомления пользователю {self.user_id}: {e}")
 
     async def _send_deactivation_alert(self, symbol: str, coin_data: Dict):
-        """Отправляет уведомление о деактивации монеты"""
+        """Отправляет уведомение о деактивации монеты"""
         try:
             duration = time.time() - self.active_coins[symbol]['start_time']
             alert_text = (
@@ -293,18 +288,13 @@ class UserMonitoringMode(UserMode):
                     await asyncio.sleep(30)
                     continue
 
-                # Получаем настройки пользователя
-                from user_manager import user_manager as um
-                if um.is_admin(self.user_id):
-                    # Для админа используем глобальные настройки
-                    from config import config_manager
-                    user_config = {
-                        'VOLUME_THRESHOLD': config_manager.get('VOLUME_THRESHOLD'),
-                        'SPREAD_THRESHOLD': config_manager.get('SPREAD_THRESHOLD'),
-                        'NATR_THRESHOLD': config_manager.get('NATR_THRESHOLD')
-                    }
-                else:
-                    user_config = um.get_user_config(self.user_id)
+                # Используем глобальные настройки для всех пользователей
+                from config import config_manager
+                user_config = {
+                    'VOLUME_THRESHOLD': config_manager.get('VOLUME_THRESHOLD'),
+                    'SPREAD_THRESHOLD': config_manager.get('SPREAD_THRESHOLD'),
+                    'NATR_THRESHOLD': config_manager.get('NATR_THRESHOLD')
+                }
 
                 # Получаем данные монет с использованием полного API для получения 1-минутных данных
                 results = []
