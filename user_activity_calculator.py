@@ -524,112 +524,70 @@ class UserActivityCalculator:
             Отформатированный отчет активности
         """
         try:
-            # Получаем данные активности за 24 часа
-            activities = self.get_last_24_hours_activity()
-            
-            if not activities:
-                return "❌ Нет данных об активности за последние 24 часа"
-            
-            # Рассчитываем статистику по текущим 24 часам
-            stats = self.calculate_activity_statistics_welford(activities)
-            total_activity = sum(activities)
-            
-            # Если нет активности, показываем простое сообщение
-            if total_activity == 0:
-                return (
-                    "💤 <b>Ваша активность за последние 24 часа</b>\n\n"
-                    "📊 Общая активность: <b>0 минут</b>\n"
-                    "💡 Запустите бота и добавьте монеты для отслеживания активности!"
-                )
-            
-            # Получаем информацию об уровне активности (используем упрощенную схему)
-            if total_activity >= 100:
-                level = "Экстремально высокая"
-                emoji = "🔥🔥🔥"
-                color = "🟥"
-            elif total_activity >= 60:
-                level = "Очень высокая"
-                emoji = "🔥🔥"
-                color = "🟧"
-            elif total_activity >= 30:
-                level = "Высокая"
-                emoji = "🔥"
-                color = "🟨"
-            elif total_activity >= 15:
-                level = "Выше средней"
-                emoji = "📈"
-                color = "🟩"
-            elif total_activity >= 5:
-                level = "Средняя"
-                emoji = "📊"
-                color = "🟦"
-            else:
-                level = "Низкая"
-                emoji = "❄️"
-                color = "⬜"
-            
-            # Находим часы с максимальной активностью
-            max_activity = max(activities)
-            max_hour_index = activities.index(max_activity)
-            
-            # Считаем активные часы (с активностью > 0)
-            active_hours = sum(1 for a in activities if a > 0)
-            
-            # Форматируем отчет
+            # Получаем топ-5 монет по активности
+            top_coins = self.get_top_coins_24h()
+
+            # Получаем детальную информацию по часам
+            hourly_data = self.get_hourly_activity_with_coins()
+
+            # Рассчитываем общую статистику
+            total_activities = [hour['total_activity'] for hour in hourly_data]
+            stats = self.calculate_activity_statistics_welford(total_activities)
+
+            # Начинаем формировать отчет
             report_lines = []
-            
-            # Заголовок с общей информацией
-            report_lines.append(f"{color} <b>Ваш уровень активности: {level}</b> {emoji}")
+
+            # Заголовок
+            report_lines.append("📈 <b>Ваша активность за последние 24 часа</b>")
             report_lines.append("")
-            
-            # Основная статистика
-            report_lines.append("<b>📊 Ваша статистика за 24 часа:</b>")
-            report_lines.append(f"• Общая активность: <b>{total_activity:.1f} минут</b>")
-            report_lines.append(f"• Активных часов: <b>{active_hours}/24</b>")
-            report_lines.append(f"• Максимум за час: <b>{max_activity:.1f} мин</b> ({max_hour_index} часов назад)")
-            report_lines.append(f"• Среднее за час: <b>{stats['mean']:.1f} мин</b>")
-            report_lines.append("")
-            
-            # Топ-5 самых активных часов
-            indexed_activities = [(i, act) for i, act in enumerate(activities) if act > 0]
-            indexed_activities.sort(key=lambda x: x[1], reverse=True)
-            
-            if indexed_activities:
-                report_lines.append("<b>🔥 Ваши топ активных часов:</b>")
-                for i, (hour_idx, activity) in enumerate(indexed_activities[:5]):
-                    hours_ago = hour_idx
-                    if hours_ago == 0:
-                        time_label = "текущий час"
-                    elif hours_ago == 1:
-                        time_label = "1 час назад"
-                    else:
-                        time_label = f"{hours_ago} часов назад"
-                    
-                    report_lines.append(f"• <b>{activity:.1f} мин</b> - {time_label}")
-                
+
+            # Топ-5 монет
+            if top_coins:
+                report_lines.append("🏆 <b>Ваш топ-5 монет по активности:</b>")
+                for i, (coin, activity) in enumerate(top_coins, 1):
+                    report_lines.append(f"{i}. {coin} - {activity:.1f} мин")
                 report_lines.append("")
-            
-            # Визуализация последних 12 часов
-            report_lines.append("<b>📈 Ваши последние 12 часов:</b>")
-            visual_line = ""
-            for i in range(12):
-                activity = activities[i]
-                if activity >= 10:
-                    visual_line += "🔥"
-                elif activity >= 5:
-                    visual_line += "🔴"
-                elif activity >= 2:
-                    visual_line += "🟡"
-                elif activity >= 1:
-                    visual_line += "🟢"
+
+            # Почасовая разбивка
+            report_lines.append("🕐 <b>Ваши сессии по часам:</b>")
+            report_lines.append("")
+
+            for hour_data in hourly_data:
+                # Заголовок часа
+                hour_line = f"{hour_data['hour']} {hour_data['color']} {hour_data['emoji']} {hour_data['level']}"
+                report_lines.append(hour_line)
+
+                # Информация об активности
+                if hour_data['sessions_count'] > 0:
+                    avg_session = hour_data['total_activity'] / hour_data['sessions_count']
+                    activity_line = (f"Активность: {hour_data['total_activity']:.1f} мин "
+                                   f"({hour_data['sessions_count']} сессий, ср. {avg_session:.1f}м) "
+                                   f"(z={hour_data['z_score']:.1f})")
                 else:
-                    visual_line += "⚪"
-            
-            report_lines.append(f"<code>{visual_line}</code>")
-            report_lines.append("<i>🔥≥10мин 🔴≥5мин 🟡≥2мин 🟢≥1мин ⚪&lt;1мин</i>")
-            
+                    activity_line = f"Активность: {hour_data['total_activity']:.1f} мин ({hour_data['sessions_count']} сессий) (z={hour_data['z_score']:.1f})"
+
+                report_lines.append(activity_line)
+
+                # Список монет
+                if hour_data['coins']:
+                    report_lines.append("Монеты:")
+                    # Сортируем монеты по активности
+                    sorted_coins = sorted(hour_data['coins'].items(), key=lambda x: x[1], reverse=True)
+                    for coin, activity in sorted_coins:
+                        report_lines.append(f"• {coin} ({activity:.1f}м)")
+                else:
+                    report_lines.append("Монеты: нет активности")
+
+                report_lines.append("")
+
+            # Статистика
+            report_lines.append("📊 <b>Ваша статистика активности:</b>")
+            report_lines.append(f"• Среднее: {stats['mean']:.1f} мин/час")
+            report_lines.append(f"• Стд. откл.: {stats['std']:.1f} мин")
+            report_lines.append(f"• Выборка: {stats['count']} часов")
+
             return "\n".join(report_lines)
-            
+
         except Exception as e:
             bot_logger.error(f"Ошибка генерации отчета активности пользователя {self.chat_id}: {e}")
             return f"❌ Ошибка генерации отчета: {str(e)}"
