@@ -38,7 +38,7 @@ class TradingTelegramBot:
         self._last_operation_time = 0
 
         # Активные монеты для уведомлений
-        self.active_coins: Dict[str, Dict] = {}
+        self._active_coins: Dict[str, Dict] = {}
         self.processing_coins = set()
         self.notification_locks = set()
 
@@ -60,24 +60,24 @@ class TradingTelegramBot:
         """Свойство для обратной совместимости с основным health check"""
         # Собираем активные монеты со всех пользователей для общей статистики
         all_active_coins = {}
-        
+
         # Получаем статистику всех пользователей
         all_users_stats = self.user_modes_manager.get_all_stats()
-        
+
         for user_id, user_stats in all_users_stats.get('users', {}).items():
             user_modes = user_stats.get('modes', {})
-            
+
             # Проверяем режим уведомлений
             if 'notification' in user_modes:
                 notification_stats = user_modes['notification']
                 active_coins_list = notification_stats.get('active_coins', [])
-                
+
                 # Добавляем активные монеты этого пользователя
                 for coin in active_coins_list:
                     if coin not in all_active_coins:
                         all_active_coins[coin] = {'users': []}
                     all_active_coins[coin]['users'].append(user_id)
-        
+
         # Преобразуем в формат {symbol: {}} для совместимости
         return {coin: {'active': True, 'users_count': len(data['users'])} 
                 for coin, data in all_active_coins.items()}
@@ -460,7 +460,7 @@ class TradingTelegramBot:
 
                 # Удаляем все активные уведомления
                 deleted_count = 0
-                for symbol, coin_data in list(self.active_coins.items()):
+                for symbol, coin_data in list(self._active_coins.items()):
                     msg_id = coin_data.get('msg_id')
                     if msg_id and isinstance(msg_id, int) and msg_id > 0:
                         await self.delete_message(msg_id)
@@ -476,7 +476,7 @@ class TradingTelegramBot:
 
                 # Очищаем состояние
                 self.bot_running = False
-                self.active_coins.clear()
+                self._active_coins.clear()
                 self.processing_coins.clear()
                 self.notification_locks.clear()
                 self.monitoring_message_id = None
@@ -803,7 +803,7 @@ class TradingTelegramBot:
             return
 
         self.bot_running = True
-        self.active_coins.clear()
+        self._active_coins.clear()
         self.processing_coins.clear()
         self.notification_locks.clear()
         self.monitoring_message_id = None
@@ -845,7 +845,7 @@ class TradingTelegramBot:
                     # Проверяем неактивные сессии
                     try:
                         from session_recorder import session_recorder
-                        session_recorder.check_inactive_sessions(self.active_coins)
+                        session_recorder.check_inactive_sessions(self._active_coins)
                     except Exception as e:
                         bot_logger.debug(f"Ошибка проверки сессий: {e}")
                     cleanup_counter = 0
@@ -1001,7 +1001,7 @@ class TradingTelegramBot:
 
         if data['active']:
             # Монета активна
-            if symbol not in self.active_coins:
+            if symbol not in self._active_coins:
                 # Дополнительная защита от дублирования
                 if symbol in self.notification_locks:
                     return
@@ -1016,8 +1016,8 @@ class TradingTelegramBot:
                 await self._update_coin_notification(symbol, data, now)
         else:
             # Монета неактивна - проверяем завершение
-            if symbol in self.active_coins:
-                coin_info = self.active_coins[symbol]
+            if symbol in self._active_coins:
+                coin_info = self._active_coins[symbol]
 
                 # Пропускаем если создается
                 if coin_info.get('creating', False):
@@ -1035,7 +1035,7 @@ class TradingTelegramBot:
         bot_logger.info(f"[NOTIFICATION_START] {symbol} - новая активная монета обнаружена")
 
         # Создаем запись с флагом creating
-        self.active_coins[symbol] = {
+        self._active_coins[symbol] = {
             'start': now,
             'last_active': now,
             'data': data.copy(),
@@ -1054,9 +1054,9 @@ class TradingTelegramBot:
         # Отправляем сообщение
         msg_id = await self.send_message(message)
 
-        if msg_id and symbol in self.active_coins:
+        if msg_id and symbol in self._active_coins:
             # Обновляем запись с полученным msg_id
-            self.active_coins[symbol].update({
+            self._active_coins[symbol].update({
                 'msg_id': msg_id,
                 'creating': False
             })
@@ -1064,8 +1064,8 @@ class TradingTelegramBot:
             bot_logger.info(f"[NOTIFICATION_SUCCESS] {symbol} - уведомление создано успешно")
         else:
             # Удаляем неудачную запись
-            if symbol in self.active_coins:
-                del self.active_coins[symbol]
+            if symbol in self._active_coins:
+                del self._active_coins[symbol]
             bot_logger.warning(f"[NOTIFICATION_FAILED] {symbol} - не удалось создать уведомление")
 
     async def _update_coin_notification(self, symbol: str, data: Dict, now: float):
@@ -1073,7 +1073,7 @@ class TradingTelegramBot:
         if not self.bot_running:
             return
 
-        coin_info = self.active_coins[symbol]
+        coin_info = self._active_coins[symbol]
 
         # Пропускаем если создается
         if coin_info.get('creating', False):
@@ -1097,10 +1097,10 @@ class TradingTelegramBot:
 
     async def _end_coin_activity(self, symbol: str, end_time: float):
         """Завершает активность монеты"""
-        if symbol not in self.active_coins:
+        if symbol not in self._active_coins:
             return
 
-        coin_info = self.active_coins[symbol]
+        coin_info = self._active_coins[symbol]
         duration = end_time - coin_info['start']
 
         bot_logger.info(f"[END] Завершение активности {symbol}, длительность: {duration:.1f}с")
@@ -1122,14 +1122,14 @@ class TradingTelegramBot:
             bot_logger.trade_activity(symbol, "ENDED", f"Duration: {duration_min}m {duration_sec}s")
 
         # Удаляем из активных монет
-        del self.active_coins[symbol]
+        del self._active_coins[symbol]
 
     async def _cleanup_stale_processes(self):
         """Очистка зависших процессов"""
         current_time = time.time()
         to_remove = []
 
-        for symbol, coin_info in list(self.active_coins.items()):
+        for symbol, coin_info in list(self._active_coins.items()):
             # Монеты без msg_id (orphaned)
             if not coin_info.get('msg_id') and not coin_info.get('creating', False):
                 to_remove.append(symbol)
@@ -1141,7 +1141,7 @@ class TradingTelegramBot:
 
         for symbol in to_remove:
             try:
-                del self.active_coins[symbol]
+                del self._active_coins[symbol]
                 bot_logger.info(f"[CLEANUP] Очищена зависшая монета {symbol}")
             except Exception as e:
                 bot_logger.error(f"[CLEANUP] Ошибка очистки {symbol}: {e}")
@@ -1415,5 +1415,5 @@ class TradingTelegramBot:
         elif data == "show_all_users":
             await self.admin_handlers.handle_show_all_users(update, context)
 
-# Создаем экземпляр бота
+# Creates an instance of the bot
 telegram_bot = TradingTelegramBot()
