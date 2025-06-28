@@ -27,16 +27,19 @@ class UserManager:
                     data = json.load(f)
                     self.users_data = data.get('users', {})
                     self.pending_requests = data.get('pending_requests', {})
+                    self.rejected_users = data.get('rejected_users', {})
                 bot_logger.info("Данные пользователей загружены")
             else:
                 self.users_data = {}
                 self.pending_requests = {}
+                self.rejected_users = {}
                 self.save_data()
                 bot_logger.info("Создан новый файл данных пользователей")
         except Exception as e:
             bot_logger.error(f"Ошибка загрузки данных пользователей: {e}")
             self.users_data = {}
             self.pending_requests = {}
+            self.rejected_users = {}
 
     def save_data(self):
         """Сохраняет данные пользователей в файл"""
@@ -44,6 +47,7 @@ class UserManager:
             data = {
                 'users': self.users_data,
                 'pending_requests': self.pending_requests,
+                'rejected_users': getattr(self, 'rejected_users', {}),
                 'last_updated': datetime.now().isoformat()
             }
             with open(self.data_file, 'w', encoding='utf-8') as f:
@@ -71,13 +75,18 @@ class UserManager:
         if self.is_admin(chat_id) or self.is_user_approved(chat_id):
             return False  # Админ или уже одобренный пользователь
         
+        # Проверяем, был ли пользователь ранее отклонен
+        rejected_data = getattr(self, 'rejected_users', {}).get(chat_id_str)
+        
         self.pending_requests[chat_id_str] = {
             'chat_id': chat_id_str,
             'username': user_info.get('username', 'Unknown'),
             'first_name': user_info.get('first_name', 'Unknown'),
             'last_name': user_info.get('last_name', ''),
             'request_time': time.time(),
-            'request_datetime': datetime.now().isoformat()
+            'request_datetime': datetime.now().isoformat(),
+            'is_returning_user': rejected_data is not None,
+            'previous_rejections': rejected_data.get('rejection_count', 0) if rejected_data else 0
         }
         self.save_data()
         bot_logger.info(f"Добавлена заявка от пользователя {chat_id_str}")
@@ -119,11 +128,29 @@ class UserManager:
         return True
 
     def reject_user(self, chat_id: str) -> bool:
-        """Отклоняет заявку пользователя"""
+        """Отклоняет заявку пользователя, но сохраняет информацию для возможного повторного доступа"""
         chat_id_str = str(chat_id)
         
         if chat_id_str not in self.pending_requests:
             return False
+        
+        # Сохраняем информацию об отклоненном пользователе
+        request_data = self.pending_requests[chat_id_str]
+        
+        # Создаем запись об отклоненном пользователе
+        if not hasattr(self, 'rejected_users'):
+            self.rejected_users = {}
+        
+        self.rejected_users[chat_id_str] = {
+            'chat_id': chat_id_str,
+            'username': request_data.get('username', 'Unknown'),
+            'first_name': request_data.get('first_name', 'Unknown'),
+            'last_name': request_data.get('last_name', ''),
+            'first_request_time': request_data.get('request_time'),
+            'rejected_time': time.time(),
+            'rejected_datetime': datetime.now().isoformat(),
+            'rejection_count': self.rejected_users.get(chat_id_str, {}).get('rejection_count', 0) + 1
+        }
         
         del self.pending_requests[chat_id_str]
         self.save_data()
@@ -224,11 +251,22 @@ class UserManager:
         bot_logger.info(f"Доступ пользователя {chat_id_str} отключен")
         return True
 
+    def is_returning_user(self, chat_id: str) -> bool:
+        """Проверяет, является ли пользователь возвращающимся (ранее отклоненным)"""
+        chat_id_str = str(chat_id)
+        return chat_id_str in getattr(self, 'rejected_users', {})
+
+    def get_rejected_user_info(self, chat_id: str) -> Optional[Dict]:
+        """Возвращает информацию об отклоненном пользователе"""
+        chat_id_str = str(chat_id)
+        return getattr(self, 'rejected_users', {}).get(chat_id_str)
+
     def get_stats(self) -> Dict:
         """Возвращает статистику пользователей"""
         return {
             'total_users': len(self.users_data),
             'pending_requests': len(self.pending_requests),
+            'rejected_users': len(getattr(self, 'rejected_users', {})),
             'completed_setup': len([u for u in self.users_data.values() if u.get('setup_completed', False)]),
             'admin_chat_id': self.admin_chat_id
         }

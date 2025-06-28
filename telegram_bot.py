@@ -1,3 +1,4 @@
+python
 import asyncio
 import time
 from typing import Dict, Optional, List, Any
@@ -477,8 +478,15 @@ class TradingTelegramBot:
 
         # Проверяем, одобрен ли пользователь
         if user_manager.is_user_approved(chat_id):
-            await self._handle_approved_user_start(update, context)
-            return
+            #await self._handle_approved_user_start(update, context)
+            # Проверяем, завершил ли пользователь настройку
+            if not user_manager.is_setup_completed(chat_id):
+                await self._start_coin_setup(update, context)  # Начинаем сетап монет
+                return ConversationHandler.END
+
+            else:
+                await self._handle_approved_user_start(update, context)
+                return ConversationHandler.END
 
         # Проверяем, есть ли уже заявка от этого пользователя
         if user_manager.is_user_pending(chat_id):
@@ -488,7 +496,7 @@ class TradingTelegramBot:
                 "Вы получите уведомление, как только заявка будет рассмотрена.",
                 parse_mode=ParseMode.HTML
             )
-            return
+            return ConversationHandler.END
 
         # Новый пользователь - создаем заявку
         user_info = {
@@ -579,7 +587,7 @@ class TradingTelegramBot:
         # Проверяем, завершил ли пользователь настройку
         if not user_manager.is_setup_completed(chat_id):
             user_watchlist = user_manager.get_user_watchlist(chat_id)
-            
+
             if not user_watchlist:
                 # Нужно добавить монеты
                 await update.message.reply_text(
@@ -604,7 +612,7 @@ class TradingTelegramBot:
                     parse_mode=ParseMode.HTML,
                     reply_markup=self.user_keyboard
                 )
-                
+
                 # Отмечаем настройку как завершенную
                 user_manager.mark_setup_completed(chat_id)
                 return
@@ -774,7 +782,7 @@ class TradingTelegramBot:
     async def _handle_add_coin_start(self, update: Update):
         """Начало добавления монеты"""
         chat_id = update.effective_chat.id
-        
+
         # Проверяем права доступа
         if not user_manager.is_admin(chat_id) and not user_manager.is_user_approved(chat_id):
             await update.message.reply_text(
@@ -782,7 +790,7 @@ class TradingTelegramBot:
                 parse_mode=ParseMode.HTML
             )
             return ConversationHandler.END
-        
+
         await update.message.reply_text(
             "➕ <b>Добавление монеты</b>\n\n"
             "Введите символ монеты (например: <code>BTC</code> или <code>BTC_USDT</code>):",
@@ -795,7 +803,7 @@ class TradingTelegramBot:
         """Начало удаления монеты"""
         chat_id = update.effective_chat.id
         user_keyboard = self.get_user_keyboard(chat_id)
-        
+
         # Проверяем права доступа
         if not user_manager.is_admin(chat_id) and not user_manager.is_user_approved(chat_id):
             await update.message.reply_text(
@@ -803,7 +811,7 @@ class TradingTelegramBot:
                 parse_mode=ParseMode.HTML
             )
             return ConversationHandler.END
-        
+
         # Получаем список монет в зависимости от роли
         if user_manager.is_admin(chat_id):
             coins = watchlist_manager.get_all()
@@ -811,7 +819,7 @@ class TradingTelegramBot:
         else:
             coins = user_manager.get_user_watchlist(chat_id)
             list_title = "ваш список"
-        
+
         if len(coins) == 0:
             await update.message.reply_text(
                 f"❌ {list_title.capitalize()} отслеживания пуст.",
@@ -835,14 +843,14 @@ class TradingTelegramBot:
     async def _handle_volume_setting_start(self, update: Update):
         """Начало настройки объёма"""
         chat_id = update.effective_chat.id
-        
+
         # Получаем текущее значение в зависимости от роли
         if user_manager.is_admin(chat_id):
             current_value = config_manager.get('VOLUME_THRESHOLD')
         else:
             user_config = user_manager.get_user_config(chat_id)
             current_value = user_config.get('VOLUME_THRESHOLD', 1000)
-        
+
         await update.message.reply_text(
             f"📊 <b>Настройка минимального объёма</b>\n\n"
             f"Текущее значение: <code>${current_value:,}</code>\n\n"
@@ -855,14 +863,14 @@ class TradingTelegramBot:
     async def _handle_spread_setting_start(self, update: Update):
         """Начало настройки спреда"""
         chat_id = update.effective_chat.id
-        
+
         # Получаем текущее значение в зависимости от роли
         if user_manager.is_admin(chat_id):
             current_value = config_manager.get('SPREAD_THRESHOLD')
         else:
             user_config = user_manager.get_user_config(chat_id)
             current_value = user_config.get('SPREAD_THRESHOLD', 0.1)
-        
+
         await update.message.reply_text(
             f"⇄ <b>Настройка минимального спреда</b>\n\n"
             f"Текущее значение: <code>{current_value}%</code>\n\n"
@@ -875,14 +883,14 @@ class TradingTelegramBot:
     async def _handle_natr_setting_start(self, update: Update):
         """Начало настройки NATR"""
         chat_id = update.effective_chat.id
-        
+
         # Получаем текущее значение в зависимости от роли
         if user_manager.is_admin(chat_id):
             current_value = config_manager.get('NATR_THRESHOLD')
         else:
             user_config = user_manager.get_user_config(chat_id)
             current_value = user_config.get('NATR_THRESHOLD', 0.5)
-        
+
         await update.message.reply_text(
             f"📈 <b>Настройка минимального NATR</b>\n\n"
             f"Текущее значение: <code>{current_value}%</code>\n\n"
@@ -896,7 +904,7 @@ class TradingTelegramBot:
         """Показ списка монет"""
         chat_id = update.effective_chat.id
         user_keyboard = self.get_user_keyboard(chat_id)
-        
+
         # Получаем список монет в зависимости от роли
         if user_manager.is_admin(chat_id):
             coins = watchlist_manager.get_all()
@@ -904,7 +912,7 @@ class TradingTelegramBot:
         else:
             coins = user_manager.get_user_watchlist(chat_id)
             list_title = "📋 <b>Ваш список отслеживания"
-        
+
         if not coins:
             text = f"{list_title} пуст</b>"
         else:
@@ -920,7 +928,7 @@ class TradingTelegramBot:
     async def _handle_settings(self, update: Update):
         """Обработка настроек"""
         chat_id = update.effective_chat.id
-        
+
         # Получаем настройки в зависимости от роли
         if user_manager.is_admin(chat_id):
             volume_threshold = config_manager.get('VOLUME_THRESHOLD')
@@ -933,7 +941,7 @@ class TradingTelegramBot:
             spread_threshold = user_config.get('SPREAD_THRESHOLD', 0.1)
             natr_threshold = user_config.get('NATR_THRESHOLD', 0.5)
             settings_title = "⚙ <b>Ваши настройки фильтров:</b>\n\n"
-        
+
         current_settings = (
             settings_title +
             f"📊 Минимальный объём: <code>${volume_threshold:,}</code>\n"
@@ -984,7 +992,7 @@ class TradingTelegramBot:
         """Сброс настроек к значениям по умолчанию"""
         chat_id = update.effective_chat.id
         user_keyboard = self.get_user_keyboard(chat_id)
-        
+
         # Сбрасываем настройки в зависимости от роли
         if user_manager.is_admin(chat_id):
             config_manager.set('VOLUME_THRESHOLD', 1000)
@@ -1394,10 +1402,10 @@ class TradingTelegramBot:
         # Добавляем в список (админ - глобальный, пользователь - личный)
         chat_id = update.effective_chat.id
         user_keyboard = self.get_user_keyboard(chat_id)
-        
+
         success = False
         total_count = 0
-        
+
         if user_manager.is_admin(chat_id):
             # Админ добавляет в глобальный список
             success = watchlist_manager.add(symbol)
@@ -1406,7 +1414,7 @@ class TradingTelegramBot:
             # Пользователь добавляет в свой список
             success = user_manager.add_user_coin(chat_id, symbol)
             total_count = len(user_manager.get_user_watchlist(chat_id))
-        
+
         if success:
             # Автоматически восстанавливаем все Circuit Breaker'ы при успешной операции
             try:
@@ -1501,10 +1509,10 @@ class TradingTelegramBot:
 
             # Сохраняем настройки в зависимости от роли
             if user_manager.is_admin(chat_id):
-                config_manager.set('VOLUME_THRESHOLD', value)
+config_manager.set('VOLUME_THRESHOLD', value)
             else:
                 user_manager.update_user_config(chat_id, 'VOLUME_THRESHOLD', value)
-            
+
             await update.message.reply_text(
                 f"✅ <b>Минимальный объём установлен:</b> ${value:,}",
                 reply_markup=user_keyboard,
@@ -1543,7 +1551,7 @@ class TradingTelegramBot:
                 config_manager.set('SPREAD_THRESHOLD', value)
             else:
                 user_manager.update_user_config(chat_id, 'SPREAD_THRESHOLD', value)
-            
+
             await update.message.reply_text(
                 f"✅ <b>Минимальный спред установлен:</b> {value}%",
                 reply_markup=user_keyboard,
@@ -1582,7 +1590,7 @@ class TradingTelegramBot:
                 config_manager.set('NATR_THRESHOLD', value)
             else:
                 user_manager.update_user_config(chat_id, 'NATR_THRESHOLD', value)
-            
+
             await update.message.reply_text(
                 f"✅ <b>Минимальный NATR установлен:</b> {value}%",
                 reply_markup=user_keyboard,
@@ -1830,7 +1838,7 @@ class TradingTelegramBot:
 
         self.app.add_handler(CommandHandler("start", self.start_handler))
         self.app.add_handler(conv_handler)
-        
+
         # Добавляем обработчик callback запросов для инлайн кнопок
         self.app.add_handler(CallbackQueryHandler(self.callback_query_handler))
 
@@ -1846,7 +1854,7 @@ class TradingTelegramBot:
             return
 
         data = query.data
-        
+
         if data.startswith("approve_"):
             chat_id = data.replace("approve_", "")
             await self.admin_handlers.handle_approve_user(update, context, chat_id)
@@ -1863,5 +1871,222 @@ class TradingTelegramBot:
             page = int(data.replace("users_page_", ""))
             await self.admin_handlers.handle_show_all_users(update, context)
 
+    async def _start_coin_setup(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Начинает первоначальную настройку монет"""
+        chat_id = update.effective_chat.id
+
+        await update.message.reply_text(
+            "👋 <b>Добро пожаловать!</b>\n\n"
+            "Чтобы начать, добавьте хотя бы одну монету для отслеживания.\n\n"
+            "Введите символ монеты (например: BTC, ETH, ADA):",
+            parse_mode=ParseMode.HTML
+        )
+        # Сохраняем состояние, что сейчас идет добавление монет
+        user_manager.update_user_data(chat_id, {'setup_state': 'adding_coins'})
+        return
+
+    async def _start_filter_setup(self, update: Update, chat_id: str):
+        """Начинает первоначальную настройку фильтров"""
+
+        await update.message.reply_text(
+            "⚙️ <b>Настройка фильтров</b>\n\n"
+            "Настройте фильтры, чтобы бот уведомлял только об интересующих вас монетах.\n\n"
+            "📊 <b>1/3 - Минимальный объём</b>\n"
+            "Введите минимальный объём в долларах\n\n"
+            "💡 <b>Рекомендуется:</b> 500-2000\n"
+            "Объём - суммарный объём торгов за последние 24ч\n\n"
+            "Введите число (например: 1000):",
+            parse_mode=ParseMode.HTML
+        )
+
+        # Сохраняем состояние, что сейчас идет настройка фильтров и с какого шага начать
+        user_manager.update_user_data(chat_id, {'setup_state': 'setting_filters', 'filter_setup_step': 'volume'})
+
+    async def _handle_initial_coin_setup(self, update: Update, text: str):
+        """Обработка добавления монет во время начальной настройки"""
+        chat_id = update.effective_chat.id
+
+        if text == "➡️ Далее":
+            # Переходим к настройке фильтров
+            await self._start_filter_setup(update, chat_id)
+            return ConversationHandler.END
+        elif text == "➕ Добавить еще":
+            await update.message.reply_text(
+                "➕ <b>Добавление следующей монеты</b>\n\n"
+                "Введите символ следующей монеты:",
+                parse_mode=ParseMode.HTML
+            )
+            return ConversationHandler.END
+        else:
+            # Пользователь ввел название монеты
+            return await self._process_initial_coin_add(update, text)
+
+    async def _process_initial_coin_add(self, update: Update, text: str):
+        """Обрабатывает добавление монеты в начальной настройке"""
+        chat_id = update.effective_chat.id
+        symbol = text.upper().replace('_USDT', '').replace('USDT', '')
+
+        # Валидация символа
+        if not input_validator.validate_symbol(symbol):
+            await update.message.reply_text(
+                "❌ <b>Неверный формат символа</b>\n\n"
+                "Символ должен содержать только буквы и цифры (2-10 символов)\n\n"
+                "💡 Попробуйте еще раз:\n"
+                "Примеры: BTC, ETH, ADA, SOL",
+                parse_mode=ParseMode.HTML
+            )
+            return ConversationHandler.END
+
+        # Проверяем существование монеты
+        try:
+            loading_msg = await update.message.reply_text("🔍 Проверяю монету...")
+
+            ticker_data = await api_client.get_ticker_data(symbol)
+
+            if loading_msg:
+                await loading_msg.delete()
+
+            if not ticker_data:
+                await update.message.reply_text(
+                    f"❌ <b>Монета '{symbol}' не найдена на MEXC</b>\n\n"
+                    "Попробуйте ввести другой символ:",
+                    parse_mode=ParseMode.HTML
+                )
+                return ConversationHandler.END
+
+            # Добавляем монету
+            if user_manager.add_user_coin(chat_id, symbol):
+                user_watchlist = user_manager.get_user_watchlist(chat_id)
+                price = float(ticker_data.get('lastPrice', 0))
+
+                # Создаем клавиатуру с вариантами действий
+                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("➕ Добавить еще", callback_data="add_more_coins")],
+                    [InlineKeyboardButton("➡️ Далее", callback_data="proceed_to_filters")]
+                ])
+
+                await update.message.reply_text(
+                    f"✅ <b>Монета добавлена!</b>\n\n"
+                    f"📊 <b>{symbol}</b>\n"
+                    f"💰 Цена: <code>${price:.6f}</code>\n"
+                    f"📈 Всего монет: <b>{len(user_watchlist)}</b>\n\n"
+                    "Что хотите сделать дальше?",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=keyboard
+                )
+            else:
+                await update.message.reply_text(
+                    f"⚠️ Монета <b>{symbol}</b> уже в вашем списке\n\n"
+                    "Введите другую монету:",
+                    parse_mode=ParseMode.HTML
+                )
+        except Exception as e:
+            if loading_msg:
+                try:
+                    await loading_msg.delete()
+                except:
+                    pass
+
+            await update.message.reply_text(
+                f"❌ Ошибка при проверке монеты {symbol}\n\n"
+                "Попробуйте еще раз:",
+                parse_mode=ParseMode.HTML
+            )
+
+        return ConversationHandler.END
+
+    async def _handle_initial_filter_setup(self, update: Update, text: str):
+        """Обработка настройки фильтров во время начальной настройки"""
+        chat_id = update.effective_chat.id
+        user_data = user_manager.get_user_data(chat_id)
+        filter_step = user_data.get('filter_setup_step', 'volume')
+
+        try:
+            if filter_step == 'volume':
+                value = int(text)
+                if value < 100:
+                    await update.message.reply_text(
+                        "❌ Объём должен быть не менее $100\n\n"
+                        "Введите корректное значение:",
+                        parse_mode=ParseMode.HTML
+                    )
+                    return ConversationHandler.END
+
+                user_manager.update_user_config(chat_id, 'VOLUME_THRESHOLD', value)
+                user_manager.update_user_data(chat_id, {'filter_setup_step': 'spread'})
+
+                await update.message.reply_text(
+                    f"✅ <b>Объём установлен:</b> ${value:,}\n\n"
+                    "📈 <b>2/3 - Минимальный спред</b>\n"
+                    "Введите минимальный спред в процентах\n\n"
+                    "💡 <b>Рекомендуется:</b> 0.1-0.5\n"
+                    "Спред - разница между ценой покупки и продажи\n\n"
+                    "Введите число (например: 0.1):",
+                    parse_mode=ParseMode.HTML
+                )
+
+            elif filter_step == 'spread':
+                value = float(text)
+                if value < 0 or value > 10:
+                    await update.message.reply_text(
+                        "❌ Спред должен быть от 0 до 10%\n\n"
+                        "Введите корректное значение:",
+                        parse_mode=ParseMode.HTML
+                    )
+                    return ConversationHandler.END
+
+                user_manager.update_user_config(chat_id, 'SPREAD_THRESHOLD', value)
+                user_manager.update_user_data(chat_id, {'filter_setup_step': 'natr'})
+
+                await update.message.reply_text(
+                    f"✅ <b>Спред установлен:</b> {value}%\n\n"
+                    "📊 <b>3/3 - Минимальный NATR</b>\n"
+                    "Введите минимальный NATR в процентах\n\n"
+                    "💡 <b>Рекомендуется:</b> 0.5-2.0\n"
+                    "NATR показывает волатильность монеты\n\n"
+                    "Введите число (например: 0.5):",
+                    parse_mode=ParseMode.HTML
+                )
+
+            elif filter_step == 'natr':
+                value = float(text)
+                if value < 0 or value > 20:
+                    await update.message.reply_text(
+                        "❌ NATR должен быть от 0 до 20%\n\n"
+                        "Введите корректное значение:",
+                        parse_mode=ParseMode.HTML
+                    )
+                    return ConversationHandler.END
+
+                user_manager.update_user_config(chat_id, 'NATR_THRESHOLD', value)
+                user_manager.mark_setup_completed(chat_id)
+
+                user_config = user_manager.get_user_config(chat_id)
+                user_watchlist = user_manager.get_user_watchlist(chat_id)
+
+                await update.message.reply_text(
+                    f"🎉 <b>Настройка завершена!</b>\n\n"
+                    f"✅ <b>Ваши настройки сохранены:</b>\n"
+                    f"• Объём: ${user_config.get('VOLUME_THRESHOLD'):,}\n"
+                    f"• Спред: {user_config.get('SPREAD_THRESHOLD')}%\n"
+                    f"• NATR: {user_config.get('NATR_THRESHOLD')}%\n\n"
+                    f"📋 <b>Ваши монеты:</b> {len(user_watchlist)} шт.\n"
+                    f"• {', '.join(user_watchlist[:5])}"
+                    f"{'...' if len(user_watchlist) > 5 else ''}\n\n"
+                    "🚀 <b>Теперь вы можете использовать бота!</b>",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=self.user_keyboard
+                )
+
+        except ValueError:
+            await update.message.reply_text(
+                "❌ Введите числовое значение\n\n"
+                "Попробуйте еще раз:",
+                parse_mode=ParseMode.HTML
+            )
+
+        return ConversationHandler.END
+
 # Глобальный экземпляр бота
-telegram_bot = TradingTelegramBot()
+telegram_bot = TradingTelegramBot()```python
