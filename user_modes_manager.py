@@ -476,6 +476,32 @@ class UserModesManager:
         self.bot = bot_instance
         self.user_modes: Dict[str, Dict[str, UserMode]] = {}
 
+    async def restart_all_user_modes(self):
+        """Перезапускает все активные пользовательские режимы с новыми настройками"""
+        try:
+            restarted_count = 0
+            for user_id, user_modes in list(self.user_modes.items()):
+                for mode_type, user_mode in user_modes.items():
+                    if user_mode and user_mode.running:
+                        bot_logger.info(f"🔄 Перезапуск {mode_type} для пользователя {user_id}")
+
+                        # Останавливаем текущий режим
+                        await user_mode.stop()
+
+                        # Небольшая пауза
+                        await asyncio.sleep(0.5)
+
+                        # Запускаем заново
+                        await self.start_user_mode(user_id, mode_type)
+                        restarted_count += 1
+
+            bot_logger.info(f"✅ Перезапущено {restarted_count} пользовательских режимов")
+            return restarted_count
+
+        except Exception as e:
+            bot_logger.error(f"Ошибка перезапуска пользовательских режимов: {e}")
+            return 0
+
     async def start_user_mode(self, user_id: str, mode_type: str) -> bool:
         """Запускает режим для пользователя"""
         user_id_str = str(user_id)

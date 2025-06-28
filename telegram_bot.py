@@ -1528,7 +1528,7 @@ class TradingTelegramBot:
                 parse_mode=ParseMode.HTML
             )
 
-            # Принудительно обновляем сообщение мониторинга если бот запущен
+            # Перезапускаем мониторинг с новыми фильтрами
             await self._force_monitoring_update()
 
         except ValueError:
@@ -1564,7 +1564,7 @@ class TradingTelegramBot:
                 parse_mode=ParseMode.HTML
             )
 
-            # Принудительно обновляем сообщение мониторинга если бот запущен
+            # Перезапускаем мониторинг с новыми фильтрами
             await self._force_monitoring_update()
 
         except ValueError:
@@ -1594,13 +1594,14 @@ class TradingTelegramBot:
 
             # Все пользователи (включая админа) устанавливают персональные настройки
             user_manager.update_user_config(chat_id, {'NATR_THRESHOLD': value})
-            await update.message.reply_text(
+            await update.message.reply```python
+_text(
                 f"✅ Ваш минимальный NATR установлен: {value}%",
                 reply_markup=user_keyboard,
                 parse_mode=ParseMode.HTML
             )
 
-            # Принудительно обновляем сообщение мониторинга если бот запущен
+            # Перезапускаем мониторинг с новыми фильтрами
             await self._force_monitoring_update()
 
         except ValueError:
@@ -1714,7 +1715,7 @@ class TradingTelegramBot:
                 parse_mode=ParseMode.HTML
             )
 
-            # Принудительно обновляем сообщение мониторинга если бот запущен
+            # Перезапускаем мониторинг с новыми фильтрами
             await self._force_monitoring_update()
 
     async def _handle_activity_24h(self, update: Update):
@@ -1739,7 +1740,7 @@ class TradingTelegramBot:
             total_sessions = len(stats.get('sessions', []))
             total_duration = sum(session.get('total_duration', 0) for session in stats.get('sessions', []))
             avg_duration = total_duration / total_sessions if total_sessions > 0 else 0
-            
+
             # Находим топ монету по количеству сессий
             symbol_counts = {}
             total_volume = 0
@@ -1749,7 +1750,7 @@ class TradingTelegramBot:
                 # Суммируем объём из summary если есть
                 session_summary = session.get('summary', {})
                 total_volume += session_summary.get('total_volume', 0)
-            
+
             top_coin = max(symbol_counts.items(), key=lambda x: x[1])[0] if symbol_counts else 'N/A'
 
             message = (
@@ -1839,26 +1840,97 @@ class TradingTelegramBot:
         chat_id = update.effective_chat.id
         user_keyboard = self.get_user_keyboard(chat_id)
 
+    async def _force_monitoring_update(self):
+        """Принудительно обновляет сообщение мониторинга если бот запущен"""
+        try:
+            bot_logger.info("🔄 Применение новых настроек фильтров")
+
+            # Обновляем персональные режимы пользователей
+            if hasattr(self, 'user_modes_manager'):
+                await self.user_modes_manager.restart_all_user_modes()
+                bot_logger.info("✅ Персональные режимы пользователей перезапущены")
+
+            # Обновляем глобальный режим мониторинга если активен
+            if hasattr(self, 'monitoring_mode') and self.monitoring_mode.running:
+                bot_logger.info("🔄 Перезапуск глобального режима мониторинга с новыми фильтрами")
+                await self.monitoring_mode.stop()
+                await asyncio.sleep(1.0)  # Пауза для корректного завершения
+                await self.monitoring_mode.start()
+                bot_logger.info("✅ Глобальный режим мониторинга перезапущен")
+
+            # Обновляем режим уведомлений если активен
+            if hasattr(self, 'notification_mode') and self.notification_mode.running:
+                bot_logger.info("🔄 Перезапуск режима уведомлений с новыми фильтрами")
+                await self.notification_mode.stop()
+                await asyncio.sleep(1.0)
+                await self.notification_mode.start()
+                bot_logger.info("✅ Режим уведомлений перезапущен")
+
+            # Очищаем кеш активных монет для пересчета с новыми фильтрами
+            if hasattr(self, 'active_coins'):
+                old_count = len(self.active_coins)
+                self.active_coins.clear()
+                bot_logger.info(f"🗑️ Очищен кеш активных монет (было: {old_count})")
+
+            # Очищаем кеш данных для принудительного обновления
+            try:
+                from cache_manager import cache_manager
+                cache_manager.clear_all()
+                bot_logger.info("🗑️ Кеш данных очищен для применения новых фильтров")
+            except Exception as e:
+                bot_logger.debug(f"Ошибка очистки кеша: {e}")
+
+            bot_logger.info("✅ Все режимы обновлены с новыми настройками фильтров")
+
+        except Exception as e:
+            bot_logger.error(f"Ошибка при применении новых настроек: {e}")
+
+    async def _restart_monitoring_with_new_filters(self):
+        """Перезапускает мониторинг с новыми фильтрами"""
+        try:
+            bot_logger.info("🔄 Перезапуск всех активных режимов с новыми фильтрами")
+
+            # Останавливаем все активные режимы
+            active_modes = []
+
+            if hasattr(self, 'monitoring_mode') and self.monitoring_mode.running:
+                active_modes.append('monitoring')
+                await self.monitoring_mode.stop()
+
+            if hasattr(self, 'notification_mode') and self.notification_mode.running:
+                active_modes.append('notification')
+                await self.notification_mode.stop()
+
+            # Пауза для корректного завершения
+            await asyncio.sleep(1.5)
+
+            # Очищаем все кеши и активные монеты
+            if hasattr(self, 'active_coins'):
+                self.active_coins.clear()
+
+            try:
+                from cache_manager import cache_manager
+                cache_manager.clear_all()
+            except:
+                pass
+
+            # Запускаем режимы заново
+            for mode in active_modes:
+                if mode == 'monitoring' and hasattr(self, 'monitoring_mode'):
+                    await self.monitoring_mode.start()
+                elif mode == 'notification' and hasattr(self, 'notification_mode'):
+                    await self.notification_mode.start()
+
+            bot_logger.info(f"✅ Перезапущены режимы: {', '.join(active_modes)}")
+
+        except Exception as e:
+            bot_logger.error(f"Ошибка перезапуска режимов: {e}")
+
         await update.message.reply_text(
             "🔙 Возврат в главное меню",
             reply_markup=user_keyboard,
             parse_mode=ParseMode.HTML
         )
-
-    async def _force_monitoring_update(self):
-        """Принудительное обновление сообщения мониторинга при изменении настроек"""
-        if not self.bot_running or not self.monitoring_message_id:
-            return
-
-        try:
-            # Получаем свежие данные и принудительно обновляем сообщение
-            results, failed_coins = await self._fetch_bot_data()
-            if results:
-                report = self._format_monitoring_report(results, failed_coins)
-                await self.edit_message(self.monitoring_message_id, report)
-            bot_logger.info("📊 Сообщение мониторинга принудительно обновлено после изменения настроек")
-        except Exception as e:
-            bot_logger.error(f"Ошибка принудительного обновления мониторинга: {e}")
 
     async def callback_query_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик инлайн кнопок"""
