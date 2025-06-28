@@ -1576,8 +1576,6 @@ class TradingTelegramBot:
             target_chat_id = data.replace("approve_", "")
             await self.admin_handlers.handle_approve_user(update, context, target_chat_id)
         elif data.startswith("reject_"):
-            ```python
-# This file contains the complete modified code for the TradingTelegramBot class with filter settings removed.
             target_chat_id = data.replace("reject_", "")
             await self.admin_handlers.handle_reject_user(update, context, target_chat_id)
         elif data.startswith("revoke_"):
