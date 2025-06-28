@@ -264,6 +264,38 @@ class APIClient:
 
         return results
 
+    async def get_coin_data(self, symbol: str) -> Optional[Dict]:
+        """Получает полные данные для одной монеты"""
+        try:
+            # Получаем базовые данные
+            ticker_data = await self.get_ticker_data(symbol)
+            if not ticker_data:
+                return None
+                
+            # Получаем дополнительные данные
+            spread = data_validator.calculate_spread(ticker_data)
+            natr = await data_validator.calculate_natr(symbol)
+            
+            # Получаем объем за последнюю минуту
+            volume = await self.get_minute_volume(symbol)
+            
+            # Получаем изменение цены
+            change_24h = float(ticker_data.get('priceChangePercent', 0))
+            
+            return {
+                'symbol': symbol,
+                'price': float(ticker_data.get('lastPrice', 0)),
+                'volume': volume,
+                'change': change_24h,
+                'spread': spread,
+                'natr': natr,
+                'timestamp': time.time()
+            }
+            
+        except Exception as e:
+            bot_logger.debug(f"Ошибка получения данных монеты {symbol}: {e}")
+            return None
+
     async def get_batch_coin_data(self, symbols: List[str]) -> Dict[str, Optional[Dict]]:
         """Получает данные для группы монет с максимальной оптимизацией"""
         results = {}

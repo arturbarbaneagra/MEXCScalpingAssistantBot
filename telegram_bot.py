@@ -16,6 +16,7 @@ from input_validator import input_validator
 from user_manager import user_manager
 from user_session_recorder import UserSessionRecorder
 from admin_handlers import create_admin_handlers
+from user_modes_manager import UserModesManager
 import os
 
 class TradingTelegramBot:
@@ -39,9 +40,12 @@ class TradingTelegramBot:
         self._switching_mode = False
         self._last_operation_time = 0
 
-        # Модули режимов
+        # Модули режимов (для админа - обратная совместимость)
         self.notification_mode = NotificationMode(self)
         self.monitoring_mode = MonitoringMode(self)
+        
+        # Менеджер персональных режимов пользователей
+        self.user_modes_manager = UserModesManager(self)
 
         # Многопользовательские модули
         self.admin_handlers = create_admin_handlers(self)
@@ -56,7 +60,15 @@ class TradingTelegramBot:
     @property
     def active_coins(self):
         """Свойство для обратной совместимости с основным health check"""
-        if self.bot_mode == 'notification':
+        # Для админа показываем его персональные активные монеты или глобальные
+        admin_mode = self.user_modes_manager.get_user_mode(self.chat_id)
+        if admin_mode == 'notification':
+            admin_stats = self.user_modes_manager.get_user_stats(self.chat_id)
+            mode_stats = admin_stats.get('modes', {}).get('notification', {})
+            active_coins = mode_stats.get('active_coins', [])
+            # Преобразуем в формат {symbol: {}} для совместимости
+            return {coin: {'active': True} for coin in active_coins}
+        elif self.bot_mode == 'notification':
             return self.notification_mode.active_coins
         return {}
 
@@ -755,60 +767,99 @@ class TradingTelegramBot:
 
     async def _handle_notification_mode(self, update: Update):
         """Обработка режима уведомлений"""
-        if self.bot_running and self.bot_mode == 'notification':
+        chat_id = update.effective_chat.id
+        user_keyboard = self.get_user_keyboard(chat_id)
+        
+        # Проверяем текущий режим пользователя
+        current_mode = self.user_modes_manager.get_user_mode(chat_id)
+        if current_mode == 'notification':
             await update.message.reply_text(
-                "✅ Бот уже работает в режиме уведомлений.",
-                reply_markup=self.main_keyboard
+                "✅ У вас уже активен режим уведомлений.",
+                reply_markup=user_keyboard
             )
             return
 
-        await self._stop_current_mode()
-        await asyncio.sleep(0.5)
-
-        self.bot_mode = 'notification'
-        self.bot_running = True
-        bot_state_manager.set_last_mode('notification')
-
-        # Запускаем процессор очереди сообщений
-        await self._start_message_queue_processor()
-
-        # Запускаем модуль уведомлений (он сам отправит сообщение)
-        await self.notification_mode.start()
-
-        bot_logger.info("🔔 Режим уведомлений успешно активирован")
+        # Для админа также используем персональный режим
+        if user_manager.is_admin(chat_id):
+            # Останавливаем старые глобальные режимы для совместимости
+            await self._stop_current_mode()
+        
+        # Запускаем персональный режим уведомлений
+        success = await self.user_modes_manager.start_user_mode(chat_id, 'notification')
+        
+        if success:
+            await update.message.reply_text(
+                "✅ <b>Персональный режим уведомлений активирован</b>\n"
+                "🔔 Вы будете получать уведомления об активных монетах из вашего списка.",
+                reply_markup=user_keyboard,
+                parse_mode="HTML"
+            )
+            bot_logger.info(f"🔔 Режим уведомлений активирован для пользователя {chat_id}")
+        else:
+            await update.message.reply_text(
+                "❌ Ошибка запуска режима уведомлений. Попробуйте позже.",
+                reply_markup=user_keyboard
+            )
 
     async def _handle_monitoring_mode(self, update: Update):
         """Обработка режима мониторинга"""
-        if self.bot_running and self.bot_mode == 'monitoring':
+        chat_id = update.effective_chat.id
+        user_keyboard = self.get_user_keyboard(chat_id)
+        
+        # Проверяем текущий режим пользователя
+        current_mode = self.user_modes_manager.get_user_mode(chat_id)
+        if current_mode == 'monitoring':
             await update.message.reply_text(
-                "✅ Бот уже работает в режиме мониторинга.",
-                reply_markup=self.main_keyboard
+                "✅ У вас уже активен режим мониторинга.",
+                reply_markup=user_keyboard
             )
             return
 
-        await self._stop_current_mode()
-        await asyncio.sleep(0.5)
-
-        self.bot_mode = 'monitoring'
-        self.bot_running = True
-        bot_state_manager.set_last_mode('monitoring')
-
-        # Запускаем процессор очереди сообщений
-        await self._start_message_queue_processor()
-
-        # Запускаем модуль мониторинга (он сам отправит сообщение)
-        await self.monitoring_mode.start()
-
-        bot_logger.info("📊 Режим мониторинга успешно активирован")
+        # Для админа также используем персональный режим
+        if user_manager.is_admin(chat_id):
+            # Останавливаем старые глобальные режимы для совместимости
+            await self._stop_current_mode()
+        
+        # Запускаем персональный режим мониторинга
+        success = await self.user_modes_manager.start_user_mode(chat_id, 'monitoring')
+        
+        if success:
+            await update.message.reply_text(
+                "✅ <b>Персональный режим мониторинга активирован</b>\n"
+                "📊 Сводка по вашим монетам будет обновляться автоматически.",
+                reply_markup=user_keyboard,
+                parse_mode="HTML"
+            )
+            bot_logger.info(f"📊 Режим мониторинга активирован для пользователя {chat_id}")
+        else:
+            await update.message.reply_text(
+                "❌ Ошибка запуска режима мониторинга. Попробуйте позже.",
+                reply_markup=user_keyboard
+            )
 
     async def _handle_stop(self, update: Update):
         """Обработка остановки бота"""
-        await self._stop_current_mode()
-        await update.message.reply_text(
-            "🛑 <b>Бот остановлен</b>",
-            reply_markup=self.main_keyboard,
-            parse_mode=ParseMode.HTML
-        )
+        chat_id = update.effective_chat.id
+        user_keyboard = self.get_user_keyboard(chat_id)
+        
+        # Останавливаем персональный режим пользователя
+        stopped = await self.user_modes_manager.stop_user_mode(chat_id)
+        
+        # Для админа также останавливаем глобальные режимы если есть
+        if user_manager.is_admin(chat_id):
+            await self._stop_current_mode()
+            
+        if stopped or (user_manager.is_admin(chat_id) and self.bot_running):
+            await update.message.reply_text(
+                "🛑 <b>Ваши режимы остановлены</b>",
+                reply_markup=user_keyboard,
+                parse_mode=ParseMode.HTML
+            )
+        else:
+            await update.message.reply_text(
+                "ℹ️ У вас нет активных режимов.",
+                reply_markup=user_keyboard
+            )
 
     async def _handle_add_coin_start(self, update: Update):
         """Начало добавления монеты"""
@@ -989,33 +1040,50 @@ class TradingTelegramBot:
 
     async def _handle_status(self, update: Update):
         """Показ статуса бота"""
-        status_parts = ["ℹ <b>Статус бота:</b>\n"]
+        chat_id = update.effective_chat.id
+        user_keyboard = self.get_user_keyboard(chat_id)
+        
+        status_parts = ["ℹ <b>Ваш статус:</b>\n"]
 
-        if self.bot_running:
-            status_parts.append(f"🟢 Работает в режиме: <b>{self.bot_mode}</b>")
+        # Проверяем персональный режим пользователя
+        current_mode = self.user_modes_manager.get_user_mode(chat_id)
+        user_stats = self.user_modes_manager.get_user_stats(chat_id)
+        
+        if current_mode:
+            status_parts.append(f"🟢 Ваш режим: <b>{current_mode}</b>")
+            
+            mode_stats = user_stats.get('modes', {}).get(current_mode, {})
+            
+            if current_mode == 'notification':
+                active_count = mode_stats.get('active_coins_count', 0)
+                status_parts.append(f"📊 Активных монет: <b>{active_count}</b>")
+                if mode_stats.get('active_coins'):
+                    coins_list = ', '.join(mode_stats['active_coins'][:5])
+                    status_parts.append(f"• Монеты: {coins_list}")
 
-            if self.bot_mode == 'notification':
-                notification_stats = self.notification_mode.get_stats()
-                status_parts.append(f"📊 Активных монет: <b>{notification_stats['active_coins_count']}</b>")
-                if notification_stats['active_coins']:
-                    status_parts.append(f"• Монеты: {', '.join(notification_stats['active_coins'][:5])}")
-
-            elif self.bot_mode == 'monitoring':
-                monitoring_stats = self.monitoring_mode.get_stats()
-                status_parts.append(f"📋 Отслеживается: <b>{monitoring_stats['watchlist_size']}</b> монет")
+            elif current_mode == 'monitoring':
+                watchlist_size = mode_stats.get('watchlist_size', 0)
+                status_parts.append(f"📋 Отслеживается: <b>{watchlist_size}</b> монет")
         else:
-            status_parts.append("🔴 Остановлен")
+            status_parts.append("🔴 Режимы остановлены")
 
-        status_parts.append(f"📋 Монет в списке: <b>{watchlist_manager.size()}</b>")
+        # Показываем личную статистику пользователя
+        if user_manager.is_admin(chat_id):
+            status_parts.append(f"\n📋 Глобальный список: <b>{watchlist_manager.size()}</b> монет")
+            user_config = config_manager.get_all()
+        else:
+            user_watchlist = user_manager.get_user_watchlist(chat_id)
+            status_parts.append(f"\n📋 Ваших монет: <b>{len(user_watchlist)}</b>")
+            user_config = user_manager.get_user_config(chat_id)
 
-        status_parts.append("\n⚙ <b>Фильтры:</b>")
-        status_parts.append(f"• Объём: ${config_manager.get('VOLUME_THRESHOLD'):,}")
-        status_parts.append(f"• Спред: {config_manager.get('SPREAD_THRESHOLD')}%")
-        status_parts.append(f"• NATR: {config_manager.get('NATR_THRESHOLD')}%")
+        status_parts.append("\n⚙ <b>Ваши фильтры:</b>")
+        status_parts.append(f"• Объём: ${user_config.get('VOLUME_THRESHOLD', 1000):,}")
+        status_parts.append(f"• Спред: {user_config.get('SPREAD_THRESHOLD', 0.1)}%")
+        status_parts.append(f"• NATR: {user_config.get('NATR_THRESHOLD', 0.5)}%")
 
         await update.message.reply_text(
             "\n".join(status_parts),
-            reply_markup=self.main_keyboard,
+            reply_markup=user_keyboard,
             parse_mode=ParseMode.HTML
         )
 

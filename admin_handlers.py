@@ -260,10 +260,25 @@ class AdminHandlers:
                 watchlist_count = len(user.get('watchlist', []))
                 last_activity = datetime.fromtimestamp(user['last_activity']).strftime('%d.%m %H:%M')
 
+                user_data = user_manager.get_user_data(user['chat_id'])
+                user_config = user_data.get('config', {}) if user_data else {}
+
+                # Получаем список монет пользователя
+                user_watchlist = user_manager.get_user_watchlist(user['chat_id'])
+
+                # Получаем информацию о текущем режиме пользователя
+                current_mode = self.bot.user_modes_manager.get_user_mode(user['chat_id'])
+                mode_status = f"🟢 {current_mode}" if current_mode else "🔴 остановлен"
+
                 text += (
-                    f"{setup_status} <b>{user['first_name']}</b> "
-                    f"(@{user.get('username', 'no_username')})\n"
-                    f"   • Монет: {watchlist_count} • Активность: {last_activity}\n"
+                    f"👤 <b>{user['first_name']}</b>\n"
+                    f"• ID: <code>{user['chat_id']}</code>\n"
+                    f"• Username: @{user.get('username', 'не указан')}\n"
+                    f"• Режим: {mode_status}\n"
+                    f"• Монет: {len(user_watchlist)}\n"
+                    f"• Настройки: V${user_config.get('VOLUME_THRESHOLD', 1000)}, "
+                    f"S{user_config.get('SPREAD_THRESHOLD', 0.1)}%, "
+                    f"N{user_config.get('NATR_THRESHOLD', 0.5)}%\n\n"
                 )
 
                 # Создаем инлайн кнопку для отключения пользователя

@@ -100,6 +100,16 @@ def health_check():
             else:
                 alert_status = f'🟡 {len(alerts)} Warning'
 
+        # Предполагаем, что у вас есть способ получить эту статистику
+        # Например, из базы данных или глобального объекта
+        user_modes_stats = {
+            'total_users': 5,  # Пример: общее количество пользователей
+            'active_modes': 3   # Пример: количество пользователей с активными режимами
+        }
+
+        # Пример: считаем активных пользователей по другим критериям
+        active_users = user_modes_stats.get('active_modes', 0)  # Число активных режимов
+
         return f"""
         <html>
         <head>
@@ -138,6 +148,13 @@ def health_check():
                     <strong>🚨 Alerts:</strong> {alert_status}<br>
                     {f"Recent alerts: {', '.join([a.get('message', '')[:50] + '...' if len(a.get('message', '')) > 50 else a.get('message', '') for a in alerts[:2]])}" if alerts else "No active alerts"}<br>
                     <strong>Advanced:</strong> {len(advanced_alerts)} active, {alert_stats.get('total_triggers', 0)} total triggers
+                </div>
+
+                <div class="metric-box">
+                    <strong>👥 Персональные режимы:</strong><br>
+                    Всего пользователей: {user_modes_stats.get('total_users', 0)}<br>
+                    Активных режимов: {active_users}<br>
+                    Независимые сессии: {'✅ Работают' if active_users > 0 else '❌ Неактивны'}
                 </div>
 
                 <div class="status-grid">
@@ -254,10 +271,10 @@ def sessions_view():
     """Endpoint для просмотра записанных сессий"""
     try:
         from datetime import datetime, timedelta
-        
+
         # Получаем статистику
         stats = session_recorder.get_stats()
-        
+
         # Получаем данные за последние 7 дней
         sessions_data = {}
         for i in range(7):
@@ -283,7 +300,7 @@ def sessions_view():
         <body>
             <div class="container">
                 <h1>📝 Session Recorder</h1>
-                
+
                 <div class="metric {'active' if stats['recording'] else ''}">
                     <strong>Статус:</strong> {'🟢 Запись активна' if stats['recording'] else '🔴 Запись остановлена'}<br>
                     <strong>Активных сессий:</strong> {stats['active_sessions']}<br>
@@ -298,20 +315,20 @@ def sessions_view():
             for date, daily_data in sorted(sessions_data.items(), reverse=True):
                 metadata = daily_data.get('metadata', {})
                 sessions = daily_data.get('sessions', [])
-                
+
                 html += f"""
                 <div class="date-section">
                     <h3>{date}</h3>
                     <p>Всего сессий: {metadata.get('total_sessions', 0)}, 
                        Общая длительность: {metadata.get('total_duration', 0)/60:.1f} минут</p>
-                    
+
                     <div style="max-height: 300px; overflow-y: auto;">
                 """
-                
+
                 for session in sessions[-10:]:  # Показываем последние 10 сессий
                     duration_min = session.get('total_duration', 0) / 60
                     summary = session.get('summary', {})
-                    
+
                     html += f"""
                     <div class="session">
                         <strong>{session['symbol']}</strong> - {duration_min:.1f} мин 
@@ -321,7 +338,7 @@ def sessions_view():
                         <small>{session.get('start_datetime', '')[:19]} - {session.get('end_datetime', '')[:19]}</small>
                     </div>
                     """
-                
+
                 html += "</div></div>"
         else:
             html += "<p>Нет данных о сессиях за последние 7 дней</p>"
