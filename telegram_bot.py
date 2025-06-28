@@ -649,6 +649,15 @@ class TradingTelegramBot:
                 return await self._handle_initial_coin_input(update, text)
             elif setup_state.startswith('setting_filters'):
                 return await self._handle_initial_filter_input(update, text)
+            elif setup_state == 'coin_added_waiting_choice':
+                # Пользователь добавил монету и ждет выбора действия через inline кнопки
+                await update.message.reply_text(
+                    "💡 <b>Используйте кнопки выше для выбора действия:</b>\n\n"
+                    "• ➕ Добавить еще монету\n"
+                    "• ⚙️ Перейти к настройкам",
+                    parse_mode=ParseMode.HTML
+                )
+                return ConversationHandler.END
             else:
                 # Если состояние не определено, возвращаем пользователя к началу
                 await self._start_coin_setup(update, context)
@@ -1934,6 +1943,9 @@ class TradingTelegramBot:
                 user_watchlist = user_manager.get_user_watchlist(chat_id)
                 price = float(ticker_data.get('lastPrice', 0))
 
+                # ВАЖНО: Очищаем состояние setup, чтобы предотвратить повторную обработку
+                user_manager.update_user_data(chat_id, {'setup_state': 'coin_added_waiting_choice'})
+
                 # Создаем inline кнопки
                 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
                 keyboard = [
@@ -2127,7 +2139,7 @@ class TradingTelegramBot:
             parse_mode=ParseMode.HTML
         )
         
-        # Остаемся в том же состоянии для добавления монет
+        # Устанавливаем состояние для добавления следующей монеты
         user_manager.update_user_data(chat_id, {'setup_state': 'initial_coin_setup'})
 
     async def _handle_setup_filters_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):

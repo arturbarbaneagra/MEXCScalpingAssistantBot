@@ -1,27 +1,6 @@
 {
-  "users": {
-    "8195543530": {
-      "chat_id": "8195543530",
-      "username": "arturlorf",
-      "first_name": "Artur",
-      "last_name": "",
-      "approved_time": 1751104876.1718214,
-      "approved_datetime": "2025-06-28T10:01:16.171822",
-      "setup_completed": false,
-      "watchlist": [
-        "BTC"
-      ],
-      "config": {
-        "VOLUME_THRESHOLD": 1000,
-        "SPREAD_THRESHOLD": 0.1,
-        "NATR_THRESHOLD": 0.5
-      },
-      "active_coins": {},
-      "last_activity": 1751104892.4934394,
-      "setup_state": "initial_coin_setup"
-    }
-  },
+  "users": {},
   "pending_requests": {},
   "rejected_users": {},
-  "last_updated": "2025-06-28T10:01:32.493443"
+  "last_updated": "2025-06-28T10:02:00.000000"
 }
