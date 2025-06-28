@@ -187,34 +187,49 @@ class UserManager:
 
     def get_user_watchlist(self, chat_id: str) -> List[str]:
         """Возвращает список монет пользователя"""
-        user_data = self.get_user_data(chat_id)
-        return user_data.get('watchlist', []) if user_data else []
+        if self.is_admin(chat_id):
+            # Администратор использует глобальный список
+            from watchlist_manager import watchlist_manager
+            return list(watchlist_manager.get_all())
+        else:
+            user_data = self.get_user_data(chat_id)
+            return user_data.get('watchlist', []) if user_data else []
 
     def add_user_coin(self, chat_id: str, symbol: str) -> bool:
         """Добавляет монету в список пользователя"""
-        user_data = self.get_user_data(chat_id)
-        if not user_data:
-            return False
+        if self.is_admin(chat_id):
+            # Администратор работает с глобальным списком
+            from watchlist_manager import watchlist_manager
+            return watchlist_manager.add(symbol)
+        else:
+            user_data = self.get_user_data(chat_id)
+            if not user_data:
+                return False
 
-        watchlist = user_data.get('watchlist', [])
-        if symbol not in watchlist:
-            watchlist.append(symbol)
-            self.update_user_data(chat_id, {'watchlist': watchlist})
-            return True
-        return False
+            watchlist = user_data.get('watchlist', [])
+            if symbol not in watchlist:
+                watchlist.append(symbol)
+                self.update_user_data(chat_id, {'watchlist': watchlist})
+                return True
+            return False
 
     def remove_user_coin(self, chat_id: str, symbol: str) -> bool:
         """Удаляет монету из списка пользователя"""
-        user_data = self.get_user_data(chat_id)
-        if not user_data:
-            return False
+        if self.is_admin(chat_id):
+            # Администратор работает с глобальным списком
+            from watchlist_manager import watchlist_manager
+            return watchlist_manager.remove(symbol)
+        else:
+            user_data = self.get_user_data(chat_id)
+            if not user_data:
+                return False
 
-        watchlist = user_data.get('watchlist', [])
-        if symbol in watchlist:
-            watchlist.remove(symbol)
-            self.update_user_data(chat_id, {'watchlist': watchlist})
-            return True
-        return False
+            watchlist = user_data.get('watchlist', [])
+            if symbol in watchlist:
+                watchlist.remove(symbol)
+                self.update_user_data(chat_id, {'watchlist': watchlist})
+                return True
+            return False
 
     
 
