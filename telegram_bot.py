@@ -840,10 +840,7 @@ class TradingTelegramBot:
                 # Рассчитываем активность за час
                 total_activity = activity_calculator.calculate_hourly_activity(hour_sessions, None)
 
-                # Обновляем статистику активности
-                activity_calculator.update_activity_stats(total_activity, hour_key_stats)
-
-                # Получаем информацию об уровне активности
+                # Получаем информацию об уровне активности (БЕЗ обновления статистики)
                 activity_info = activity_calculator.get_activity_level_info(total_activity)
 
                 hours_to_show.append({
