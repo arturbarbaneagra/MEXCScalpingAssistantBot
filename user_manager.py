@@ -229,12 +229,12 @@ class UserManager:
             return user_data.get('config', {})
         return {}
 
-    def update_user_config(self, chat_id: str, key: str, value: Any):
-        """Обновляет параметр конфигурации пользователя"""
+    def update_user_config(self, chat_id: str, config_updates: Dict[str, Any]):
+        """Обновляет конфигурацию пользователя"""
         user_data = self.get_user_data(chat_id)
         if user_data:
             config = user_data.get('config', {})
-            config[key] = value
+            config.update(config_updates)
             self.update_user_data(chat_id, {'config': config})
 
     def get_all_users(self) -> List[Dict]:

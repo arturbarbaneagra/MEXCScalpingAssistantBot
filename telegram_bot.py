@@ -110,16 +110,8 @@ class TradingTelegramBot:
 
     def get_user_config(self, chat_id: str) -> Dict:
         """Получает конфигурацию пользователя"""
-        if user_manager.is_admin(chat_id):
-            # Для админа используем глобальную конфигурацию
-            return {
-                'VOLUME_THRESHOLD': config_manager.get('VOLUME_THRESHOLD'),
-                'SPREAD_THRESHOLD': config_manager.get('SPREAD_THRESHOLD'),
-                'NATR_THRESHOLD': config_manager.get('NATR_THRESHOLD')
-            }
-        else:
-            # Для пользователя используем его личную конфигурацию
-            return user_manager.get_user_config(chat_id)
+        # Все пользователи (включая админа) используют персональные настройки
+        return user_manager.get_user_config(chat_id)
 
     def _setup_keyboards(self):
         """Настраивает клавиатуры"""
@@ -1270,12 +1262,9 @@ class TradingTelegramBot:
         """Начало настройки объёма"""
         chat_id = update.effective_chat.id
 
-        # Получаем текущее значение в зависимости от роли
-        if user_manager.is_admin(chat_id):
-            current_value = config_manager.get('VOLUME_THRESHOLD')
-        else:
-            user_config = user_manager.get_user_config(chat_id)
-            current_value = user_config.get('VOLUME_THRESHOLD', 1000)
+        # Все пользователи (включая админа) используют персональные настройки
+        user_config = user_manager.get_user_config(chat_id)
+        current_value = user_config.get('VOLUME_THRESHOLD', 1000)
 
         await update.message.reply_text(
             f"📊 <b>Настройка минимального объёма</b>\n\n"
@@ -1290,12 +1279,9 @@ class TradingTelegramBot:
         """Начало настройки спреда"""
         chat_id = update.effective_chat.id
 
-        # Получаем текущее значение в зависимости от роли
-        if user_manager.is_admin(chat_id):
-            current_value = config_manager.get('SPREAD_THRESHOLD')
-        else:
-            user_config = user_manager.get_user_config(chat_id)
-            current_value = user_config.get('SPREAD_THRESHOLD', 0.1)
+        # Все пользователи (включая админа) используют персональные настройки
+        user_config = user_manager.get_user_config(chat_id)
+        current_value = user_config.get('SPREAD_THRESHOLD', 0.1)
 
         await update.message.reply_text(
             f"⇄ <b>Настройка минимального спреда</b>\n\n"
@@ -1310,12 +1296,9 @@ class TradingTelegramBot:
         """Начало настройки NATR"""
         chat_id = update.effective_chat.id
 
-        # Получаем текущее значение в зависимости от роли
-        if user_manager.is_admin(chat_id):
-            current_value = config_manager.get('NATR_THRESHOLD')
-        else:
-            user_config = user_manager.get_user_config(chat_id)
-            current_value = user_config.get('NATR_THRESHOLD', 0.5)
+        # Все пользователи (включая админа) используют персональные настройки
+        user_config = user_manager.get_user_config(chat_id)
+        current_value = user_config.get('NATR_THRESHOLD', 0.5)
 
         await update.message.reply_text(
             f"📈 <b>Настройка минимального NATR</b>\n\n"
@@ -1533,21 +1516,13 @@ class TradingTelegramBot:
             if value <= 0:
                 raise ValueError("Значение должно быть положительным")
 
-            # Устанавливаем в зависимости от роли
-            if user_manager.is_admin(chat_id):
-                config_manager.set('VOLUME_THRESHOLD', value)
-                await update.message.reply_text(
-                    f"✅ Глобальный минимальный объём установлен: ${value:,.0f}",
-                    reply_markup=user_keyboard,
-                    parse_mode=ParseMode.HTML
-                )
-            else:
-                user_manager.update_user_config(chat_id, {'VOLUME_THRESHOLD': value})
-                await update.message.reply_text(
-                    f"✅ Ваш минимальный объём установлен: ${value:,.0f}",
-                    reply_markup=user_keyboard,
-                    parse_mode=ParseMode.HTML
-                )
+            # Все пользователи (включая админа) устанавливают персональные настройки
+            user_manager.update_user_config(chat_id, {'VOLUME_THRESHOLD': value})
+            await update.message.reply_text(
+                f"✅ Ваш минимальный объём установлен: ${value:,.0f}",
+                reply_markup=user_keyboard,
+                parse_mode=ParseMode.HTML
+            )
 
         except ValueError:
             await update.message.reply_text(
@@ -1574,21 +1549,13 @@ class TradingTelegramBot:
             if value < 0:
                 raise ValueError("Значение должно быть неотрицательным")
 
-            # Устанавливаем в зависимости от роли
-            if user_manager.is_admin(chat_id):
-                config_manager.set('SPREAD_THRESHOLD', value)
-                await update.message.reply_text(
-                    f"✅ Глобальный минимальный спред установлен: {value}%",
-                    reply_markup=user_keyboard,
-                    parse_mode=ParseMode.HTML
-                )
-            else:
-                user_manager.update_user_config(chat_id, {'SPREAD_THRESHOLD': value})
-                await update.message.reply_text(
-                    f"✅ Ваш минимальный спред установлен: {value}%",
-                    reply_markup=user_keyboard,
-                    parse_mode=ParseMode.HTML
-                )
+            # Все пользователи (включая админа) устанавливают персональные настройки
+            user_manager.update_user_config(chat_id, {'SPREAD_THRESHOLD': value})
+            await update.message.reply_text(
+                f"✅ Ваш минимальный спред установлен: {value}%",
+                reply_markup=user_keyboard,
+                parse_mode=ParseMode.HTML
+            )
 
         except ValueError:
             await update.message.reply_text(
@@ -1615,21 +1582,13 @@ class TradingTelegramBot:
             if value < 0:
                 raise ValueError("Значение должно быть неотрицательным")
 
-            # Устанавливаем в зависимости от роли
-            if user_manager.is_admin(chat_id):
-                config_manager.set('NATR_THRESHOLD', value)
-                await update.message.reply_text(
-                    f"✅ Глобальный минимальный NATR установлен: {value}%",
-                    reply_markup=user_keyboard,
-                    parse_mode=ParseMode.HTML
-                )
-            else:
-                user_manager.update_user_config(chat_id, {'NATR_THRESHOLD': value})
-                await update.message.reply_text(
-                    f"✅ Ваш минимальный NATR установлен: {value}%",
-                    reply_markup=user_keyboard,
-                    parse_mode=ParseMode.HTML
-                )
+            # Все пользователи (включая админа) устанавливают персональные настройки
+            user_manager.update_user_config(chat_id, {'NATR_THRESHOLD': value})
+            await update.message.reply_text(
+                f"✅ Ваш минимальный NATR установлен: {value}%",
+                reply_markup=user_keyboard,
+                parse_mode=ParseMode.HTML
+            )
 
         except ValueError:
             await update.message.reply_text(
@@ -1680,17 +1639,9 @@ class TradingTelegramBot:
         """Показывает настройки"""
         chat_id = update.effective_chat.id
 
-        # Получаем настройки в зависимости от роли
-        if user_manager.is_admin(chat_id):
-            config = {
-                'VOLUME_THRESHOLD': config_manager.get('VOLUME_THRESHOLD'),
-                'SPREAD_THRESHOLD': config_manager.get('SPREAD_THRESHOLD'),
-                'NATR_THRESHOLD': config_manager.get('NATR_THRESHOLD')
-            }
-            settings_title = "Глобальные настройки фильтров"
-        else:
-            config = user_manager.get_user_config(chat_id)
-            settings_title = "Ваши настройки фильтров"
+        # Все пользователи (включая админа) используют персональные настройки
+        config = user_manager.get_user_config(chat_id)
+        settings_title = "Ваши настройки фильтров"
 
         message = (
             f"⚙ <b>{settings_title}</b>\n\n"
@@ -1711,29 +1662,18 @@ class TradingTelegramBot:
         chat_id = update.effective_chat.id
         user_keyboard = self.get_user_keyboard(chat_id)
 
-        if user_manager.is_admin(chat_id):
-            # Сброс глобальных настроек
-            config_manager.set('VOLUME_THRESHOLD', 1000)
-            config_manager.set('SPREAD_THRESHOLD', 0.1)
-            config_manager.set('NATR_THRESHOLD', 0.5)
-            await update.message.reply_text(
-                "🔄 Глобальные настройки сброшены к значениям по умолчанию",
-                reply_markup=user_keyboard,
-                parse_mode=ParseMode.HTML
-            )
-        else:
-            # Сброс пользовательских настроек
-            default_config = {
-                'VOLUME_THRESHOLD': 1000,
-                'SPREAD_THRESHOLD': 0.1,
-                'NATR_THRESHOLD': 0.5
-            }
-            user_manager.update_user_config(chat_id, default_config)
-            await update.message.reply_text(
-                "🔄 Ваши настройки сброшены к значениям по умолчанию",
-                reply_markup=user_keyboard,
-                parse_mode=ParseMode.HTML
-            )
+        # Все пользователи (включая админа) сбрасывают персональные настройки
+        default_config = {
+            'VOLUME_THRESHOLD': 1000,
+            'SPREAD_THRESHOLD': 0.1,
+            'NATR_THRESHOLD': 0.5
+        }
+        user_manager.update_user_config(chat_id, default_config)
+        await update.message.reply_text(
+            "🔄 Ваши настройки сброшены к значениям по умолчанию",
+            reply_markup=user_keyboard,
+            parse_mode=ParseMode.HTML
+        )
 
     async def _handle_activity_24h(self, update: Update):
         """Показывает активность за 24 часа"""
