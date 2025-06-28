@@ -19,6 +19,7 @@ class UserManager:
         # Убрали персональные настройки - используем только глобальные
         self.default_user_config = {}
         self.load_data()
+        self._ensure_admin_data()
 
     def load_data(self):
         """Загружает данные пользователей из файла"""
@@ -186,30 +187,8 @@ class UserManager:
 
     def get_user_watchlist(self, chat_id: str) -> List[str]:
         """Возвращает список монет пользователя"""
-        if self.is_admin(chat_id):
-            # Для админа создаем личный список если его нет
-            user_data = self.get_user_data(chat_id)
-            if not user_data:
-                # Создаем данные админа если их нет
-                self.users_data[str(chat_id)] = {
-                    'chat_id': str(chat_id),
-                    'username': 'admin',
-                    'first_name': 'Administrator',
-                    'last_name': '',
-                    'approved_time': time.time(),
-                    'approved_datetime': datetime.now().isoformat(),
-                    'setup_completed': True,
-                    'watchlist': [],
-                    'active_coins': {},
-                    'last_activity': time.time(),
-                    'setup_state': 'completed'
-                }
-                self.save_data()
-                return []
-            return user_data.get('watchlist', [])
-        else:
-            user_data = self.get_user_data(chat_id)
-            return user_data.get('watchlist', []) if user_data else []
+        user_data = self.get_user_data(chat_id)
+        return user_data.get('watchlist', []) if user_data else []
 
     def add_user_coin(self, chat_id: str, symbol: str) -> bool:
         """Добавляет монету в список пользователя"""
@@ -324,6 +303,26 @@ class UserManager:
             'SPREAD_THRESHOLD': config_manager.get('SPREAD_THRESHOLD', 0.1),
             'NATR_THRESHOLD': config_manager.get('NATR_THRESHOLD', 0.5)
         }
+
+    def _ensure_admin_data(self):
+        """Обеспечивает наличие данных администратора"""
+        if self.admin_chat_id and str(self.admin_chat_id) not in self.users_data:
+            bot_logger.info(f"Создаем данные для администратора: {self.admin_chat_id}")
+            self.users_data[str(self.admin_chat_id)] = {
+                'chat_id': str(self.admin_chat_id),
+                'username': 'admin',
+                'first_name': 'Administrator',
+                'last_name': '',
+                'approved_time': time.time(),
+                'approved_datetime': datetime.now().isoformat(),
+                'setup_completed': True,
+                'watchlist': [],
+                'active_coins': {},
+                'last_activity': time.time(),
+                'setup_state': 'completed'
+            }
+            self.save_data()
+            bot_logger.info("Данные администратора созданы")
 
     
 
