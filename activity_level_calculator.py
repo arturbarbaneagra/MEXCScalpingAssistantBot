@@ -1,3 +1,4 @@
+
 """
 Модуль для расчета уровня активности по часам с использованием статистики Welford
 """
@@ -115,10 +116,6 @@ class ActivityLevelCalculator:
 
     def get_last_24_hours_activity(self) -> List[float]:
         """Получает активность за последние 24 часа с заполнением нулями"""
-        from datetime import datetime, timedelta
-        import os
-        import json
-
         now_moscow = datetime.now() + timedelta(hours=3)
         activities = []
 
