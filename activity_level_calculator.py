@@ -1,4 +1,3 @@
-
 """
 Модуль для расчета уровня активности по часам с использованием статистики Welford
 """
@@ -126,8 +125,10 @@ class ActivityLevelCalculator:
             date_str = hour_dt.strftime('%Y-%m-%d')
             activity_found = False
 
-            # Проверяем файл за эту дату
-            filepath = os.path.join("session_data", f"sessions_{date_str}.json")
+            # Проверяем файл за эту дату в папке админа
+            from user_manager import user_manager
+            admin_chat_id = user_manager.admin_chat_id
+            filepath = os.path.join(f"user_sessions_{admin_chat_id}", f"sessions_{date_str}.json")
             if os.path.exists(filepath):
                 try:
                     with open(filepath, 'r', encoding='utf-8') as f:
@@ -165,7 +166,7 @@ class ActivityLevelCalculator:
         for i in range(24):
             hour_dt = now_moscow - timedelta(hours=i)
             date_str = hour_dt.strftime('%Y-%m-%d')
-            
+
             hour_info = {
                 'hour': hour_dt.strftime('%H:00'),
                 'total_activity': 0.0,
@@ -177,8 +178,10 @@ class ActivityLevelCalculator:
                 'color': '🟦'
             }
 
-            # Проверяем файл за эту дату
-            filepath = os.path.join("session_data", f"sessions_{date_str}.json")
+            # Проверяем файл за эту дату в папке админа
+            from user_manager import user_manager  
+            admin_chat_id = user_manager.admin_chat_id
+            filepath = os.path.join(f"user_sessions_{admin_chat_id}", f"sessions_{date_str}.json")
             if os.path.exists(filepath):
                 try:
                     with open(filepath, 'r', encoding='utf-8') as f:
@@ -195,10 +198,10 @@ class ActivityLevelCalculator:
                         start_time = session.get('start_time', 0)
                         if cutoff_start <= start_time < cutoff_end:
                             hour_sessions.append(session)
-                            
+
                             symbol = session.get('symbol', 'UNKNOWN')
                             duration_min = session.get('total_duration', 0) / 60
-                            
+
                             if symbol not in coin_activities:
                                 coin_activities[symbol] = 0.0
                             coin_activities[symbol] += duration_min
@@ -207,11 +210,11 @@ class ActivityLevelCalculator:
                         hour_info['total_activity'] = sum(s.get('total_duration', 0) / 60 for s in hour_sessions)
                         hour_info['sessions_count'] = len(hour_sessions)
                         hour_info['coins'] = coin_activities
-                        
+
                         # Вычисляем z-score и уровень активности
                         z_score = self.get_z_score(hour_info['total_activity'])
                         hour_info['z_score'] = z_score
-                        
+
                         # Определяем уровень активности
                         activity_info = self.get_activity_level_info(hour_info['total_activity'])
                         hour_info['level'] = activity_info['level']
@@ -234,8 +237,10 @@ class ActivityLevelCalculator:
         for days_back in range(2):
             check_date = now_moscow - timedelta(days=days_back)
             date_str = check_date.strftime('%Y-%m-%d')
-            
-            filepath = os.path.join("session_data", f"sessions_{date_str}.json")
+
+            from user_manager import user_manager
+            admin_chat_id = user_manager.admin_chat_id  
+            filepath = os.path.join(f"user_sessions_{admin_chat_id}", f"sessions_{date_str}.json")
             if os.path.exists(filepath):
                 try:
                     with open(filepath, 'r', encoding='utf-8') as f:
@@ -249,7 +254,7 @@ class ActivityLevelCalculator:
                         if start_time >= cutoff_time:
                             symbol = session.get('symbol', 'UNKNOWN')
                             duration_min = session.get('total_duration', 0) / 60
-                            
+
                             if symbol not in coin_totals:
                                 coin_totals[symbol] = 0.0
                             coin_totals[symbol] += duration_min
@@ -407,7 +412,7 @@ class ActivityLevelCalculator:
     def update_activity_stats(self, activity_value: float, hour_key: str = None):
         """
         Обновляет статистику активности новым значением
-        
+
         Args:
             activity_value: Значение активности в минутах
             hour_key: Ключ часа (не используется в алгоритме Welford)
@@ -434,54 +439,54 @@ class ActivityLevelCalculator:
     def generate_24h_activity_report(self) -> str:
         """
         Генерирует отчет активности за последние 24 часа
-        
+
         Returns:
             Отформатированный отчет активности
         """
         try:
             # Получаем данные активности за 24 часа
             activities = self.get_last_24_hours_activity()
-            
+
             if not activities:
                 return "❌ Нет данных об активности за последние 24 часа"
-            
+
             # Рассчитываем статистику
             stats = self.calculate_activity_statistics_welford(activities)
             total_activity = sum(activities)
-            
+
             # Получаем информацию об уровне активности
             activity_info = self.get_activity_level_info(total_activity)
-            
+
             # Находим часы с максимальной активностью
             max_activity = max(activities)
             max_hour_index = activities.index(max_activity)
-            
+
             # Считаем активные часы (с активностью > 0)
             active_hours = sum(1 for a in activities if a > 0)
-            
+
             # Форматируем отчет
             report_lines = []
-            
+
             # Заголовок с общей информацией
             report_lines.append(f"{activity_info['color']} <b>Уровень активности: {activity_info['level']}</b> {activity_info['emoji']}")
             report_lines.append("")
-            
+
             # Основная статистика
             report_lines.append("<b>📊 Статистика за 24 часа:</b>")
             report_lines.append(f"• Общая активность: <b>{total_activity:.1f} минут</b>")
             report_lines.append(f"• Активных часов: <b>{active_hours}/24</b>")
             report_lines.append(f"• Максимум за час: <b>{max_activity:.1f} мин</b> ({max_hour_index} часов назад)")
             report_lines.append(f"• Среднее за час: <b>{stats['mean']:.1f} мин</b>")
-            
+
             if stats['std'] > 0:
                 report_lines.append(f"• Z-score: <b>{activity_info['z_score']:.2f}</b>")
-            
+
             report_lines.append("")
-            
+
             # Топ-5 самых активных часов
             indexed_activities = [(i, act) for i, act in enumerate(activities) if act > 0]
             indexed_activities.sort(key=lambda x: x[1], reverse=True)
-            
+
             if indexed_activities:
                 report_lines.append("<b>🔥 Топ активных часов:</b>")
                 for i, (hour_idx, activity) in enumerate(indexed_activities[:5]):
@@ -492,11 +497,11 @@ class ActivityLevelCalculator:
                         time_label = "1 час назад"
                     else:
                         time_label = f"{hours_ago} часов назад"
-                    
+
                     report_lines.append(f"• <b>{activity:.1f} мин</b> - {time_label}")
-                
+
                 report_lines.append("")
-            
+
             # Визуализация последних 12 часов
             report_lines.append("<b>📈 Последние 12 часов:</b>")
             visual_line = ""
@@ -512,10 +517,10 @@ class ActivityLevelCalculator:
                     visual_line += "🟢"
                 else:
                     visual_line += "⚪"
-            
+
             report_lines.append(f"<code>{visual_line}</code>")
             report_lines.append("<i>🔥≥10мин 🔴≥5мин 🟡≥2мин 🟢≥1мин ⚪&lt;1мин</i>")
-            
+
             # Информация о статистической модели
             if self.count >= 5:
                 report_lines.append("")
@@ -523,9 +528,9 @@ class ActivityLevelCalculator:
             else:
                 report_lines.append("")
                 report_lines.append(f"<i>⚠️ Мало данных для статистики ({self.count} наблюдений)</i>")
-            
+
             return "\n".join(report_lines)
-            
+
         except Exception as e:
             bot_logger.error(f"Ошибка генерации отчета активности: {e}")
             return f"❌ Ошибка генерации отчета: {str(e)}"
@@ -533,44 +538,44 @@ class ActivityLevelCalculator:
     def generate_global_24h_activity_report(self) -> str:
         """
         Генерирует глобальный отчет активности всех монет за последние 24 часа
-        
+
         Returns:
             Отформатированный отчет активности всех монет
         """
         try:
             # Получаем топ-5 монет по активности
             top_coins = self.get_top_coins_24h()
-            
+
             # Получаем детальную информацию по часам
             hourly_data = self.get_hourly_activity_with_coins()
-            
+
             # Рассчитываем общую статистику
             total_activities = [hour['total_activity'] for hour in hourly_data]
             stats = self.calculate_activity_statistics_welford(total_activities)
-            
+
             # Начинаем формировать отчет
             report_lines = []
-            
+
             # Заголовок
             report_lines.append("📈 <b>Активность всех монет за последние 24 часа</b>")
             report_lines.append("")
-            
+
             # Топ-5 монет
             if top_coins:
                 report_lines.append("🏆 <b>Топ-5 монет по активности:</b>")
                 for i, (coin, activity) in enumerate(top_coins, 1):
                     report_lines.append(f"{i}. {coin} - {activity:.1f} мин")
                 report_lines.append("")
-            
+
             # Почасовая разбивка
             report_lines.append("🕐 <b>Последние сессии по часам:</b>")
             report_lines.append("")
-            
+
             for hour_data in hourly_data:
                 # Заголовок часа
                 hour_line = f"{hour_data['hour']} {hour_data['color']} {hour_data['emoji']} {hour_data['level']}"
                 report_lines.append(hour_line)
-                
+
                 # Информация об активности
                 if hour_data['sessions_count'] > 0:
                     avg_session = hour_data['total_activity'] / hour_data['sessions_count']
@@ -579,9 +584,9 @@ class ActivityLevelCalculator:
                                    f"(z={hour_data['z_score']:.1f})")
                 else:
                     activity_line = f"Активность: {hour_data['total_activity']:.1f} мин ({hour_data['sessions_count']} сессий) (z={hour_data['z_score']:.1f})"
-                
+
                 report_lines.append(activity_line)
-                
+
                 # Список монет
                 if hour_data['coins']:
                     report_lines.append("Монеты:")
@@ -591,17 +596,17 @@ class ActivityLevelCalculator:
                         report_lines.append(f"• {coin} ({activity:.1f}м)")
                 else:
                     report_lines.append("Монеты: нет активности")
-                
+
                 report_lines.append("")
-            
+
             # Статистика
             report_lines.append("📊 <b>Статистика активности:</b>")
             report_lines.append(f"• Среднее: {stats['mean']:.1f} мин/час")
             report_lines.append(f"• Стд. откл.: {stats['std']:.1f} мин")
             report_lines.append(f"• Выборка: {stats['count']} часов")
-            
+
             return "\n".join(report_lines)
-            
+
         except Exception as e:
             bot_logger.error(f"Ошибка генерации глобального отчета активности: {e}")
             return f"❌ Ошибка генерации отчета: {str(e)}"
