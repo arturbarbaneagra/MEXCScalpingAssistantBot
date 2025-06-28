@@ -402,10 +402,7 @@ class UserModesManager:
 
 # Глобальный экземпляр менеджера (будет инициализирован в telegram_bot.py)
 user_modes_manager = None
-```
 
-The code is modified to delete and recreate the monitoring message in `update_monitoring` to make the message "drop down" the chat.
-```python
 """
 Упрощенный менеджер режимов бота для каждого пользователя
 Каждый пользователь независимо запускает/останавливает свой мониторинг
