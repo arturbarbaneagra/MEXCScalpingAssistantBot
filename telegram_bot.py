@@ -1573,7 +1573,6 @@ class TradingTelegramBot:
         message += f"⏰ Последнее обновление: <code>{time.strftime('%H:%M:%S')}</code>"
 
         await update.message.reply_text(
-```
 # The code is modified to prevent duplicate messages on bot stop and add a force update.
             message,
             reply_markup=user_keyboard,
