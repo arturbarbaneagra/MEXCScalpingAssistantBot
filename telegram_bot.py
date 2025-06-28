@@ -792,7 +792,6 @@ class TradingTelegramBot:
 
         await self._stop_bot()
 
-```python
         await update.message.reply_text(
             "🛑 <b>Бот остановлен</b>",
             reply_markup=user_keyboard,
@@ -1592,8 +1591,7 @@ class TradingTelegramBot:
                     parse_mode=ParseMode.HTML
                 )
 
-        except```python
- ValueError:
+        except ValueError:
             await update.message.reply_text(
                 "❌ Неверный формат. Введите число (например: 0.2)",
                 reply_markup=self.back_keyboard,
