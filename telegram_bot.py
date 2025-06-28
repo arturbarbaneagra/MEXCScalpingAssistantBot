@@ -1,4 +1,3 @@
-python
 import asyncio
 import time
 from typing import Dict, Optional, List, Any
