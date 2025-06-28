@@ -47,6 +47,10 @@ class TradingTelegramBot:
         # Многопользовательские модули
         self.admin_handlers = create_admin_handlers(self)
         self.user_session_recorders: Dict[str, UserSessionRecorder] = {}
+        
+        # Инициализируем менеджер пользовательских режимов
+        from user_modes_manager import UserModesManager
+        self.user_modes_manager = UserModesManager(self)
 
         # Состояния ConversationHandler
         self.ADDING_COIN, self.REMOVING_COIN = range(2)

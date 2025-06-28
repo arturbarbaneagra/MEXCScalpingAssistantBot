@@ -91,6 +91,7 @@ class UserNotificationMode(UserMode):
                     continue
 
                 # Получаем настройки пользователя
+                from user_manager import user_manager
                 if user_manager.is_admin(self.user_id):
                     # Для админа используем глобальные настройки
                     from config import config_manager
@@ -293,6 +294,7 @@ class UserMonitoringMode(UserMode):
                     continue
 
                 # Получаем настройки пользователя
+                from user_manager import user_manager
                 if user_manager.is_admin(self.user_id):
                     # Для админа используем глобальные настройки
                     from config import config_manager
