@@ -24,6 +24,19 @@
       "current_mode": null,
       "mode_start_time": null,
       "mode_stop_time": null
+    },
+    "1090477927": {
+      "chat_id": "1090477927",
+      "username": "admin",
+      "first_name": "Administrator",
+      "last_name": "",
+      "approved_time": 1751131822.35894,
+      "approved_datetime": "2025-06-28T17:30:22.358941",
+      "setup_completed": true,
+      "watchlist": [],
+      "active_coins": {},
+      "last_activity": 1751131822.3589473,
+      "setup_state": "completed"
     }
   },
   "pending_requests": {},
@@ -39,5 +52,5 @@
       "rejection_count": 1
     }
   },
-  "last_updated": "2025-06-28T16:25:37.660173"
+  "last_updated": "2025-06-28T17:30:22.358950"
 }
