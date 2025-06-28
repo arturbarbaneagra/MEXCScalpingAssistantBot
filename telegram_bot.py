@@ -581,10 +581,12 @@ class TradingTelegramBot:
             user_data = user_manager.get_user_data(chat_id)
             current_setup_state = user_data.get('setup_state', '') if user_data else ''
 
-            # Если пользователь уже в процессе настройки, просто возвращаемся без сообщений
+            bot_logger.debug(f"Пользователь {chat_id} не завершил настройку. Состояние: {current_setup_state}, Монеты: {len(user_watchlist)}")
+
+            # Если пользователь уже в процессе настройки, НЕ отправляем дублирующие сообщения
             if current_setup_state in ['initial_coin_setup', 'coin_added_waiting_choice', 
                                      'setting_filters_volume', 'setting_filters_spread', 'setting_filters_natr']:
-                bot_logger.debug(f"Пользователь {chat_id} уже в процессе настройки ({current_setup_state}), пропускаем")
+                bot_logger.debug(f"Пользователь {chat_id} уже в процессе настройки ({current_setup_state}), пропускаем дублирование")
                 return ConversationHandler.END
 
             if not user_watchlist:
@@ -644,12 +646,13 @@ class TradingTelegramBot:
         # Проверяем, находится ли пользователь в процессе первоначальной настройки
         if user_manager.is_user_approved(chat_id) and not user_manager.is_setup_completed(chat_id):
             user_data = user_manager.get_user_data(chat_id)
-            setup_state = user_data.get('setup_state', '')
+            setup_state = user_data.get('setup_state', '') if user_data else ''
 
             # Обрабатываем ввод монеты только если пользователь в состоянии добавления монет
             if setup_state == 'initial_coin_setup':
-                # Обрабатываем любой текст как потенциальную монету (кроме команд)
-                if not text.startswith('/'):
+                # Игнорируем команды и обрабатываем любой другой текст как монету
+                if not text.startswith('/') and text not in ['🔔 Уведомления', '📊 Мониторинг', '➕ Добавить', '➖ Удалить', 
+                                                           '📋 Список', '⚙ Настройки', '📈 Активность 24ч', 'ℹ Статус', '🛑 Стоп']:
                     return await self._handle_initial_coin_input(update, text)
                 else:
                     await update.message.reply_text(
@@ -2191,12 +2194,12 @@ class TradingTelegramBot:
         user_data = user_manager.get_user_data(chat_id)
         current_setup_state = user_data.get('setup_state', '') if user_data else ''
         
-        # Если пользователь уже в процессе настройки, не отправляем сообщение
+        # Если пользователь уже в процессе настройки, не отправляем дублирующее сообщение
         if current_setup_state == 'initial_coin_setup':
-            bot_logger.debug(f"Пользователь {chat_id} уже в процессе добавления монет")
-            return
+            bot_logger.debug(f"Пользователь {chat_id} уже в процессе добавления монет, пропускаем дублирование")
+            return ConversationHandler.END
         
-        # Отправляем приветственное сообщение
+        # Отправляем приветственное сообщение только если пользователь не в процессе настройки
         await update.message.reply_text(
             "👋 <b>Добро пожаловать!</b>\n\n"
             "Чтобы начать, добавьте хотя бы одну монету для отслеживания.\n\n"
@@ -2206,6 +2209,8 @@ class TradingTelegramBot:
         
         # Сохраняем состояние, что сейчас идет добавление монет
         user_manager.update_user_data(chat_id, {'setup_state': 'initial_coin_setup'})
+        
+        return ConversationHandler.END
 
     async def initial_setup_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик для первоначальной настройки (добавление монет и фильтров)"""
