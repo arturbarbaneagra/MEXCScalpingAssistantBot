@@ -94,14 +94,32 @@ class UserNotificationMode(UserMode):
                         
                     try:
                         # Получаем данные монеты
-                        coin_data = await api_client.get_coin_data(symbol)
-                        if not coin_data:
+                        ticker_data = await api_client.get_ticker_data(symbol)
+                        if not ticker_data:
                             continue
-                            
-                        # Проверяем активность по настройкам пользователя
-                        volume = coin_data.get('volume', 0)
-                        spread = coin_data.get('spread', 0)
-                        natr = coin_data.get('natr', 0)
+                        
+                        # Преобразуем данные
+                        volume = float(ticker_data.get('quoteVolume', 0))
+                        price = float(ticker_data.get('lastPrice', 0))
+                        
+                        # Рассчитываем спред и NATR
+                        try:
+                            from data_validator import data_validator
+                            spread = data_validator.calculate_spread(ticker_data)
+                            natr = await data_validator.calculate_natr(symbol)
+                        except Exception as e:
+                            bot_logger.debug(f"Ошибка расчета индикаторов для {symbol}: {e}")
+                            spread = 0.0
+                            natr = 0.0
+                        
+                        # Создаем объект coin_data для совместимости
+                        coin_data = {
+                            'symbol': symbol,
+                            'price': price,
+                            'volume': volume,
+                            'spread': spread,
+                            'natr': natr
+                        }
                         
                         is_active = (
                             volume >= user_config.get('VOLUME_THRESHOLD', 1000) and
@@ -260,8 +278,33 @@ class UserMonitoringMode(UserMode):
                         break
                         
                     try:
-                        coin_data = await api_client.get_coin_data(symbol)
-                        if coin_data:
+                        # Получаем базовые данные монеты
+                        ticker_data = await api_client.get_ticker_data(symbol)
+                        if ticker_data:
+                            # Преобразуем в формат для отчета
+                            coin_data = {
+                                'symbol': symbol,
+                                'price': float(ticker_data.get('lastPrice', 0)),
+                                'volume': float(ticker_data.get('quoteVolume', 0)),
+                                'change': float(ticker_data.get('priceChangePercent', 0)),
+                                'spread': 0.0,  # Будет рассчитан отдельно
+                                'natr': 0.0     # Будет рассчитан отдельно
+                            }
+                            
+                            # Рассчитываем спред
+                            try:
+                                from data_validator import data_validator
+                                coin_data['spread'] = data_validator.calculate_spread(ticker_data)
+                            except Exception:
+                                pass
+                            
+                            # Рассчитываем NATR
+                            try:
+                                from data_validator import data_validator
+                                coin_data['natr'] = await data_validator.calculate_natr(symbol)
+                            except Exception:
+                                pass
+                            
                             results.append(coin_data)
                         else:
                             failed_coins.append(symbol)
