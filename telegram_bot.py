@@ -773,6 +773,16 @@ class TradingTelegramBot:
 
     async def _handle_add_coin_start(self, update: Update):
         """Начало добавления монеты"""
+        chat_id = update.effective_chat.id
+        
+        # Проверяем права доступа
+        if not user_manager.is_admin(chat_id) and not user_manager.is_user_approved(chat_id):
+            await update.message.reply_text(
+                "❌ У вас нет доступа к боту.",
+                parse_mode=ParseMode.HTML
+            )
+            return ConversationHandler.END
+        
         await update.message.reply_text(
             "➕ <b>Добавление монеты</b>\n\n"
             "Введите символ монеты (например: <code>BTC</code> или <code>BTC_USDT</code>):",
@@ -783,20 +793,39 @@ class TradingTelegramBot:
 
     async def _handle_remove_coin_start(self, update: Update):
         """Начало удаления монеты"""
-        if watchlist_manager.size() == 0:
+        chat_id = update.effective_chat.id
+        user_keyboard = self.get_user_keyboard(chat_id)
+        
+        # Проверяем права доступа
+        if not user_manager.is_admin(chat_id) and not user_manager.is_user_approved(chat_id):
             await update.message.reply_text(
-                "❌ Список отслеживания пуст.",
-                reply_markup=self.main_keyboard
+                "❌ У вас нет доступа к боту.",
+                parse_mode=ParseMode.HTML
+            )
+            return ConversationHandler.END
+        
+        # Получаем список монет в зависимости от роли
+        if user_manager.is_admin(chat_id):
+            coins = watchlist_manager.get_all()
+            list_title = "админский список"
+        else:
+            coins = user_manager.get_user_watchlist(chat_id)
+            list_title = "ваш список"
+        
+        if len(coins) == 0:
+            await update.message.reply_text(
+                f"❌ {list_title.capitalize()} отслеживания пуст.",
+                reply_markup=user_keyboard
             )
             return ConversationHandler.END
 
-        coins_list = ", ".join(sorted(watchlist_manager.get_all())[:10])
-        if watchlist_manager.size() > 10:
+        coins_list = ", ".join(sorted(coins)[:10])
+        if len(coins) > 10:
             coins_list += "..."
 
         await update.message.reply_text(
             f"➖ <b>Удаление монеты</b>\n\n"
-            f"Текущий список: {coins_list}\n\n"
+            f"Текущий {list_title}: {coins_list}\n\n"
             f"Введите символ монеты для удаления:",
             reply_markup=self.back_keyboard,
             parse_mode=ParseMode.HTML
@@ -805,7 +834,15 @@ class TradingTelegramBot:
 
     async def _handle_volume_setting_start(self, update: Update):
         """Начало настройки объёма"""
-        current_value = config_manager.get('VOLUME_THRESHOLD')
+        chat_id = update.effective_chat.id
+        
+        # Получаем текущее значение в зависимости от роли
+        if user_manager.is_admin(chat_id):
+            current_value = config_manager.get('VOLUME_THRESHOLD')
+        else:
+            user_config = user_manager.get_user_config(chat_id)
+            current_value = user_config.get('VOLUME_THRESHOLD', 1000)
+        
         await update.message.reply_text(
             f"📊 <b>Настройка минимального объёма</b>\n\n"
             f"Текущее значение: <code>${current_value:,}</code>\n\n"
@@ -817,7 +854,15 @@ class TradingTelegramBot:
 
     async def _handle_spread_setting_start(self, update: Update):
         """Начало настройки спреда"""
-        current_value = config_manager.get('SPREAD_THRESHOLD')
+        chat_id = update.effective_chat.id
+        
+        # Получаем текущее значение в зависимости от роли
+        if user_manager.is_admin(chat_id):
+            current_value = config_manager.get('SPREAD_THRESHOLD')
+        else:
+            user_config = user_manager.get_user_config(chat_id)
+            current_value = user_config.get('SPREAD_THRESHOLD', 0.1)
+        
         await update.message.reply_text(
             f"⇄ <b>Настройка минимального спреда</b>\n\n"
             f"Текущее значение: <code>{current_value}%</code>\n\n"
@@ -829,7 +874,15 @@ class TradingTelegramBot:
 
     async def _handle_natr_setting_start(self, update: Update):
         """Начало настройки NATR"""
-        current_value = config_manager.get('NATR_THRESHOLD')
+        chat_id = update.effective_chat.id
+        
+        # Получаем текущее значение в зависимости от роли
+        if user_manager.is_admin(chat_id):
+            current_value = config_manager.get('NATR_THRESHOLD')
+        else:
+            user_config = user_manager.get_user_config(chat_id)
+            current_value = user_config.get('NATR_THRESHOLD', 0.5)
+        
         await update.message.reply_text(
             f"📈 <b>Настройка минимального NATR</b>\n\n"
             f"Текущее значение: <code>{current_value}%</code>\n\n"
@@ -841,26 +894,51 @@ class TradingTelegramBot:
 
     async def _handle_show_list(self, update: Update):
         """Показ списка монет"""
-        coins = watchlist_manager.get_all()
+        chat_id = update.effective_chat.id
+        user_keyboard = self.get_user_keyboard(chat_id)
+        
+        # Получаем список монет в зависимости от роли
+        if user_manager.is_admin(chat_id):
+            coins = watchlist_manager.get_all()
+            list_title = "📋 <b>Админский список отслеживания"
+        else:
+            coins = user_manager.get_user_watchlist(chat_id)
+            list_title = "📋 <b>Ваш список отслеживания"
+        
         if not coins:
-            text = "📋 <b>Список отслеживания пуст</b>"
+            text = f"{list_title} пуст</b>"
         else:
             sorted_coins = sorted(coins)
-            text = f"📋 <b>Список отслеживания ({len(coins)} монет):</b>\n\n"
+            text = f"{list_title} ({len(coins)} монет):</b>\n\n"
 
             for i in range(0, len(sorted_coins), 5):
                 batch = sorted_coins[i:i+5]
                 text += " • ".join(batch) + "\n"
 
-        await update.message.reply_text(text, reply_markup=self.main_keyboard, parse_mode=ParseMode.HTML)
+        await update.message.reply_text(text, reply_markup=user_keyboard, parse_mode=ParseMode.HTML)
 
     async def _handle_settings(self, update: Update):
         """Обработка настроек"""
+        chat_id = update.effective_chat.id
+        
+        # Получаем настройки в зависимости от роли
+        if user_manager.is_admin(chat_id):
+            volume_threshold = config_manager.get('VOLUME_THRESHOLD')
+            spread_threshold = config_manager.get('SPREAD_THRESHOLD')
+            natr_threshold = config_manager.get('NATR_THRESHOLD')
+            settings_title = "⚙ <b>Текущие настройки фильтров (админ):</b>\n\n"
+        else:
+            user_config = user_manager.get_user_config(chat_id)
+            volume_threshold = user_config.get('VOLUME_THRESHOLD', 1000)
+            spread_threshold = user_config.get('SPREAD_THRESHOLD', 0.1)
+            natr_threshold = user_config.get('NATR_THRESHOLD', 0.5)
+            settings_title = "⚙ <b>Ваши настройки фильтров:</b>\n\n"
+        
         current_settings = (
-            "⚙ <b>Текущие настройки фильтров:</b>\n\n"
-            f"📊 Минимальный объём: <code>${config_manager.get('VOLUME_THRESHOLD'):,}</code>\n"
-            f"⇄ Минимальный спред: <code>{config_manager.get('SPREAD_THRESHOLD')}%</code>\n"
-            f"📈 Минимальный NATR: <code>{config_manager.get('NATR_THRESHOLD')}%</code>\n\n"
+            settings_title +
+            f"📊 Минимальный объём: <code>${volume_threshold:,}</code>\n"
+            f"⇄ Минимальный спред: <code>{spread_threshold}%</code>\n"
+            f"📈 Минимальный NATR: <code>{natr_threshold}%</code>\n\n"
             "Выберите параметр для изменения:"
         )
 
@@ -904,12 +982,23 @@ class TradingTelegramBot:
 
     async def _handle_reset_settings(self, update: Update):
         """Сброс настроек к значениям по умолчанию"""
-        config_manager.set('VOLUME_THRESHOLD', 1000)
-        config_manager.set('SPREAD_THRESHOLD', 0.1)
-        config_manager.set('NATR_THRESHOLD', 0.5)
+        chat_id = update.effective_chat.id
+        user_keyboard = self.get_user_keyboard(chat_id)
+        
+        # Сбрасываем настройки в зависимости от роли
+        if user_manager.is_admin(chat_id):
+            config_manager.set('VOLUME_THRESHOLD', 1000)
+            config_manager.set('SPREAD_THRESHOLD', 0.1)
+            config_manager.set('NATR_THRESHOLD', 0.5)
+            settings_title = "🔄 <b>Админские настройки сброшены к значениям по умолчанию:</b>\n\n"
+        else:
+            user_manager.update_user_config(chat_id, 'VOLUME_THRESHOLD', 1000)
+            user_manager.update_user_config(chat_id, 'SPREAD_THRESHOLD', 0.1)
+            user_manager.update_user_config(chat_id, 'NATR_THRESHOLD', 0.5)
+            settings_title = "🔄 <b>Ваши настройки сброшены к значениям по умолчанию:</b>\n\n"
 
         reset_message = (
-            "🔄 <b>Настройки сброшены к значениям по умолчанию:</b>\n\n"
+            settings_title +
             f"📊 Минимальный объём: <code>$1,000</code>\n"
             f"⇄ Минимальный спред: <code>0.1%</code>\n"
             f"📈 Минимальный NATR: <code>0.5%</code>"
@@ -917,7 +1006,7 @@ class TradingTelegramBot:
 
         await update.message.reply_text(
             reset_message,
-            reply_markup=self.main_keyboard,
+            reply_markup=user_keyboard,
             parse_mode=ParseMode.HTML
         )
 
@@ -1302,8 +1391,23 @@ class TradingTelegramBot:
                 )
                 return self.ADDING_COIN  # Продолжаем ждать ввод
 
-        # Добавляем в список
-        if watchlist_manager.add(symbol):
+        # Добавляем в список (админ - глобальный, пользователь - личный)
+        chat_id = update.effective_chat.id
+        user_keyboard = self.get_user_keyboard(chat_id)
+        
+        success = False
+        total_count = 0
+        
+        if user_manager.is_admin(chat_id):
+            # Админ добавляет в глобальный список
+            success = watchlist_manager.add(symbol)
+            total_count = watchlist_manager.size()
+        else:
+            # Пользователь добавляет в свой список
+            success = user_manager.add_user_coin(chat_id, symbol)
+            total_count = len(user_manager.get_user_watchlist(chat_id))
+        
+        if success:
             # Автоматически восстанавливаем все Circuit Breaker'ы при успешной операции
             try:
                 from circuit_breaker import api_circuit_breakers
@@ -1323,16 +1427,16 @@ class TradingTelegramBot:
                 f"✅ <b>Монета добавлена!</b>\n\n"
                 f"📊 <b>{symbol}</b>\n"
                 f"💰 Цена: <code>${price:.6f}</code>\n"
-                f"📈 Всего в списке: <b>{watchlist_manager.size()}</b>",
+                f"📈 Всего в вашем списке: <b>{total_count}</b>",
                 parse_mode=ParseMode.HTML,
-                reply_markup=self.main_keyboard
+                reply_markup=user_keyboard
             )
-            bot_logger.info(f"Добавлена монета {symbol} по цене ${price:.6f}")
+            bot_logger.info(f"Добавлена монета {symbol} по цене ${price:.6f} {'(админ)' if user_manager.is_admin(chat_id) else '(пользователь)'}")
         else:
             await update.message.reply_text(
                 f"❌ Ошибка добавления монеты <b>{symbol}</b>",
                 parse_mode=ParseMode.HTML,
-                reply_markup=self.main_keyboard
+                reply_markup=user_keyboard
             )
 
         return ConversationHandler.END
@@ -1340,24 +1444,37 @@ class TradingTelegramBot:
     async def remove_coin_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик удаления монеты"""
         text = update.message.text.strip()
+        chat_id = update.effective_chat.id
+        user_keyboard = self.get_user_keyboard(chat_id)
 
         # Обработка кнопки "Назад"
         if text == "🔙 Назад":
-            await self._handle_back(update)
+            await update.message.reply_text(
+                "🏠 Главное меню:",
+                reply_markup=user_keyboard
+            )
             return ConversationHandler.END
 
         symbol = text.upper().replace("_USDT", "").replace("USDT", "")
 
-        if watchlist_manager.remove(symbol):
+        success = False
+        if user_manager.is_admin(chat_id):
+            # Админ удаляет из глобального списка
+            success = watchlist_manager.remove(symbol)
+        else:
+            # Пользователь удаляет из своего списка
+            success = user_manager.remove_user_coin(chat_id, symbol)
+
+        if success:
             await update.message.reply_text(
                 f"✅ <b>{symbol}</b> удалена из списка отслеживания.",
-                reply_markup=self.main_keyboard,
+                reply_markup=user_keyboard,
                 parse_mode=ParseMode.HTML
             )
         else:
             await update.message.reply_text(
                 f"❌ <b>{symbol}</b> не найдена в списке.",
-                reply_markup=self.main_keyboard,
+                reply_markup=user_keyboard,
                 parse_mode=ParseMode.HTML
             )
 
@@ -1366,6 +1483,8 @@ class TradingTelegramBot:
     async def volume_setting_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик настройки объёма"""
         text = update.message.text.strip()
+        chat_id = update.effective_chat.id
+        user_keyboard = self.get_user_keyboard(chat_id)
 
         if text == "🔙 Назад":
             await self._handle_settings(update)
@@ -1380,10 +1499,15 @@ class TradingTelegramBot:
                 )
                 return self.SETTING_VOLUME
 
-            config_manager.set('VOLUME_THRESHOLD', value)
+            # Сохраняем настройки в зависимости от роли
+            if user_manager.is_admin(chat_id):
+                config_manager.set('VOLUME_THRESHOLD', value)
+            else:
+                user_manager.update_user_config(chat_id, 'VOLUME_THRESHOLD', value)
+            
             await update.message.reply_text(
                 f"✅ <b>Минимальный объём установлен:</b> ${value:,}",
-                reply_markup=self.main_keyboard,
+                reply_markup=user_keyboard,
                 parse_mode=ParseMode.HTML
             )
         except ValueError:
@@ -1398,6 +1522,8 @@ class TradingTelegramBot:
     async def spread_setting_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик настройки спреда"""
         text = update.message.text.strip()
+        chat_id = update.effective_chat.id
+        user_keyboard = self.get_user_keyboard(chat_id)
 
         if text == "🔙 Назад":
             await self._handle_settings(update)
@@ -1412,10 +1538,15 @@ class TradingTelegramBot:
                 )
                 return self.SETTING_SPREAD
 
-            config_manager.set('SPREAD_THRESHOLD', value)
+            # Сохраняем настройки в зависимости от роли
+            if user_manager.is_admin(chat_id):
+                config_manager.set('SPREAD_THRESHOLD', value)
+            else:
+                user_manager.update_user_config(chat_id, 'SPREAD_THRESHOLD', value)
+            
             await update.message.reply_text(
                 f"✅ <b>Минимальный спред установлен:</b> {value}%",
-                reply_markup=self.main_keyboard,
+                reply_markup=user_keyboard,
                 parse_mode=ParseMode.HTML
             )
         except ValueError:
@@ -1430,6 +1561,8 @@ class TradingTelegramBot:
     async def natr_setting_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик настройки NATR"""
         text = update.message.text.strip()
+        chat_id = update.effective_chat.id
+        user_keyboard = self.get_user_keyboard(chat_id)
 
         if text == "🔙 Назад":
             await self._handle_settings(update)
@@ -1444,10 +1577,15 @@ class TradingTelegramBot:
                 )
                 return self.SETTING_NATR
 
-            config_manager.set('NATR_THRESHOLD', value)
+            # Сохраняем настройки в зависимости от роли
+            if user_manager.is_admin(chat_id):
+                config_manager.set('NATR_THRESHOLD', value)
+            else:
+                user_manager.update_user_config(chat_id, 'NATR_THRESHOLD', value)
+            
             await update.message.reply_text(
                 f"✅ <b>Минимальный NATR установлен:</b> {value}%",
-                reply_markup=self.main_keyboard,
+                reply_markup=user_keyboard,
                 parse_mode=ParseMode.HTML
             )
         except ValueError:
