@@ -1,17 +1,32 @@
 {
-  "uptime_seconds": 1189.6113221645355,
+  "uptime_seconds": 133.5043387413025,
   "api_stats": {
-    "/ticker/24hr": {
-      "total_requests": 1,
-      "avg_response_time": 0.20323443412780762,
-      "max_response_time": 0.20323443412780762,
-      "min_response_time": 0.20323443412780762,
-      "error_count": 1
+    "/ticker/bookTicker": {
+      "total_requests": 56,
+      "avg_response_time": 0.05218704257692609,
+      "max_response_time": 0.21575689315795898,
+      "min_response_time": 0.014587163925170898,
+      "error_count": 0
+    },
+    "/klines": {
+      "total_requests": 591,
+      "avg_response_time": 0.34843831054248586,
+      "max_response_time": 0.7561862468719482,
+      "min_response_time": 0.10742783546447754,
+      "error_count": 0
+    },
+    "/trades": {
+      "total_requests": 303,
+      "avg_response_time": 0.35984471922267,
+      "max_response_time": 0.7871503829956055,
+      "min_response_time": 0.11619949340820312,
+      "error_count": 0
     }
   },
   "performance_stats": {},
   "counters": {
-    "api_requests_/ticker/24hr": 1,
-    "api_errors_/ticker/24hr": 1
+    "api_requests_/ticker/bookTicker": 56,
+    "api_requests_/klines": 591,
+    "api_requests_/trades": 303
   }
 }
