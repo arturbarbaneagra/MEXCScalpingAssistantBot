@@ -1513,6 +1513,7 @@ class TradingTelegramBot:
                 user_manager.update_user_config(chat_id, 'VOLUME_THRESHOLD', value)
 
             await update.message.reply_text(
+                ```python
                 f"✅ <b>Минимальный объём установлен:</b> ${value:,}",
                 reply_markup=user_keyboard,
                 parse_mode=ParseMode.HTML
@@ -1870,60 +1871,23 @@ class TradingTelegramBot:
             page = int(data.replace("users_page_", ""))
             await self.admin_handlers.handle_show_all_users(update, context)
 
-    async def _start_coin_setup(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Начинает первоначальную настройку монет"""
+    async def _handle_initial_coin_input(self, update: Update, text: str):
+        """Обработка ввода монеты во время первоначальной настройки (без кнопок)"""
         chat_id = update.effective_chat.id
 
-        await update.message.reply_text(
-            "👋 <b>Добро пожаловать!</b>\n\n"
-            "Чтобы начать, добавьте хотя бы одну монету для отслеживания.\n\n"
-            "Введите символ монеты (например: BTC, ETH, ADA):",
-            parse_mode=ParseMode.HTML
-        )
-        # Сохраняем состояние, что сейчас идет добавление монет
-        user_manager.update_user_data(chat_id, {'setup_state': 'adding_coins'})
-        return
-
-    async def _start_filter_setup(self, update: Update, chat_id: str):
-        """Начинает первоначальную настройку фильтров"""
-
-        await update.message.reply_text(
-            "⚙️ <b>Настройка фильтров</b>\n\n"
-            "Настройте фильтры, чтобы бот уведомлял только об интересующих вас монетах.\n\n"
-            "📊 <b>1/3 - Минимальный объём</b>\n"
-            "Введите минимальный объём в долларах\n\n"
-            "💡 <b>Рекомендуется:</b> 500-2000\n"
-            "Объём - суммарный объём торгов за последние 24ч\n\n"
-            "Введите число (например: 1000):",
-            parse_mode=ParseMode.HTML
-        )
-
-        # Сохраняем состояние, что сейчас идет настройка фильтров и с какого шага начать
-        user_manager.update_user_data(chat_id, {'setup_state': 'setting_filters', 'filter_setup_step': 'volume'})
-
-    async def _handle_initial_coin_setup(self, update: Update, text: str):
-        """Обработка добавления монет во время начальной настройки"""
-        chat_id = update.effective_chat.id
-
-        if text == "➡️ Далее":
-            # Переходим к настройке фильтров
-            await self._start_filter_setup(update, chat_id)
-            return ConversationHandler.END
-        elif text == "➕ Добавить еще":
+        # Игнорируем команды и кнопки - ждем только название монеты
+        if text.startswith('/') or text in ['🔔 Уведомления', '📊 Мониторинг', '➕ Добавить', '➖ Удалить', 
+                                           '📋 Список', '⚙ Настройки', '📈 Активность 24ч', 'ℹ Статус', '🛑 Стоп']:
             await update.message.reply_text(
-                "➕ <b>Добавление следующей монеты</b>\n\n"
-                "Введите символ следующей монеты:",
+                "💡 <b>Сначала добавьте монету!</b>\n\n"
+                "Введите название монеты для добавления в ваш список.\n\n"
+                "Например: BTC, ETH, ADA, SOL",
                 parse_mode=ParseMode.HTML
             )
             return ConversationHandler.END
-        else:
-            # Пользователь ввел название монеты
-            return await self._process_initial_coin_add(update, text)
 
-    async def _process_initial_coin_add(self, update: Update, text: str):
-        """Обрабатывает добавление монеты в начальной настройке"""
-        chat_id = update.effective_chat.id
-        symbol = text.upper().replace('_USDT', '').replace('USDT', '')
+        # Обрабатываем введенную монету
+        symbol = text.upper().replace('_USDT', '').replace('USDT', '').strip()
 
         # Валидация символа
         if not input_validator.validate_symbol(symbol):
@@ -1948,7 +1912,8 @@ class TradingTelegramBot:
             if not ticker_data:
                 await update.message.reply_text(
                     f"❌ <b>Монета '{symbol}' не найдена на MEXC</b>\n\n"
-                    "Попробуйте ввести другой символ:",
+                    "Попробуйте ввести другое название монеты.\n\n"
+                    "Примеры: BTC, ETH, ADA, SOL",
                     parse_mode=ParseMode.HTML
                 )
                 return ConversationHandler.END
@@ -1958,30 +1923,24 @@ class TradingTelegramBot:
                 user_watchlist = user_manager.get_user_watchlist(chat_id)
                 price = float(ticker_data.get('lastPrice', 0))
 
-                # Создаем клавиатуру с вариантами действий
-                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-                keyboard = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("➕ Добавить еще", callback_data="add_more_coins")],
-                    [InlineKeyboardButton("➡️ Далее", callback_data="proceed_to_filters")]
-                ])
-
                 await update.message.reply_text(
                     f"✅ <b>Монета добавлена!</b>\n\n"
                     f"📊 <b>{symbol}</b>\n"
                     f"💰 Цена: <code>${price:.6f}</code>\n"
                     f"📈 Всего монет: <b>{len(user_watchlist)}</b>\n\n"
-                    "Что хотите сделать дальше?",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=keyboard
+                    "🔄 <b>Хотите добавить еще одну монету?</b>\n"
+                    "Введите название следующей монеты или напишите 'далее' для перехода к настройкам.",
+                    parse_mode=ParseMode.HTML
                 )
             else:
                 await update.message.reply_text(
                     f"⚠️ Монета <b>{symbol}</b> уже в вашем списке\n\n"
-                    "Введите другую монету:",
+                    "Введите название другой монеты:",
                     parse_mode=ParseMode.HTML
                 )
+
         except Exception as e:
-            if loading_msg:
+            if 'loading_msg' in locals():
                 try:
                     await loading_msg.delete()
                 except:
@@ -1989,20 +1948,35 @@ class TradingTelegramBot:
 
             await update.message.reply_text(
                 f"❌ Ошибка при проверке монеты {symbol}\n\n"
-                "Попробуйте еще раз:",
+                "Попробуйте ввести другое название:",
                 parse_mode=ParseMode.HTML
             )
 
         return ConversationHandler.END
 
-    async def _handle_initial_filter_setup(self, update: Update, text: str):
-        """Обработка настройки фильтров во время начальной настройки"""
+    async def _handle_initial_filter_input(self, update: Update, text: str):
+        """Обработка ввода фильтров во время первоначальной настройки"""
         chat_id = update.effective_chat.id
         user_data = user_manager.get_user_data(chat_id)
-        filter_step = user_data.get('filter_setup_step', 'volume')
+        setup_state = user_data.get('setup_state', '')
 
-        try:
-            if filter_step == 'volume':
+        # Если пользователь написал "далее" во время добавления монет
+        if text.lower() in ['далее', 'готово', 'продолжить'] and user_data.get('setup_state') == 'initial_coin_setup':
+            user_watchlist = user_manager.get_user_watchlist(chat_id)
+            if user_watchlist:
+                await self._start_filter_setup_initial(update, chat_id)
+                return ConversationHandler.END
+            else:
+                await update.message.reply_text(
+                    "❌ <b>Добавьте хотя бы одну монету</b>\n\n"
+                    "Введите название монеты:",
+                    parse_mode=ParseMode.HTML
+                )
+                return ConversationHandler.END
+
+        # Обработка настройки фильтров
+        if setup_state == 'setting_filters_volume':
+            try:
                 value = int(text)
                 if value < 100:
                     await update.message.reply_text(
@@ -2013,19 +1987,27 @@ class TradingTelegramBot:
                     return ConversationHandler.END
 
                 user_manager.update_user_config(chat_id, 'VOLUME_THRESHOLD', value)
-                user_manager.update_user_data(chat_id, {'filter_setup_step': 'spread'})
+                user_manager.update_user_data(chat_id, {'setup_state': 'setting_filters_spread'})
 
                 await update.message.reply_text(
                     f"✅ <b>Объём установлен:</b> ${value:,}\n\n"
-                    "📈 <b>2/3 - Минимальный спред</b>\n"
-                    "Введите минимальный спред в процентах\n\n"
+                    "📈 <b>2/3 - Минимальный спред</b>\n\n"
+                    "Введите минимальный спред в процентах.\n\n"
                     "💡 <b>Рекомендуется:</b> 0.1-0.5\n"
                     "Спред - разница между ценой покупки и продажи\n\n"
                     "Введите число (например: 0.1):",
                     parse_mode=ParseMode.HTML
                 )
 
-            elif filter_step == 'spread':
+            except ValueError:
+                await update.message.reply_text(
+                    "❌ Введите числовое значение\n\n"
+                    "Например: 1000",
+                    parse_mode=ParseMode.HTML
+                )
+
+        elif setup_state == 'setting_filters_spread':
+            try:
                 value = float(text)
                 if value < 0 or value > 10:
                     await update.message.reply_text(
@@ -2036,19 +2018,27 @@ class TradingTelegramBot:
                     return ConversationHandler.END
 
                 user_manager.update_user_config(chat_id, 'SPREAD_THRESHOLD', value)
-                user_manager.update_user_data(chat_id, {'filter_setup_step': 'natr'})
+                user_manager.update_user_data(chat_id, {'setup_state': 'setting_filters_natr'})
 
                 await update.message.reply_text(
                     f"✅ <b>Спред установлен:</b> {value}%\n\n"
-                    "📊 <b>3/3 - Минимальный NATR</b>\n"
-                    "Введите минимальный NATR в процентах\n\n"
+                    "📊 <b>3/3 - Минимальный NATR</b>\n\n"
+                    "Введите минимальный NATR в процентах.\n\n"
                     "💡 <b>Рекомендуется:</b> 0.5-2.0\n"
                     "NATR показывает волатильность монеты\n\n"
                     "Введите число (например: 0.5):",
                     parse_mode=ParseMode.HTML
                 )
 
-            elif filter_step == 'natr':
+            except ValueError:
+                await update.message.reply_text(
+                    "❌ Введите числовое значение\n\n"
+                    "Например: 0.1",
+                    parse_mode=ParseMode.HTML
+                )
+
+        elif setup_state == 'setting_filters_natr':
+            try:
                 value = float(text)
                 if value < 0 or value > 20:
                     await update.message.reply_text(
@@ -2060,6 +2050,7 @@ class TradingTelegramBot:
 
                 user_manager.update_user_config(chat_id, 'NATR_THRESHOLD', value)
                 user_manager.mark_setup_completed(chat_id)
+                user_manager.update_user_data(chat_id, {'setup_state': 'completed'})
 
                 user_config = user_manager.get_user_config(chat_id)
                 user_watchlist = user_manager.get_user_watchlist(chat_id)
@@ -2073,19 +2064,66 @@ class TradingTelegramBot:
                     f"📋 <b>Ваши монеты:</b> {len(user_watchlist)} шт.\n"
                     f"• {', '.join(user_watchlist[:5])}"
                     f"{'...' if len(user_watchlist) > 5 else ''}\n\n"
-                    "🚀 <b>Теперь вы можете использовать бота!</b>",
+                    "🚀 <b>Теперь вы можете использовать бота!</b>\n\n"
+                    "Используйте кнопки меню ниже:",
                     parse_mode=ParseMode.HTML,
                     reply_markup=self.user_keyboard
                 )
 
-        except ValueError:
-            await update.message.reply_text(
-                "❌ Введите числовое значение\n\n"
-                "Попробуйте еще раз:",
-                parse_mode=ParseMode.HTML
-            )
+            except ValueError:
+                await update.message.reply_text(
+                    "❌ Введите числовое значение\n\n"
+                    "Например: 0.5",
+                    parse_mode=ParseMode.HTML
+                )
 
         return ConversationHandler.END
 
-# Глобальный экземпляр бота
+    async def _start_filter_setup_initial(self, update: Update, chat_id: str):
+        """Начинает первоначальную настройку фильтров без кнопок"""
+        user_manager.update_user_data(chat_id, {'setup_state': 'setting_filters_volume'})
+
+        await update.message.reply_text(
+            "⚙️ <b>Настройка фильтров</b>\n\n"
+            "Теперь настройте фильтры, чтобы бот уведомлял только об интересующих вас монетах.\n\n"
+            "📊 <b>1/3 - Минимальный объём</b>\n\n"
+            "Введите минимальный объём торгов в долларах.\n\n"
+            "💡 <b>Рекомендуется:</b> 500-2000\n"
+            "Объём - суммарный объём торгов за последние 24ч\n\n"
+            "Введите число (например: 1000):",
+            parse_mode=ParseMode.HTML
+        )
+
+    async def _start_coin_setup(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Начинает первоначальную настройку монет"""
+        chat_id = update.effective_chat.id
+
+        await update.message.reply_text(
+            "👋 <b>Добро пожаловать!</b>\n\n"
+            "Чтобы начать, добавьте хотя бы одну монету для отслеживания.\n\n"
+            "Введите символ монеты (например: BTC, ETH, ADA):",
+            parse_mode=ParseMode.HTML,
+        )
+        # Сохраняем состояние, что сейчас идет добавление монет
+        user_manager.update_user_data(chat_id, {'setup_state': 'initial_coin_setup'})
+
+    async def initial_setup_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик для первоначальной настройки (добавление монет и фильтров)"""
+        chat_id = update.effective_chat.id
+        text = update.message.text
+
+        user_data = user_manager.get_user_data(chat_id)
+        setup_state = user_data.get('setup_state', '')
+
+        if setup_state == 'initial_coin_setup':
+            return await self._handle_initial_coin_input(update, text)
+        elif setup_state.startswith('setting_filters'):
+            return await self._handle_initial_filter_input(update, text)
+
+        else:
+            # Если состояние не определено, возвращаем пользователя к началу
+            await self._start_coin_setup(update, context)
+            return ConversationHandler.END
+
+# Modified bot to handle initial configuration and filter input, and new functions for manage the states of setup.
 telegram_bot = TradingTelegramBot()
