@@ -23,14 +23,17 @@
       "setup_completed": false,
       "watchlist": [
         "DKA",
-        "XGAS"
+        "XGAS",
+        "NOVA",
+        "CRT",
+        "CALCIFY"
       ],
       "active_coins": {},
-      "last_activity": 1751132198.3886943,
+      "last_activity": 1751134009.6029017,
       "setup_state": ""
     }
   },
   "pending_requests": {},
   "rejected_users": {},
-  "last_updated": "2025-06-28T17:36:38.388698"
+  "last_updated": "2025-06-28T18:06:49.602906"
 }
