@@ -1509,7 +1509,7 @@ class TradingTelegramBot:
 
             # Сохраняем настройки в зависимости от роли
             if user_manager.is_admin(chat_id):
-config_manager.set('VOLUME_THRESHOLD', value)
+                config_manager.set('VOLUME_THRESHOLD', value)
             else:
                 user_manager.update_user_config(chat_id, 'VOLUME_THRESHOLD', value)
 
