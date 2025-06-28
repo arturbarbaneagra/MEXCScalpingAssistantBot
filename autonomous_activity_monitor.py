@@ -153,10 +153,6 @@ class AutonomousActivityMonitor:
             bot_logger.debug(f"🔍 Автономный монитор передает {symbol} в Session Recorder: volume={session_data['volume']}, active={session_data['active']}")
             
             from session_recorder import session_recorder
-            session_recorder.update_coin_activity(symbol, session_data, 0),
-                'spread': coin_data.get('spread', 0),
-                'natr': coin_data.get('natr', 0)
-            }
             session_recorder.update_coin_activity(symbol, session_data)
             
     def _check_inactive_coins(self):
