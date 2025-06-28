@@ -14,6 +14,7 @@ from input_validator import input_validator
 from user_manager import user_manager
 from user_session_recorder import UserSessionRecorder
 from admin_handlers import create_admin_handlers
+from user_modes_manager import AdminModesManager
 import os
 
 class TradingTelegramBot:
