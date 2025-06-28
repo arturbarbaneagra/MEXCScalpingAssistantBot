@@ -1417,13 +1417,28 @@ class TradingTelegramBot:
             )
             return self.ADDING_COIN  # Продолжаем ждать ввод
 
-        if watchlist_manager.contains(symbol):
-            await update.message.reply_text(
-                f"⚠️ Монета <b>{symbol}</b> уже в списке отслеживания",
-                parse_mode=ParseMode.HTML,
-                reply_markup=self.main_keyboard
-            )
-            return ConversationHandler.END
+        # Проверяем дублирование в соответствующем списке
+        chat_id = update.effective_chat.id
+        
+        if user_manager.is_admin(chat_id):
+            # Для админа проверяем глобальный список
+            if watchlist_manager.contains(symbol):
+                await update.message.reply_text(
+                    f"⚠️ Монета <b>{symbol}</b> уже в глобальном списке отслеживания",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=self.main_keyboard
+                )
+                return ConversationHandler.END
+        else:
+            # Для пользователя проверяем его личный список
+            user_watchlist = user_manager.get_user_watchlist(chat_id)
+            if symbol in user_watchlist:
+                await update.message.reply_text(
+                    f"⚠️ Монета <b>{symbol}</b> уже в вашем списке отслеживания",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=self.main_keyboard
+                )
+                return ConversationHandler.END
 
         # Проверяем существование монеты через API с улучшенной обработкой ошибок
         loading_msg = None
@@ -2053,6 +2068,16 @@ class TradingTelegramBot:
                     f"❌ <b>Монета '{symbol}' не найдена на MEXC</b>\n\n"
                     "Попробуйте ввести другое название монеты.\n\n"
                     "Примеры: BTC, ETH, ADA, SOL",
+                    parse_mode=ParseMode.HTML
+                )
+                return ConversationHandler.END
+
+            # Проверяем, нет ли уже этой монеты в списке пользователя
+            user_watchlist = user_manager.get_user_watchlist(chat_id)
+            if symbol in user_watchlist:
+                await update.message.reply_text(
+                    f"⚠️ Монета <b>{symbol}</b> уже в вашем списке\n\n"
+                    "Введите название другой монеты:",
                     parse_mode=ParseMode.HTML
                 )
                 return ConversationHandler.END
