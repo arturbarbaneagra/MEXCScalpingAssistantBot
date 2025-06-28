@@ -753,7 +753,7 @@ class TradingTelegramBot:
                     "❓ Неизвестная команда. Используйте кнопки меню.",
                     reply_markup=user_keyboard
                 )
-        except Exception ase:
+        except Exception as e:
             bot_logger.error(f"Ошибка в button_handler: {e}", exc_info=True)
             try:
                 await update.message.reply_text(
