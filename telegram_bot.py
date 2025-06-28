@@ -778,6 +778,7 @@ class TradingTelegramBot:
             elif text == "🔄 Сброс":
                 await self._handle_reset_settings(update)
             elif text == "📈 Активность 24ч":
+                bot_logger.info(f"📈 Обработка кнопки 'Активность 24ч' для пользователя {chat_id} {'(админ)' if user_manager.is_admin(chat_id) else '(пользователь)'}")
                 await self._handle_activity_24h(update)
             elif text == "ℹ Статус":
                 await self._handle_status(update)
@@ -1206,7 +1207,7 @@ class TradingTelegramBot:
 
             # Получаем список монет пользователя для фильтрации
             if user_manager.is_admin(chat_id):
-                user_coins = watchlist_manager.get_all()  # Админ видит все монеты
+                user_coins = list(watchlist_manager.get_all())  # Админ видит все монеты
             else:
                 user_coins = user_manager.get_user_watchlist(chat_id)  # Пользователь видит только свои
 
@@ -1434,10 +1435,10 @@ class TradingTelegramBot:
                         await asyncio.sleep(0.5)  # Небольшая пауза между сообщениями
 
         except Exception as e:
-            bot_logger.error(f"Ошибка получения активности за 24ч: {e}")
+            bot_logger.error(f"Ошибка получения активности за 24ч для пользователя {chat_id}: {e}", exc_info=True)
             await update.message.reply_text(
-                "❌ Ошибка получения данных об активности.",
-                reply_markup=self.get_user_keyboard(update.effective_chat.id)
+                f"❌ Ошибка получения данных об активности: {str(e)[:100]}",
+                reply_markup=self.get_user_keyboard(chat_id)
             )
 
 
