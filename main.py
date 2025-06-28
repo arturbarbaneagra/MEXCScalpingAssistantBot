@@ -463,7 +463,7 @@ async def main():
         
 
         # Настраиваем и запускаем Telegram бота
-        app = telegram_bot.setup_application()
+        app = await telegram_bot.setup_application()
 
         bot_logger.info("🤖 Telegram бот готов к работе")
         bot_logger.info("🚀 Мониторинг и уведомления активны")
