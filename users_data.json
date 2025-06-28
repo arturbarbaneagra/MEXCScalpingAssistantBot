@@ -1,30 +1,5 @@
 {
   "users": {
-    "8195543530": {
-      "chat_id": "8195543530",
-      "username": "arturlorf",
-      "first_name": "Artur",
-      "last_name": "",
-      "approved_time": 1751127811.096294,
-      "approved_datetime": "2025-06-28T16:23:31.096295",
-      "setup_completed": false,
-      "watchlist": [
-        "ARTY",
-        "SHIBBABY",
-        "XGAS"
-      ],
-      "config": {
-        "VOLUME_THRESHOLD": 1000,
-        "SPREAD_THRESHOLD": 0.1,
-        "NATR_THRESHOLD": 0.5
-      },
-      "active_coins": {},
-      "last_activity": 1751127937.6601694,
-      "setup_state": "",
-      "current_mode": null,
-      "mode_start_time": null,
-      "mode_stop_time": null
-    },
     "1090477927": {
       "chat_id": "1090477927",
       "username": "admin",
@@ -37,20 +12,25 @@
       "active_coins": {},
       "last_activity": 1751131822.3589473,
       "setup_state": "completed"
-    }
-  },
-  "pending_requests": {},
-  "rejected_users": {
+    },
     "8195543530": {
       "chat_id": "8195543530",
       "username": "arturlorf",
       "first_name": "Artur",
       "last_name": "",
-      "first_request_time": 1751127752.6055956,
-      "rejected_time": 1751127776.0395067,
-      "rejected_datetime": "2025-06-28T16:22:56.039508",
-      "rejection_count": 1
+      "approved_time": 1751132169.2160819,
+      "approved_datetime": "2025-06-28T17:36:09.216083",
+      "setup_completed": false,
+      "watchlist": [
+        "DKA",
+        "XGAS"
+      ],
+      "active_coins": {},
+      "last_activity": 1751132198.3886943,
+      "setup_state": ""
     }
   },
-  "last_updated": "2025-06-28T17:30:22.358950"
+  "pending_requests": {},
+  "rejected_users": {},
+  "last_updated": "2025-06-28T17:36:38.388698"
 }
