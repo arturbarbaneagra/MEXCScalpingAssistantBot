@@ -763,45 +763,73 @@ class TradingTelegramBot:
                 )
                 return
 
-        # Проверяем, не запущен ли уже бот
-        if self.bot_running:
+        # Проверяем, есть ли уже активные режимы у пользователя
+        user_has_active_modes = self.user_modes_manager.has_active_modes(str(chat_id))
+        
+        if user_has_active_modes:
             await update.message.reply_text(
-                "✅ Бот уже работает.",
+                "✅ У вас уже запущены режимы работы.",
                 reply_markup=user_keyboard
             )
             return
 
-        # Запускаем бота
-        await self._start_bot_mode()
-
-        await update.message.reply_text(
-            "✅ <b>Бот запущен</b>\n"
-            "🔄 Мониторинг активен, уведомления включены\n"
-            "📊 Сводка обновляется автоматически",
-            reply_markup=user_keyboard,
-            parse_mode="HTML"
-        )
+        # Запускаем персональные режимы для пользователя
+        try:
+            # Запускаем режим уведомлений для пользователя
+            notification_started = await self.user_modes_manager.start_user_mode(str(chat_id), 'notification')
+            
+            if notification_started:
+                await update.message.reply_text(
+                    "✅ <b>Ваш персональный бот запущен</b>\n"
+                    "🔄 Мониторинг активен, уведомления включены\n"
+                    "📊 Вы будете получать персональные уведомления",
+                    reply_markup=user_keyboard,
+                    parse_mode="HTML"
+                )
+                bot_logger.info(f"Пользователь {chat_id} запустил персональный режим уведомлений")
+            else:
+                await update.message.reply_text(
+                    "❌ Ошибка запуска персонального режима",
+                    reply_markup=user_keyboard
+                )
+        except Exception as e:
+            bot_logger.error(f"Ошибка запуска персонального режима для {chat_id}: {e}")
+            await update.message.reply_text(
+                "❌ Ошибка запуска персонального режима",
+                reply_markup=user_keyboard
+            )
 
     async def _handle_stop_bot_button(self, update: Update):
         """Обработка остановки бота через кнопку"""
         chat_id = update.effective_chat.id
         user_keyboard = self.get_user_keyboard(chat_id)
 
-        if not self.bot_running:
+        # Проверяем, есть ли у пользователя активные режимы
+        user_has_active_modes = self.user_modes_manager.has_active_modes(str(chat_id))
+
+        if not user_has_active_modes:
             await update.message.reply_text(
-                "ℹ️ Бот не запущен.",
-                replymarkup=user_keyboard
+                "ℹ️ У вас нет активных режимов работы.",
+                reply_markup=user_keyboard
             )
             return
 
-        await self._stop_bot()
+        # Останавливаем только режимы этого пользователя
+        stopped_modes = await self.user_modes_manager.stop_all_user_modes(str(chat_id))
 
-        await update.message.reply_text(
-            "🛑 <b>Бот остановлен</b>",
-            reply_markup=user_keyboard,
-            parse_mode=ParseMode.HTML
-        )
-        bot_logger.info("Бот остановлен через кнопку")
+        if stopped_modes > 0:
+            await update.message.reply_text(
+                f"🛑 <b>Ваши режимы остановлены</b>\n"
+                f"Остановлено режимов: {stopped_modes}",
+                reply_markup=user_keyboard,
+                parse_mode=ParseMode.HTML
+            )
+            bot_logger.info(f"Пользователь {chat_id} остановил свои режимы ({stopped_modes} шт.)")
+        else:
+            await update.message.reply_text(
+                "ℹ️ Нет активных режимов для остановки.",
+                reply_markup=user_keyboard
+            )
 
     async def _start_bot_mode(self):
         """Запуск бота с мониторингом и уведомлениями"""
@@ -1516,9 +1544,14 @@ class TradingTelegramBot:
         chat_id = update.effective_chat.id
         user_keyboard = self.get_user_keyboard(chat_id)
 
-        # Базовая информация
-        status_text = "🟢 Работает" if self.bot_running else "🔴 Остановлен"
-        active_count = len(self._active_coins)
+        # Проверяем персональные режимы пользователя
+        user_has_active_modes = self.user_modes_manager.has_active_modes(str(chat_id))
+        user_stats = self.user_modes_manager.get_all_stats()
+        user_info = user_stats.get('users', {}).get(str(chat_id), {})
+        active_modes_count = user_info.get('active_modes_count', 0)
+
+        # Статус персонального бота
+        status_text = "🟢 Работает" if user_has_active_modes else "🔴 Остановлен"
 
         # Получаем список монет в зависимости от роли
         if user_manager.is_admin(chat_id):
@@ -1534,12 +1567,13 @@ class TradingTelegramBot:
             vol_thresh = admin_config.get('VOLUME_THRESHOLD', 1000)
             spread_thresh = admin_config.get('SPREAD_THRESHOLD', 0.1)
             natr_thresh = admin_config.get('NATR_THRESHOLD', 0.5)
+
         message = (
-            f"ℹ <b>Статус бота</b>\n\n"
-            f"🤖 Состояние: <code>{status_text}</code>\n"
-            f"🔥 Активных монет: <code>{active_count}</code>\n"
+            f"ℹ <b>Ваш персональный статус</b>\n\n"
+            f"🤖 Ваш бот: <code>{status_text}</code>\n"
+            f"🔧 Активных режимов: <code>{active_modes_count}</code>\n"
             f"📋 {list_info}\n"
-            f"Глобальные фильтры: 1м оборот ≥${vol_thresh:,}, Спред ≥{spread_thresh}%, NATR ≥{natr_thresh}%\n"
+            f"Фильтры: 1м оборот ≥${vol_thresh:,}, Спред ≥{spread_thresh}%, NATR ≥{natr_thresh}%\n"
             f"⏰ Последнее обновление: <code>{time.strftime('%H:%M:%S')}</code>"
         )
 
