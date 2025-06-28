@@ -293,6 +293,16 @@ class UserManager:
         """Удаляет монету из списка пользователя (alias для remove_user_coin)"""
         return self.remove_user_coin(chat_id, symbol)
 
+    def get_user_config(self, chat_id: str) -> Dict:
+        """Возвращает конфигурацию пользователя с значениями по умолчанию"""
+        # Все пользователи используют глобальные настройки из config
+        from config import config_manager
+        return {
+            'VOLUME_THRESHOLD': config_manager.get('VOLUME_THRESHOLD', 1000),
+            'SPREAD_THRESHOLD': config_manager.get('SPREAD_THRESHOLD', 0.1),
+            'NATR_THRESHOLD': config_manager.get('NATR_THRESHOLD', 0.5)
+        }
+
     
 
 
