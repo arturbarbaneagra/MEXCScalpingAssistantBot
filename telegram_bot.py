@@ -809,7 +809,7 @@ class TradingTelegramBot:
 
         # Отправляем начальное сообщение мониторинга
         initial_text = "🔄 <b>Инициализация мониторинга...</b>"
-        self.monitoring_message_id = await self.send_message(initial_text).
+        self.monitoring_message_id = await self.send_message(initial_text)
 
         # Запускаем основной цикл
         self.task = asyncio.create_task(self._main_loop())
