@@ -1424,15 +1424,15 @@ class TradingTelegramBot:
             # Добавляем в зависимости от роли пользователя
             if user_manager.is_admin(chat_id):
                 # Для админа добавляем в глобальный список
-                if watchlist_manager.add_coin(symbol):
+                if watchlist_manager.add(symbol):
                     await update.message.reply_text(
-                        f"✅ Монета {symbol} добавлена в глобальный список",
+                        f"✅ Монета {symbol} добавлена в ваш список",
                         reply_markup=user_keyboard,
                         parse_mode=ParseMode.HTML
                     )
                 else:
                     await update.message.reply_text(
-                        f"ℹ️ Монета {symbol} уже в глобальном списке",
+                        f"ℹ️ Монета {symbol} уже в вашем списке",
                         reply_markup=user_keyboard,
                         parse_mode=ParseMode.HTML
                     )
@@ -1475,16 +1475,16 @@ class TradingTelegramBot:
 
         # Удаляем в зависимости от роли пользователя
         if user_manager.is_admin(chat_id):
-            # Для админа удаляем из глобального списка
-            if watchlist_manager.remove_coin(symbol):
+            # Для админа удаляем из списка
+            if watchlist_manager.remove(symbol):
                 await update.message.reply_text(
-                    f"✅ Монета {symbol} удалена из глобального списка",
+                    f"✅ Монета {symbol} удалена из вашего списка",
                     reply_markup=user_keyboard,
                     parse_mode=ParseMode.HTML
                 )
             else:
                 await update.message.reply_text(
-                    f"❌ Монета {symbol} не найдена в глобальном списке",
+                    f"❌ Монета {symbol} не найдена в вашем списке",
                     reply_markup=user_keyboard,
                     parse_mode=ParseMode.HTML
                 )
