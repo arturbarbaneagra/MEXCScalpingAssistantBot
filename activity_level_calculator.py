@@ -413,7 +413,7 @@ class ActivityLevelCalculator:
                     visual_line += "⚪"
             
             report_lines.append(f"<code>{visual_line}</code>")
-            report_lines.append("<i>🔥≥10мин 🔴≥5мин 🟡≥2мин 🟢≥1мин ⚪<1мин</i>")
+            report_lines.append("<i>🔥≥10мин 🔴≥5мин 🟡≥2мин 🟢≥1мин ⚪&lt;1мин</i>")
             
             # Информация о статистической модели
             if self.count >= 5:
