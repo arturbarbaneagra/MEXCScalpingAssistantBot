@@ -91,8 +91,8 @@ class UserNotificationMode(UserMode):
                     continue
 
                 # Получаем настройки пользователя
-                from user_manager import user_manager
-                if user_manager.is_admin(self.user_id):
+                from user_manager import user_manager as um
+                if um.is_admin(self.user_id):
                     # Для админа используем глобальные настройки
                     from config import config_manager
                     user_config = {
@@ -101,7 +101,7 @@ class UserNotificationMode(UserMode):
                         'NATR_THRESHOLD': config_manager.get('NATR_THRESHOLD')
                     }
                 else:
-                    user_config = user_manager.get_user_config(self.user_id)
+                    user_config = um.get_user_config(self.user_id)
 
                 # Проверяем каждую монету
                 for symbol in user_watchlist:
@@ -294,8 +294,8 @@ class UserMonitoringMode(UserMode):
                     continue
 
                 # Получаем настройки пользователя
-                from user_manager import user_manager
-                if user_manager.is_admin(self.user_id):
+                from user_manager import user_manager as um
+                if um.is_admin(self.user_id):
                     # Для админа используем глобальные настройки
                     from config import config_manager
                     user_config = {
@@ -304,7 +304,7 @@ class UserMonitoringMode(UserMode):
                         'NATR_THRESHOLD': config_manager.get('NATR_THRESHOLD')
                     }
                 else:
-                    user_config = user_manager.get_user_config(self.user_id)
+                    user_config = um.get_user_config(self.user_id)
 
                 # Получаем данные монет с использованием полного API для получения 1-минутных данных
                 results = []
@@ -613,7 +613,7 @@ class UserModesManager:
         user_id_str = str(user_id)
         user_modes = self.user_modes.get(user_id_str, {})
         stopped_count = 0
-        
+
         for mode_type, user_mode in list(user_modes.items()):
             if user_mode and user_mode.running:
                 try:
@@ -622,7 +622,7 @@ class UserModesManager:
                     bot_logger.info(f"Остановлен режим {mode_type} для пользователя {user_id_str}")
                 except Exception as e:
                     bot_logger.error(f"Ошибка остановки режима {mode_type} для пользователя {user_id_str}: {e}")
-        
+
         return stopped_count
 
     def get_all_stats(self) -> Dict:

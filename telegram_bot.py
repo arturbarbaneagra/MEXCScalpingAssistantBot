@@ -48,9 +48,7 @@ class TradingTelegramBot:
         self.admin_handlers = create_admin_handlers(self)
         self.user_session_recorders: Dict[str, UserSessionRecorder] = {}
 
-        # Инициализируем менеджер пользовательских режимов
-        from user_modes_manager import UserModesManager
-        self.user_modes_manager = UserModesManager(self)
+        # Менеджер пользовательских режимов убран
 
         # Состояния ConversationHandler
         self.ADDING_COIN, self.REMOVING_COIN = range(2)
@@ -60,29 +58,7 @@ class TradingTelegramBot:
     @property
     def active_coins(self):
         """Свойство для обратной совместимости с основным health check"""
-        # Собираем активные монеты со всех пользователей для общей статистики
-        all_active_coins = {}
-
-        # Получаем статистику всех пользователей
-        all_users_stats = self.user_modes_manager.get_all_stats()
-
-        for user_id, user_stats in all_users_stats.get('users', {}).items():
-            user_modes = user_stats.get('modes', {})
-
-            # Проверяем режим уведомлений
-            if 'notification' in user_modes:
-                notification_stats = user_modes['notification']
-                active_coins_list = notification_stats.get('active_coins', [])
-
-                # Добавляем активные монеты этого пользователя
-                for coin in active_coins_list:
-                    if coin not in all_active_coins:
-                        all_active_coins[coin] = {'users': []}
-                    all_active_coins[coin]['users'].append(user_id)
-
-        # Преобразуем в формат {symbol: {}} для совместимости
-        return {coin: {'active': True, 'users_count': len(data['users'])} 
-                for coin, data in all_active_coins.items()}
+        return self._active_coins
 
     def get_user_keyboard(self, chat_id: str) -> ReplyKeyboardMarkup:
         """Возвращает соответствующую клавиатуру для пользователя"""
@@ -738,98 +714,74 @@ class TradingTelegramBot:
         chat_id = update.effective_chat.id
         user_keyboard = self.get_user_keyboard(chat_id)
 
-        # Проверяем наличие монет в зависимости от роли пользователя
-        if user_manager.is_admin(chat_id):
-            # Для админа проверяем глобальный список
-            admin_watchlist = watchlist_manager.get_all()
-            if not admin_watchlist:
-                await update.message.reply_text(
-                    "⚠️ <b>Глобальный список отслеживания пуст!</b>\n\n"
-                    "Добавьте монеты в список для работы бота.",
-                    reply_markup=user_keyboard,
-                    parse_mode="HTML"
-                )
-                return
-        else:
-            # Для обычных пользователей проверяем их личный список
-            user_watchlist = user_manager.get_user_watchlist(chat_id)
-            if not user_watchlist:
-                await update.message.reply_text(
-                    "⚠️ <b>Нет монет для отслеживания!</b>\n\n"
-                    "Чтобы запустить бота, сначала добавьте хотя бы одну монету.\n\n"
-                    "Нажмите ➕ <b>Добавить</b> для добавления монеты.",
-                    reply_markup=user_keyboard,
-                    parse_mode="HTML"
-                )
-                return
-
-        # Проверяем, есть ли уже активные режимы у пользователя
-        user_has_active_modes = self.user_modes_manager.has_active_modes(str(chat_id))
-        
-        if user_has_active_modes:
+        # Проверяем права доступа
+        if not user_manager.is_admin(chat_id):
             await update.message.reply_text(
-                "✅ У вас уже запущены режимы работы.",
+                "❌ Только администратор может запускать бота.",
+                reply_markup=user_keyboard,
+                parse_mode="HTML"
+            )
+            return
+
+        # Проверяем глобальный список
+        admin_watchlist = watchlist_manager.get_all()
+        if not admin_watchlist:
+            await update.message.reply_text(
+                "⚠️ <b>Глобальный список отслеживания пуст!</b>\n\n"
+                "Добавьте монеты в список для работы бота.",
+                reply_markup=user_keyboard,
+                parse_mode="HTML"
+            )
+            return
+
+        if self.bot_running:
+            await update.message.reply_text(
+                "✅ Бот уже запущен.",
                 reply_markup=user_keyboard
             )
             return
 
-        # Запускаем персональные режимы для пользователя
-        try:
-            # Запускаем режим уведомлений для пользователя
-            notification_started = await self.user_modes_manager.start_user_mode(str(chat_id), 'notification')
-            
-            if notification_started:
-                await update.message.reply_text(
-                    "✅ <b>Ваш персональный бот запущен</b>\n"
-                    "🔄 Мониторинг активен, уведомления включены\n"
-                    "📊 Вы будете получать персональные уведомления",
-                    reply_markup=user_keyboard,
-                    parse_mode="HTML"
-                )
-                bot_logger.info(f"Пользователь {chat_id} запустил персональный режим уведомлений")
-            else:
-                await update.message.reply_text(
-                    "❌ Ошибка запуска персонального режима",
-                    reply_markup=user_keyboard
-                )
-        except Exception as e:
-            bot_logger.error(f"Ошибка запуска персонального режима для {chat_id}: {e}")
-            await update.message.reply_text(
-                "❌ Ошибка запуска персонального режима",
-                reply_markup=user_keyboard
-            )
+        # Запускаем бота
+        await self._start_bot_mode()
+        
+        await update.message.reply_text(
+            "✅ <b>Бот запущен</b>\n"
+            "🔄 Мониторинг активен, уведомления включены",
+            reply_markup=user_keyboard,
+            parse_mode="HTML"
+        )
+        bot_logger.info(f"Администратор {chat_id} запустил бота")
 
     async def _handle_stop_bot_button(self, update: Update):
         """Обработка остановки бота через кнопку"""
         chat_id = update.effective_chat.id
         user_keyboard = self.get_user_keyboard(chat_id)
 
-        # Проверяем, есть ли у пользователя активные режимы
-        user_has_active_modes = self.user_modes_manager.has_active_modes(str(chat_id))
-
-        if not user_has_active_modes:
+        # Проверяем права доступа
+        if not user_manager.is_admin(chat_id):
             await update.message.reply_text(
-                "ℹ️ У вас нет активных режимов работы.",
+                "❌ Только администратор может останавливать бота.",
+                reply_markup=user_keyboard,
+                parse_mode="HTML"
+            )
+            return
+
+        if not self.bot_running:
+            await update.message.reply_text(
+                "ℹ️ Бот уже остановлен.",
                 reply_markup=user_keyboard
             )
             return
 
-        # Останавливаем только режимы этого пользователя
-        stopped_modes = await self.user_modes_manager.stop_all_user_modes(str(chat_id))
-
-        if stopped_modes > 0:
-            await update.message.reply_text(
-                f"🛑 <b>Ваши режимы остановлены</b>\n"
-                f"Остановлено режимов: {stopped_modes}",
-                reply_markup=user_keyboard,
-                parse_mode=ParseMode.HTML
-            )
-            bot_logger.info(f"Пользователь {chat_id} остановил свои режимы ({stopped_modes} шт.)")
-        else:
-            await update.message.reply_text(
-                "ℹ️ Нет активных режимов для остановки.",
-                reply_markup=user_keyboard
-            )
+        # Останавливаем бота
+        await self._stop_bot()
+        
+        await update.message.reply_text(
+            "🛑 <b>Бот остановлен</b>",
+            reply_markup=user_keyboard,
+            parse_mode=ParseMode.HTML
+        )
+        bot_logger.info(f"Администратор {chat_id} остановил бота")
 
     async def _start_bot_mode(self):
         """Запуск бота с мониторингом и уведомлениями"""
@@ -1544,35 +1496,27 @@ class TradingTelegramBot:
         chat_id = update.effective_chat.id
         user_keyboard = self.get_user_keyboard(chat_id)
 
-        # Проверяем персональные режимы пользователя
-        user_has_active_modes = self.user_modes_manager.has_active_modes(str(chat_id))
-        user_stats = self.user_modes_manager.get_all_stats()
-        user_info = user_stats.get('users', {}).get(str(chat_id), {})
-        active_modes_count = user_info.get('active_modes_count', 0)
-
-        # Статус персонального бота
-        status_text = "🟢 Работает" if user_has_active_modes else "🔴 Остановлен"
+        # Статус бота
+        status_text = "🟢 Работает" if self.bot_running else "🔴 Остановлен"
 
         # Получаем список монет в зависимости от роли
         if user_manager.is_admin(chat_id):
             watchlist_count = watchlist_manager.size()
-            list_info = f"Ваш список: {watchlist_count} монет"
-            vol_thresh = 1000
-            spread_thresh = 0.1
-            natr_thresh = 0.5
+            list_info = f"Глобальный список: {watchlist_count} монет"
         else:
             user_watchlist = user_manager.get_user_watchlist(chat_id)
             list_info = f"Ваш список: {len(user_watchlist)} монет"
-            admin_config = user_manager.get_user_config(user_manager.admin_chat_id)
-            vol_thresh = admin_config.get('VOLUME_THRESHOLD', 1000)
-            spread_thresh = admin_config.get('SPREAD_THRESHOLD', 0.1)
-            natr_thresh = admin_config.get('NATR_THRESHOLD', 0.5)
+
+        from config import config_manager
+        vol_thresh = config_manager.get('VOLUME_THRESHOLD')
+        spread_thresh = config_manager.get('SPREAD_THRESHOLD')
+        natr_thresh = config_manager.get('NATR_THRESHOLD')
 
         message = (
-            f"ℹ <b>Ваш персональный статус</b>\n\n"
-            f"🤖 Ваш бот: <code>{status_text}</code>\n"
-            f"🔧 Активных режимов: <code>{active_modes_count}</code>\n"
+            f"ℹ <b>Статус бота</b>\n\n"
+            f"🤖 Бот: <code>{status_text}</code>\n"
             f"📋 {list_info}\n"
+            f"📊 Активных монет: <code>{len(self._active_coins)}</code>\n"
             f"Фильтры: 1м оборот ≥${vol_thresh:,}, Спред ≥{spread_thresh}%, NATR ≥{natr_thresh}%\n"
             f"⏰ Последнее обновление: <code>{time.strftime('%H:%M:%S')}</code>"
         )
