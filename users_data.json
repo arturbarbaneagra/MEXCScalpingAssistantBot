@@ -1,6 +1,17 @@
+
+<old_str>
 {
   "users": {},
   "pending_requests": {},
   "rejected_users": {},
   "last_updated": "2025-06-28T09:41:01.939831"
 }
+</old_str>
+<new_str>
+{
+  "users": {},
+  "pending_requests": {},
+  "rejected_users": {},
+  "last_updated": "2025-06-28T09:45:00.000000"
+}
+</new_str>

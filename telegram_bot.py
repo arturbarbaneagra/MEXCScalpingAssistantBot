@@ -1513,7 +1513,6 @@ class TradingTelegramBot:
                 user_manager.update_user_config(chat_id, 'VOLUME_THRESHOLD', value)
 
             await update.message.reply_text(
-                ```python
                 f"✅ <b>Минимальный объём установлен:</b> ${value:,}",
                 reply_markup=user_keyboard,
                 parse_mode=ParseMode.HTML
