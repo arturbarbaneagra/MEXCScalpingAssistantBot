@@ -1,4 +1,4 @@
-
+python
 """
 Модуль управления пользователями для многопользовательского режима
 """
@@ -17,6 +17,11 @@ class UserManager:
         self.users_data: Dict[str, Dict] = {}
         self.pending_requests: Dict[str, Dict] = {}
         self.admin_chat_id = os.getenv('TELEGRAM_CHAT_ID')
+        self.default_user_config = {
+            'VOLUME_THRESHOLD': 1000,
+            'SPREAD_THRESHOLD': 0.1,
+            'NATR_THRESHOLD': 0.5
+        }
         self.load_data()
 
     def load_data(self):
@@ -71,13 +76,13 @@ class UserManager:
     def add_pending_request(self, chat_id: str, user_info: Dict):
         """Добавляет заявку на подключение"""
         chat_id_str = str(chat_id)
-        
+
         if self.is_admin(chat_id) or self.is_user_approved(chat_id):
             return False  # Админ или уже одобренный пользователь
-        
+
         # Проверяем, был ли пользователь ранее отклонен
         rejected_data = getattr(self, 'rejected_users', {}).get(chat_id_str)
-        
+
         self.pending_requests[chat_id_str] = {
             'chat_id': chat_id_str,
             'username': user_info.get('username', 'Unknown'),
@@ -95,13 +100,13 @@ class UserManager:
     def approve_user(self, chat_id: str) -> bool:
         """Одобряет пользователя"""
         chat_id_str = str(chat_id)
-        
+
         if chat_id_str not in self.pending_requests:
             return False
-        
+
         # Переносим данные из заявки в одобренные пользователи
         request_data = self.pending_requests[chat_id_str]
-        
+
         self.users_data[chat_id_str] = {
             'chat_id': chat_id_str,
             'username': request_data.get('username', 'Unknown'),
@@ -111,11 +116,7 @@ class UserManager:
             'approved_datetime': datetime.now().isoformat(),
             'setup_completed': False,
             'watchlist': [],
-            'config': {
-                'VOLUME_THRESHOLD': 1000,
-                'SPREAD_THRESHOLD': 0.1,
-                'NATR_THRESHOLD': 0.5
-            },
+            'config': self.default_user_config.copy(),
             'active_coins': {},
             'last_activity': time.time(),
             'setup_state': '',  # Добавляем состояние настройки
@@ -123,28 +124,28 @@ class UserManager:
             'mode_start_time': None,  # Время запуска режима
             'mode_stop_time': None   # Время остановки режима
         }
-        
+
         # Удаляем из заявок
         del self.pending_requests[chat_id_str]
         self.save_data()
-        
+
         bot_logger.info(f"Пользователь {chat_id_str} одобрен")
         return True
 
     def reject_user(self, chat_id: str) -> bool:
         """Отклоняет заявку пользователя, но сохраняет информацию для возможного повторного доступа"""
         chat_id_str = str(chat_id)
-        
+
         if chat_id_str not in self.pending_requests:
             return False
-        
+
         # Сохраняем информацию об отклоненном пользователе
         request_data = self.pending_requests[chat_id_str]
-        
+
         # Создаем запись об отклоненном пользователе
         if not hasattr(self, 'rejected_users'):
             self.rejected_users = {}
-        
+
         self.rejected_users[chat_id_str] = {
             'chat_id': chat_id_str,
             'username': request_data.get('username', 'Unknown'),
@@ -155,10 +156,10 @@ class UserManager:
             'rejected_datetime': datetime.now().isoformat(),
             'rejection_count': self.rejected_users.get(chat_id_str, {}).get('rejection_count', 0) + 1
         }
-        
+
         del self.pending_requests[chat_id_str]
         self.save_data()
-        
+
         bot_logger.info(f"Заявка пользователя {chat_id_str} отклонена")
         return True
 
@@ -201,7 +202,7 @@ class UserManager:
         user_data = self.get_user_data(chat_id)
         if not user_data:
             return False
-        
+
         watchlist = user_data.get('watchlist', [])
         if symbol not in watchlist:
             watchlist.append(symbol)
@@ -214,7 +215,7 @@ class UserManager:
         user_data = self.get_user_data(chat_id)
         if not user_data:
             return False
-        
+
         watchlist = user_data.get('watchlist', [])
         if symbol in watchlist:
             watchlist.remove(symbol)
@@ -244,14 +245,14 @@ class UserManager:
     def revoke_user_access(self, chat_id: str) -> bool:
         """Отключает доступ пользователя"""
         chat_id_str = str(chat_id)
-        
+
         if chat_id_str not in self.users_data:
             return False
-        
+
         # Удаляем пользователя из системы
         del self.users_data[chat_id_str]
         self.save_data()
-        
+
         bot_logger.info(f"Доступ пользователя {chat_id_str} отключен")
         return True
 
@@ -269,7 +270,7 @@ class UserManager:
         """Возвращает текущий режим пользователя"""
         user_data = self.get_user_data(chat_id)
         return user_data.get('current_mode') if user_data else None
-    
+
     def set_user_mode(self, chat_id: str, mode: Optional[str]):
         """Устанавливает текущий режим пользователя"""
         current_time = time.time()
@@ -283,7 +284,7 @@ class UserManager:
                 'current_mode': None,
                 'mode_stop_time': current_time
             })
-    
+
     def get_users_with_mode(self, mode: str = None) -> List[Dict]:
         """Возвращает пользователей с определенным режимом"""
         users_with_mode = []
@@ -300,26 +301,26 @@ class UserManager:
     def clear_all_users_except_admin(self) -> int:
         """Очищает всех пользователей кроме администратора"""
         cleared_count = 0
-        
+
         # Подсчитываем количество пользователей для удаления
         users_to_remove = [chat_id for chat_id in self.users_data.keys() 
                           if not self.is_admin(chat_id)]
         cleared_count = len(users_to_remove)
-        
+
         # Удаляем всех пользователей кроме админа
         for chat_id in users_to_remove:
             del self.users_data[chat_id]
-        
+
         # Очищаем заявки
         self.pending_requests.clear()
-        
+
         # Очищаем отклоненных пользователей
         if hasattr(self, 'rejected_users'):
             self.rejected_users.clear()
-        
+
         # Сохраняем изменения
         self.save_data()
-        
+
         bot_logger.info(f"Очищено {cleared_count} пользователей, оставлен только администратор")
         return cleared_count
 
@@ -328,7 +329,7 @@ class UserManager:
         users_with_notification = len(self.get_users_with_mode('notification'))
         users_with_monitoring = len(self.get_users_with_mode('monitoring'))
         users_with_any_mode = len(self.get_users_with_mode())
-        
+
         return {
             'total_users': len(self.users_data),
             'pending_requests': len(self.pending_requests),
@@ -339,6 +340,32 @@ class UserManager:
             'users_with_active_modes': users_with_any_mode,
             'admin_chat_id': self.admin_chat_id
         }
+
+    def reset_user_config_to_defaults(self, chat_id: str) -> str:
+        """Сбрасывает настройки пользователя к значениям по умолчанию"""
+        chat_id = str(chat_id)
+
+        if chat_id not in self.users_data:
+            return "error"
+
+        current_config = self.users_data[chat_id].get('config', {})
+
+        # Проверяем, отличаются ли текущие настройки от дефолтных
+        is_already_default = True
+        for key, default_value in self.default_user_config.items():
+            if current_config.get(key) != default_value:
+                is_already_default = False
+                break
+
+        if is_already_default:
+            bot_logger.info(f"Настройки пользователя {chat_id} уже установлены по умолчанию")
+            return "already_default"
+
+        # Сбрасываем к дефолтным значениям
+        self.users_data[chat_id]['config'] = self.default_user_config.copy()
+        self.save_data()
+        bot_logger.info(f"Настройки пользователя {chat_id} сброшены к значениям по умолчанию")
+        return "reset"
 
 
 # Глобальный экземпляр менеджера пользователей

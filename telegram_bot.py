@@ -878,7 +878,7 @@ class TradingTelegramBot:
                             from session_recorder import session_recorder
                             session_recorder.update_coin_activity(coin_data['symbol'], coin_data)
                         except Exception as e:
-                            bot_logger.debug(f"Ошибка записи сессии {coin_data['symbol']}: {e}")
+                            bot_logger.debug(f"Ошибка записи сессии {coin_data['symbol']: {e}")
 
                 # Обновляем отчет мониторинга
                 if results:
@@ -1423,7 +1423,7 @@ class TradingTelegramBot:
                         parse_mode=ParseMode.HTML
                     )
                     return ConversationHandler.END
-                
+
                 if success:
                     await update.message.reply_text(
                         f"✅ Монета {symbol} добавлена в ваш список",
@@ -1677,7 +1677,7 @@ class TradingTelegramBot:
 
         # Получаем текущие настройки
         current_config = user_manager.get_user_config(chat_id)
-        
+
         # Дефолтные значения
         default_config = {
             'VOLUME_THRESHOLD': 1000,
@@ -1704,7 +1704,7 @@ class TradingTelegramBot:
         else:
             # Сбрасываем настройки
             user_manager.update_user_config(chat_id, default_config)
-            
+
             await update.message.reply_text(
                 "🔄 <b>Настройки сброшены к значениям по умолчанию</b>\n\n"
                 f"📊 Минимальный объём: <code>${default_config['VOLUME_THRESHOLD']:,.0f}</code>\n"
