@@ -44,7 +44,7 @@ class AdminHandlers:
             await update.message.reply_text(
                 "📭 <b>Нет заявок на подключение</b>",
                 parse_mode=ParseMode.HTML,
-                reply_markup=self.get_admin_keyboard()
+                reply_markup=self.bot.admin_keyboard
             )
             return
 
@@ -207,7 +207,7 @@ class AdminHandlers:
             if not log_files:
                 await update.message.reply_text(
                     "📋 Файлы логов не найдены",
-                    reply_markup=self.get_admin_keyboard()
+                    reply_markup=self.bot.admin_keyboard
                 )
                 return
 
@@ -241,7 +241,7 @@ class AdminHandlers:
                             await update.message.reply_document(
                                 document=f,
                                 caption=f"📋 {description} (последние 1000 строк)",
-                                reply_markup=self.get_admin_keyboard()
+                                reply_markup=self.bot.admin_keyboard
                             )
 
                         # Удаляем временный файл
@@ -253,7 +253,7 @@ class AdminHandlers:
                                 document=f,
                                 caption=f"📋 {description} ({file_size // 1024} KB)",
                                 filename=log_file,
-                                reply_markup=self.get_admin_keyboard()
+                                reply_markup=self.bot.admin_keyboard
                             )
 
                     await context.bot.send_chat_action(
@@ -270,14 +270,14 @@ class AdminHandlers:
             await update.message.reply_text(
                 "✅ <b>Логи отправлены</b>",
                 parse_mode=ParseMode.HTML,
-                reply_markup=self.get_admin_keyboard()
+                reply_markup=self.bot.admin_keyboard
             )
 
         except Exception as e:
             bot_logger.error(f"Ошибка обработки запроса логов: {e}")
             await update.message.reply_text(
                 f"❌ Ошибка получения логов: {str(e)[:100]}",
-                reply_markup=self.get_admin_keyboard()
+                reply_markup=self.bot.admin_keyboard
             )
 
     async def handle_clear_all_users(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -312,7 +312,7 @@ class AdminHandlers:
             f"• Удалено отклоненных: {stats_before.get('rejected_users', 0)}\n\n"
             f"✅ Остались только данные администратора\n"
             f"⚙️ Режимы администратора сохранены",
-            reply_markup=admin_keyboard,
+            reply_markup=self.bot.admin_keyboard,
             parse_mode=ParseMode.HTML
         )
 

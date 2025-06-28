@@ -663,7 +663,6 @@ class TradingTelegramBot:
             elif message_text == "🧹 Очистить пользователей":
                 if user_manager.is_admin(chat_id):
                     await self.admin_handlers.handle_clear_all_users(update, context)
-                    return ConversationHandler.END
                 else:
                     await update.message.reply_text(
                         "❌ У вас нет прав для выполнения этого действия",
