@@ -1686,13 +1686,13 @@ class TradingTelegramBot:
         }
 
         # Проверяем, отличаются ли текущие настройки от дефолтных
-        settings_changed = False
+        settings_already_default = True
         for key, default_value in default_config.items():
             if current_config.get(key) != default_value:
-                settings_changed = True
+                settings_already_default = False
                 break
 
-        if not settings_changed:
+        if settings_already_default:
             await update.message.reply_text(
                 "ℹ️ <b>Настройки уже установлены по умолчанию</b>\n\n"
                 f"📊 Минимальный объём: <code>${default_config['VOLUME_THRESHOLD']:,.0f}</code>\n"
