@@ -792,6 +792,7 @@ class TradingTelegramBot:
 
         await self._stop_bot()
 
+```python
         await update.message.reply_text(
             "🛑 <b>Бот остановлен</b>",
             reply_markup=user_keyboard,
@@ -1424,7 +1425,21 @@ class TradingTelegramBot:
             # Добавляем в зависимости от роли пользователя
             if user_manager.is_admin(chat_id):
                 # Для админа добавляем в глобальный список
-                if watchlist_manager.add(symbol):
+                # Добавляем монету с таймаутом
+                try:
+                    success = await asyncio.wait_for(
+                        asyncio.to_thread(watchlist_manager.add, symbol), 
+                        timeout=10.0
+                    )
+                except asyncio.TimeoutError:
+                    await update.message.reply_text(
+                        f"❌ Ошибка при добавлении монеты {symbol}: Timed out",
+                        reply_markup=user_keyboard,
+                        parse_mode=ParseMode.HTML
+                    )
+                    return ConversationHandler.END
+                
+                if success:
                     await update.message.reply_text(
                         f"✅ Монета {symbol} добавлена в ваш список",
                         reply_markup=user_keyboard,
@@ -1577,7 +1592,8 @@ class TradingTelegramBot:
                     parse_mode=ParseMode.HTML
                 )
 
-        except ValueError:
+        except```python
+ ValueError:
             await update.message.reply_text(
                 "❌ Неверный формат. Введите число (например: 0.2)",
                 reply_markup=self.back_keyboard,
