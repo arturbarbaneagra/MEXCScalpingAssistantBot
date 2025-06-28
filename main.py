@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 MEXCScalping Assistant для мониторинга криптовалют на MEXC
@@ -104,7 +103,7 @@ def health_check():
 
         # Получаем реальную статистику пользователей
         user_stats = user_manager.get_stats()
-        
+
         # Реальное число активных пользователей
         active_users = user_stats.get('total_users', 0)
 
@@ -132,14 +131,12 @@ def health_check():
                 <div class="status-grid">
                     <div class="metric-box {'success' if status['bot_running'] else 'critical'}">
                         <strong>Bot Status:</strong> {'🟢 Running' if status['bot_running'] else '🔴 Stopped'}<br>
-                        <strong>Mode:</strong> Скальпинг бот<br>
                         <strong>Uptime:</strong> {uptime_hours:.1f} hours
                     </div>
 
                     <div class="metric-box">
                         <strong>Watchlist:</strong> {status['watchlist_size']} coins<br>
-                        <strong>Active Coins:</strong> {status['active_coins_count']}<br>
-                        <strong>Cache Entries:</strong> {cache_stats.get('total_entries', 0)}
+                        <strong>Active Coins:</strong> {status['active_coins_count']}
                     </div>
                 </div>
 
@@ -376,13 +373,12 @@ def health():
             current_loop = asyncio.get_running_loop()
             # Если loop уже работает, используем синхронные методы
             return {
-                'status': 'running', 
-                'version': '2.1',
-                'mode': 'combined',
-                'system': health_checker.get_system_info(),
-                'bot': health_checker.get_bot_status(),
-                'timestamp': time.time()
-            }
+                    'status': 'running', 
+                    'version': '2.1',
+                    'system': health_checker.get_system_info(),
+                    'bot': health_checker.get_bot_status(),
+                    'timestamp': time.time()
+                }
         except RuntimeError:
             # Нет активного loop, можем создать новый
             try:
