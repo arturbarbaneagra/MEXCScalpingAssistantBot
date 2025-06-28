@@ -557,7 +557,7 @@ class TradingTelegramBot:
         """Обработка старта для администратора"""
         welcome_text = (
             "🤖 <b>Добро пожаловать, Администратор!</b>\n\n"
-            "🚀 <b>Запуск бота</b> - объединенный режим мониторинга и уведомлений\n"
+            "🚀 <b>Запуск бота</b> - мониторинг и уведомления\n"
             "🛑 <b>Остановка</b> - прекращение работы\n\n"
             "👥 <b>Администрирование:</b>\n"
             "• 👥 Список заявок - управление новыми пользователями\n"
@@ -576,7 +576,7 @@ class TradingTelegramBot:
         # Всегда показываем пользователю меню с кнопками
         welcome_text = (
             "🤖 <b>Добро пожаловать в MEXCScalping Assistant!</b>\n\n"
-            "🚀 <b>Запуск бота</b> - объединенный режим мониторинга и уведомлений\n"
+            "🚀 <b>Запуск бота</b> - мониторинг и уведомления\n"
             "🛑 <b>Остановка</b> - прекращение работы\n\n"
             "⚙ <b>Управление:</b>\n"
             "• ➕ Добавить монету в ваш список\n"
@@ -726,7 +726,7 @@ class TradingTelegramBot:
         return ConversationHandler.END
 
     async def _handle_start_bot(self, update: Update):
-        """Обработка запуска бота (объединенный режим)"""
+        """Обработка запуска бота"""
         chat_id = update.effective_chat.id
         user_keyboard = self.get_user_keyboard(chat_id)
 
@@ -764,7 +764,7 @@ class TradingTelegramBot:
             return
 
         # Запускаем бота
-        await self._start_combined_mode()
+        await self._start_bot_mode()
 
         await update.message.reply_text(
             "✅ <b>Бот запущен</b>\n"
@@ -795,8 +795,8 @@ class TradingTelegramBot:
         )
         bot_logger.info("Бот остановлен через кнопку")
 
-    async def _start_combined_mode(self):
-        """Запуск объединенного режима мониторинга и уведомлений"""
+    async def _start_bot_mode(self):
+        """Запуск бота с мониторингом и уведомлениями"""
         if self.bot_running:
             bot_logger.warning("Бот уже запущен")
             return
@@ -807,7 +807,7 @@ class TradingTelegramBot:
         self.notification_locks.clear()
         self.monitoring_message_id = None
 
-        bot_logger.info("🚀 Запуск объединенного режима")
+        bot_logger.info("🚀 Запуск MEXCScalping Assistant")
 
         # Запускаем процессор очереди
         await self._start_message_queue_processor()
@@ -817,10 +817,10 @@ class TradingTelegramBot:
         self.monitoring_message_id = await self.send_message(initial_text)
 
         # Запускаем основной цикл
-        self.task = asyncio.create_task(self._combined_loop())
+        self.task = asyncio.create_task(self._main_loop())
 
-    async def _combined_loop(self):
-        """Основной цикл объединенного режима"""
+    async def _main_loop(self):
+        """Основной цикл работы бота"""
         cycle_count = 0
         cleanup_counter = 0
 
@@ -850,7 +850,7 @@ class TradingTelegramBot:
                     cleanup_counter = 0
 
                 # Получаем данные монет
-                results, failed_coins = await self._fetch_combined_data()
+                results, failed_coins = await self._fetch_bot_data()
 
                 # Обрабатываем каждую монету для уведомлений
                 for coin_data in results:
@@ -903,11 +903,11 @@ class TradingTelegramBot:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                bot_logger.error(f"Ошибка в объединенном цикле: {e}")
+                bot_logger.error(f"Ошибка в основном цикле: {e}")
                 await asyncio.sleep(1.0)
 
-    async def _fetch_combined_data(self):
-        """Получает данные для объединенного режима"""
+    async def _fetch_bot_data(self):
+        """Получает данные для работы бота"""
         watchlist = list(watchlist_manager.get_all())
         results = []
         failed_coins = []
@@ -1781,7 +1781,6 @@ class TradingTelegramBot:
             f"🤖 Состояние: <code>{status_text}</code>\n"
             f"🔥 Активных монет: <code>{active_count}</code>\n"
             f"📋 {list_info}\n"
-            f"🚀 Режим: <code>Объединенный</code>\n"
             f"⏰ Последнее обновление: <code>{time.strftime('%H:%M:%S')}</code>"
         )
 
