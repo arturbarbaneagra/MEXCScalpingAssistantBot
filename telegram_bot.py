@@ -866,17 +866,13 @@ class TradingTelegramBot:
         success = await self.user_modes_manager.stop_user_mode(chat_id)
 
         if success:
-            await update.message.reply_text(
-                "🛑 <b>Ваш бот остановлен</b>",
-                reply_markup=user_keyboard,
-                parse_mode=ParseMode.HTML
-            )
-            bot_logger.info(f"Пользователь {chat_id} остановил свой режим")
+            # НЕ отправляем дополнительное сообщение - режим уже отправил свое
+            pass
         else:
             await update.message.reply_text(
                 "❌ Не удалось остановить режим.",
                 reply_markup=user_keyboard,
-                parse_mode=ParseMode.HTML
+                parse_mode="HTML"
             )
 
     async def _start_bot_mode(self):
@@ -1540,18 +1536,18 @@ class TradingTelegramBot:
 
         user_running = self.user_modes_manager.is_user_mode_running(chat_id)
         user_status = "🟢 Работает" if user_running else "🔴 Остановлен"
-        
+
         user_watchlist = user_manager.get_user_watchlist(chat_id)
         user_config = user_manager.get_user_config(chat_id)
-        
+
         vol_thresh = user_config.get('VOLUME_THRESHOLD', 1000)
         spread_thresh = user_config.get('SPREAD_THRESHOLD', 0.1)
         natr_thresh = user_config.get('NATR_THRESHOLD', 0.5)
-        
+
         # Получаем статистику режима пользователя
         user_stats = self.user_modes_manager.get_user_mode_stats(chat_id)
         active_coins_count = user_stats.get('active_coins', 0)
-        
+
         message = (
             f"ℹ <b>Ваш статус</b>\n\n"
             f"🤖 Ваш бот: <code>{user_status}</code>\n"
@@ -1559,12 +1555,12 @@ class TradingTelegramBot:
             f"📊 Ваших активных монет: <code>{active_coins_count}</code>\n"
             f"🎯 Ваши фильтры: 1м оборот ≥${vol_thresh:,}, Спред ≥{spread_thresh}%, NATR ≥{natr_thresh}%\n"
         )
-        
+
         if user_running:
             uptime = user_stats.get('uptime', 0)
             uptime_str = f"{int(uptime//3600)}ч {int((uptime%3600)//60)}м" if uptime > 0 else "< 1м"
             message += f"⏱ Время работы: {uptime_str}\n"
-            
+
         # Для админа показываем дополнительную статистику
         if user_manager.is_admin(chat_id):
             all_stats = self.user_modes_manager.get_all_stats()
@@ -1573,10 +1569,12 @@ class TradingTelegramBot:
                 f"• Всего пользователей: {all_stats['total_users']}\n"
                 f"• Активных режимов: {all_stats['running_modes']}\n"
             )
-            
+
         message += f"⏰ Последнее обновление: <code>{time.strftime('%H:%M:%S')}</code>"
 
         await update.message.reply_text(
+```
+# The code is modified to prevent duplicate messages on bot stop and add a force update.
             message,
             reply_markup=user_keyboard,
             parse_mode=ParseMode.HTML
@@ -1600,6 +1598,9 @@ class TradingTelegramBot:
             reply_markup=user_keyboard,
             parse_mode=ParseMode.HTML
         )
+
+        # Принудительно запускаем обновление мониторинга для пользователя
+        self.user_modes_manager.update_user_mode(chat_id)
 
 
 
