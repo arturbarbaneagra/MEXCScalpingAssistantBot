@@ -5,9 +5,9 @@
       "username": "arturlorf",
       "first_name": "Artur",
       "last_name": "",
-      "approved_time": 1751112370.5110457,
-      "approved_datetime": "2025-06-28T12:06:10.511048",
-      "setup_completed": false,
+      "approved_time": 1751112655.4498105,
+      "approved_datetime": "2025-06-28T12:10:55.449811",
+      "setup_completed": true,
       "watchlist": [],
       "config": {
         "VOLUME_THRESHOLD": 1000,
@@ -15,8 +15,8 @@
         "NATR_THRESHOLD": 0.5
       },
       "active_coins": {},
-      "last_activity": 1751112370.5110562,
-      "setup_state": "",
+      "last_activity": 1751112669.1603305,
+      "setup_state": "completed",
       "current_mode": null,
       "mode_start_time": null,
       "mode_stop_time": null
@@ -24,5 +24,5 @@
   },
   "pending_requests": {},
   "rejected_users": {},
-  "last_updated": "2025-06-28T12:06:10.511061"
+  "last_updated": "2025-06-28T12:11:09.160333"
 }
