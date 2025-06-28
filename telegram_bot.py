@@ -1594,8 +1594,7 @@ class TradingTelegramBot:
 
             # Все пользователи (включая админа) устанавливают персональные настройки
             user_manager.update_user_config(chat_id, {'NATR_THRESHOLD': value})
-            await update.message.reply```python
-_text(
+            await update.message.reply_text(
                 f"✅ Ваш минимальный NATR установлен: {value}%",
                 reply_markup=user_keyboard,
                 parse_mode=ParseMode.HTML
