@@ -1632,13 +1632,67 @@
       "total_duration": 107.88966083526611,
       "start_datetime": "2025-06-28T15:05:46.652299",
       "end_datetime": "2025-06-28T15:07:34.541960"
+    },
+    {
+      "symbol": "SERO",
+      "start_time": 1751133163.8479831,
+      "last_update": 1751133178.03459,
+      "data_points": [
+        {
+          "timestamp": 1751133163.8479831,
+          "volume": 1002.108027,
+          "trades": 29,
+          "change": -3.9023222408427087,
+          "natr": 3.9023222408427087,
+          "spread": 3.4904013961605673,
+          "price": 0.004014
+        },
+        {
+          "timestamp": 1751133170.5202644,
+          "volume": 1002.108027,
+          "trades": 29,
+          "change": -3.9023222408427087,
+          "natr": 3.9023222408427087,
+          "spread": 2.5423728813559237,
+          "price": 0.004014
+        },
+        {
+          "timestamp": 1751133178.03459,
+          "volume": 1002.108027,
+          "trades": 29,
+          "change": -3.9023222408427087,
+          "natr": 3.9023222408427087,
+          "spread": 2.3435552231363834,
+          "price": 0.004014
+        }
+      ],
+      "total_minutes": 3,
+      "summary": {
+        "max_volume": 1002.108027,
+        "total_volume": 3006.3240809999998,
+        "total_trades": 87,
+        "max_change": 0,
+        "min_change": -3.9023222408427087,
+        "max_natr": 3.9023222408427087,
+        "max_spread": 3.4904013961605673,
+        "avg_price": 0.004014,
+        "price_samples": [
+          0.004014,
+          0.004014,
+          0.004014
+        ]
+      },
+      "end_time": 1751133206.1589143,
+      "total_duration": 42.31093120574951,
+      "start_datetime": "2025-06-28T17:52:43.847983",
+      "end_datetime": "2025-06-28T17:53:26.158914"
     }
   ],
   "metadata": {
-    "total_sessions": 8,
-    "total_duration": 1145.9845876693726,
-    "total_volume": 264028.143668,
-    "last_updated": "2025-06-28T15:07:34.546712",
-    "unique_symbols": 4
+    "total_sessions": 9,
+    "total_duration": 1188.295518875122,
+    "total_volume": 267034.467749,
+    "last_updated": "2025-06-28T17:53:26.159910",
+    "unique_symbols": 5
   }
 }
