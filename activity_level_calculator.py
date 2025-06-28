@@ -303,6 +303,16 @@ class ActivityLevelCalculator:
 
         return total_activity
 
+    def update_activity_stats(self, activity_value: float, hour_key: str = None):
+        """
+        Обновляет статистику активности новым значением
+        
+        Args:
+            activity_value: Значение активности в минутах
+            hour_key: Ключ часа (не используется в алгоритме Welford)
+        """
+        self.update_with_new_value(activity_value)
+
     def get_stats_summary(self) -> Dict:
         """Возвращает сводку статистики"""
         if self.count < 2:
