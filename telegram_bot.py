@@ -1648,32 +1648,41 @@ class TradingTelegramBot:
                 bot_logger.debug(f"Ошибка автовосстановления Circuit Breakers: {e}")
 
             price = float(ticker_data.get('lastPrice', 0))
+            
+            # Получаем актуальный размер списка после добавления
+            if user_manager.is_admin(chat_id):
+                current_list_size = watchlist_manager.size()
+            else:
+                current_list_size = len(user_manager.get_user_watchlist(chat_id))
+            
             # Отправляем подтверждение
             await update.message.reply_text(
                 f"✅ <b>Монета добавлена!</b>\n\n"
                 f"📊 <b>{symbol}</b>\n"
                 f"💰 Цена: ${price:.6f}\n"
-                f"📈 Всего монет: {len(user_watchlist)}\n\n"
+                f"📈 Всего монет: {current_list_size}\n\n"
                 f"🔄 <b>Что дальше?</b>",
                 parse_mode=ParseMode.HTML,
                 reply_markup=user_keyboard
             )
 
             # Если это первая монета пользователя, завершаем настройку
-            if len(user_watchlist) == 1 and not user_manager.is_setup_completed(chat_id):
-                user_manager.mark_setup_completed(chat_id)
-                await asyncio.sleep(1)  # Небольшая пауза
-                await update.message.reply_text(
-                    "🎉 <b>Настройка завершена!</b>\n\n"
-                    "Теперь вы можете:\n"
-                    "• 🔔 Запустить режим уведомлений\n"
-                    "• 📊 Включить мониторинг списка\n"
-                    "• ➕ Добавить еще монеты\n"
-                    "• ⚙ Настроить фильтры\n\n"
-                    "Выберите действие из меню! 👇",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=user_keyboard
-                )
+            if not user_manager.is_admin(chat_id):
+                current_user_watchlist = user_manager.get_user_watchlist(chat_id)
+                if len(current_user_watchlist) == 1 and not user_manager.is_setup_completed(chat_id):
+                    user_manager.mark_setup_completed(chat_id)
+                    await asyncio.sleep(1)  # Небольшая пауза
+                    await update.message.reply_text(
+                        "🎉 <b>Настройка завершена!</b>\n\n"
+                        "Теперь вы можете:\n"
+                        "• 🔔 Запустить режим уведомлений\n"
+                        "• 📊 Включить мониторинг списка\n"
+                        "• ➕ Добавить еще монеты\n"
+                        "• ⚙ Настроить фильтры\n\n"
+                        "Выберите действие из меню! 👇",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=user_keyboard
+                    )
             bot_logger.info(f"Добавлена монета {symbol} по цене ${price:.6f} {'(админ)' if user_manager.is_admin(chat_id) else '(пользователь)'}")
         else:
             await update.message.reply_text(
