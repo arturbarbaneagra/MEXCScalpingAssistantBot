@@ -24,6 +24,7 @@ from watchlist_manager import watchlist_manager
 from telegram_bot import telegram_bot
 from api_client import api_client
 from session_recorder import session_recorder
+from user_manager import user_manager
 
 # Проверяем, что переменные загружены (без вывода значений)
 bot_logger.info("Проверка переменных окружения...")
