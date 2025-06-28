@@ -1474,8 +1474,7 @@ class TradingTelegramBot:
                 pass
 
             if ("invalid symbol" in error_msg or "400" in error_msg or 
-                "inline keyboard expected" in error_msg or "```python
-"circuit breaker" in error_msg):
+                "inline keyboard expected" in error_msg or "circuit breaker" in error_msg):
                 await update.message.reply_text(
                     f"❌ <b>Символ '{symbol}' не существует</b>\n\n"
                     "Монета не найдена на бирже MEXC.\n\n"
@@ -2223,8 +2222,7 @@ class TradingTelegramBot:
             "📊 <b>1/3 - Минимальный объём</b>\n\n"
             "Введите минимальный объём торгов в долларах.\n\n"
             "💡 <b>Рекомендуется:</b> 500-2000\n"
-            ```python
-"Объём - суммарный объём торгов за последние 24ч\n\n"
+            "Объём - суммарный объём торгов за последние 24ч\n\n"
             "Введите число (например: 1000):",
             parse_mode=ParseMode.HTML
         )
