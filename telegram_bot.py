@@ -684,7 +684,29 @@ class TradingTelegramBot:
                 await self._handle_status(update)
             elif text == "🔄 Обновить мониторинг":
                 await self._handle_refresh_monitoring(update)
-            async def _handle_activity_24h(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None):
+            elif text == "📈 Активность 24ч":
+                bot_logger.info(f"📈 Обработка кнопки 'Активность 24ч' для пользователя {chat_id} {'(админ)' if user_manager.is_admin(chat_id) else '(пользователь)'}")
+                await self._handle_activity_24h(update)
+            elif text == "🔙 Назад":
+                await self._handle_back(update)
+            else:
+                await update.message.reply_text(
+                    "❓ Неизвестная команда. Используйте кнопки меню.",
+                    reply_markup=user_keyboard
+                )
+        except Exception as e:
+            bot_logger.error(f"Ошибка в button_handler: {e}", exc_info=True)
+            try:
+                await update.message.reply_text(
+                    "❌ Произошла ошибка. Попробуйте еще раз через несколько секунд.",
+                    reply_markup=user_keyboard
+                )
+            except Exception as reply_error:
+                bot_logger.error(f"Не удалось отправить сообщение об ошибке: {reply_error}")
+
+        return ConversationHandler.END
+
+    async def _handle_activity_24h(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None):
         """Обрабатывает запрос активности за 24 часа"""
         try:
             chat_id = update.effective_chat.id
@@ -711,27 +733,6 @@ class TradingTelegramBot:
                 "❌ Ошибка получения статистики активности",
                 reply_markup=user_keyboard
             )
-            elif text == "📈 Активность 24ч":
-                bot_logger.info(f"📈 Обработка кнопки 'Активность 24ч' для пользователя {chat_id} {'(админ)' if user_manager.is_admin(chat_id) else '(пользователь)'}")
-                await self._handle_activity_24h(update)
-            elif text == "🔙 Назад":
-                await self._handle_back(update)
-            else:
-                await update.message.reply_text(
-                    "❓ Неизвестная команда. Используйте кнопки меню.",
-                    reply_markup=user_keyboard
-                )
-        except Exception as e:
-            bot_logger.error(f"Ошибка в button_handler: {e}", exc_info=True)
-            try:
-                await update.message.reply_text(
-                    "❌ Произошла ошибка. Попробуйте еще раз через несколько секунд.",
-                    reply_markup=user_keyboard
-                )
-            except Exception as reply_error:
-                bot_logger.error(f"Не удалось отправить сообщение об ошибке: {reply_error}")
-
-        return ConversationHandler.END
 
     async def _handle_start_bot(self, update: Update):
         """Обработка запуска бота"""
@@ -1573,11 +1574,11 @@ class TradingTelegramBot:
 
         await update.message.reply_text(
             "✅ <b>Мониторинг обновлен</b>\nСообщение перемещено вниз чата",
-            reply_markup=user_keyboard,
+            reply_markup=user_keyboard,```python
             parse_mode=ParseMode.HTML
         )
 
-    
+
 
     async def _handle_back(self, update: Update):
         """Обработчик кнопки Назад"""
