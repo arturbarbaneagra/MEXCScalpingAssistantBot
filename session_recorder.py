@@ -24,11 +24,24 @@ class SessionRecorder:
         """Запуск записи сессий"""
         self.recording = True
         
+        # Инициализируем рекордеры для всех зарегистрированных пользователей
+        try:
+            from user_manager import user_manager
+            all_users = user_manager.get_all_users()
+            
+            for user_data in all_users:
+                chat_id = user_data['chat_id']
+                user_recorder = self.get_user_session_recorder(chat_id)
+                bot_logger.info(f"📝 Session Recorder запущен для пользователя {chat_id}")
+                
+        except Exception as e:
+            bot_logger.warning(f"Ошибка инициализации пользовательских рекордеров: {e}")
+        
         # Запускаем запись для всех существующих пользовательских рекордеров
         for user_recorder in self.user_session_recorders.values():
             user_recorder.start_recording()
             
-        bot_logger.info("📝 Session Recorder запущен")
+        bot_logger.info("📝 Session Recorder запущен для всех пользователей")
 
     def stop_recording(self):
         """Остановка записи сессий"""
@@ -121,6 +134,20 @@ class SessionRecorder:
             'user_recorders_count': len(self.user_session_recorders),
             'users': list(self.user_session_recorders.keys())
         }
+
+    def get_user_stats(self, chat_id: str) -> Dict[str, Any]:
+        """Возвращает статистику Session Recorder для конкретного пользователя"""
+        chat_id_str = str(chat_id)
+        if chat_id_str in self.user_session_recorders:
+            return self.user_session_recorders[chat_id_str].get_stats()
+        else:
+            return {
+                'recording': False,
+                'active_sessions': 0,
+                'session_symbols': [],
+                'data_directory': f"user_sessions_{chat_id_str}",
+                'chat_id': chat_id_str
+            }
 
     def update_activity_stats(self, sessions: list):
         """Обновляет статистику активности"""
