@@ -1550,6 +1550,50 @@ class TradingTelegramBot:
             parse_mode=ParseMode.HTML
         )
 
+    async def _handle_activity_24h(self, update: Update):
+        """Обработчик кнопки Активность 24ч"""
+        chat_id = update.effective_chat.id
+        user_keyboard = self.get_user_keyboard(chat_id)
+
+        try:
+            # Импортируем калькулятор активности
+            from activity_level_calculator import ActivityLevelCalculator
+            
+            calculator = ActivityLevelCalculator()
+            
+            # Генерируем отчет активности за 24 часа
+            activity_report = calculator.generate_24h_activity_report()
+            
+            # Форматируем сообщение
+            message = (
+                "📈 <b>Активность за последние 24 часа</b>\n\n"
+                f"{activity_report}\n\n"
+                "💡 <i>Данные основаны на записанных сессиях торговой активности</i>"
+            )
+            
+            await update.message.reply_text(
+                message,
+                reply_markup=user_keyboard,
+                parse_mode=ParseMode.HTML
+            )
+            
+        except ImportError:
+            await update.message.reply_text(
+                "📈 <b>Активность за 24 часа</b>\n\n"
+                "⚠️ Модуль анализа активности недоступен.\n"
+                "Функция находится в разработке.",
+                reply_markup=user_keyboard,
+                parse_mode=ParseMode.HTML
+            )
+        except Exception as e:
+            bot_logger.error(f"Ошибка получения активности 24ч: {e}")
+            await update.message.reply_text(
+                "❌ Ошибка при получении данных активности.\n"
+                "Попробуйте позже.",
+                reply_markup=user_keyboard,
+                parse_mode=ParseMode.HTML
+            )
+
     async def _handle_back(self, update: Update):
         """Обработчик кнопки Назад"""
         chat_id = update.effective_chat.id
