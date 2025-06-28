@@ -12,6 +12,8 @@ from telegram.constants import ParseMode
 from logger import bot_logger
 from user_manager import user_manager
 import asyncio
+#from activity_monitor import ActivityMonitor #Fixed import error
+#from activity_monitor import activity_monitor
 
 
 class AdminHandlers:
@@ -289,7 +291,7 @@ class AdminHandlers:
         # Останавливаем все пользовательские режимы КРОМЕ админа
         if hasattr(self.bot, 'user_modes_manager') and self.bot.user_modes_manager:
             admin_id = str(update.effective_chat.id)
-            
+
             # Останавливаем режимы всех пользователей кроме админа
             for user_id in list(self.bot.user_modes_manager.user_modes.keys()):
                 if user_id != admin_id:
@@ -297,6 +299,9 @@ class AdminHandlers:
 
         # Очищаем всех пользователей кроме админа
         cleared_count = user_manager.clear_all_users_except_admin()
+
+        # Возвращаем правильную клавиатуру администратора
+        admin_keyboard = self.get_admin_keyboard()
 
         await update.message.reply_text(
             f"🧹 <b>Очистка пользователей завершена</b>\n\n"
@@ -306,8 +311,8 @@ class AdminHandlers:
             f"• Удалено отклоненных: {stats_before.get('rejected_users', 0)}\n\n"
             f"✅ Остались только данные администратора\n"
             f"⚙️ Режимы администратора сохранены",
-            parse_mode=ParseMode.HTML,
-            reply_markup=self.get_admin_keyboard()
+            reply_markup=admin_keyboard,
+            parse_mode=ParseMode.HTML
         )
 
     async def handle_user_management(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -492,6 +497,67 @@ class AdminHandlers:
             ["📈 Активность 24ч", "ℹ Статус"],
             ["🛑 Стоп"]
         ], resize_keyboard=True, one_time_keyboard=False)
+
+    async def handle_status_request(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик кнопки 'Статус'"""
+        if not user_manager.is_admin(update.effective_chat.id):
+            await update.message.reply_text("❌ У вас нет прав администратора")
+            return
+
+        active_coins = self.bot.coin_manager.get_active_coins_count()
+        total_coins = len(user_manager.get_user_watchlist(update.effective_chat.id)) # total_coins should be the number of coins in YOUR watchlist, not global
+        last_update_time = self.bot.coin_manager.get_last_update_time()
+
+        status_text = (
+            "ℹ <b>Статус бота</b>\n\n"
+            f"🤖 <b>Состояние:</b> 🟢 Работает\n"
+            f"🔥 <b>Активных монет:</b> {active_coins}\n"
+            f"📋 <b>Ваш список:</b> {total_coins} монет\n" # Changed to "Ваш список"
+            f"⏰ <b>Последнее обновление:</b> {last_update_time}\n"
+        )
+        
+        # Rearrange buttons, move refresh button after start and stop buttons
+        admin_keyboard = ReplyKeyboardMarkup([
+            ["🔔 Уведомления", "📊 Мониторинг"],
+            ["➕ Добавить", "➖ Удалить"],
+            ["📋 Список", "⚙ Настройки"],
+            ["📈 Активность 24ч", "ℹ Статус"],
+            ["👥 Список заявок", "📋 Логи"],
+            ["👤 Управление пользователями", "🧹 Очистить пользователей"],
+            ["🛑 Стоп", "🔄 Обновить мониторинг"] # Move update button here
+        ], resize_keyboard=True, one_time_keyboard=False)
+
+        await update.message.reply_text(
+            status_text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=admin_keyboard
+        )
+
+    async def handle_activity_24h(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик кнопки 'Активность 24ч'"""
+        if not user_manager.is_admin(update.effective_chat.id):
+            await update.message.reply_text("❌ У вас нет прав администратора")
+            return
+        
+        try:
+            # Get activity data from the ActivityMonitor instance
+            activity_data = self.bot.activity_monitor.get_activity_data()
+            
+            if not activity_data:
+                await update.message.reply_text("⚠️ Нет данных об активности за последние 24 часа.",
+                                                  parse_mode=ParseMode.HTML)
+                return
+            
+            text = "📈 <b>Активность за 24 часа:</b>\n\n"
+            for coin, count in activity_data.items():
+                text += f"• <b>{coin}:</b> {count} упоминаний\n"
+            
+            await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+            
+        except Exception as e:
+            bot_logger.error(f"Ошибка при получении активности за 24 часа: {e}")
+            await update.message.reply_text(f"❌ Ошибка при получении активности: {e}",
+                                              parse_mode=ParseMode.HTML)
 
 
 # Функция для создания экземпляра админских обработчиков

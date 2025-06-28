@@ -118,10 +118,10 @@ class TradingTelegramBot:
         # Клавиатура администратора
         self.admin_keyboard = ReplyKeyboardMarkup([
             ["🚀 Запуск бота", "🛑 Остановка"],
+            ["🔄 Обновить мониторинг"],
             ["➕ Добавить", "➖ Удалить"],
             ["📋 Список", "⚙ Настройки"],
             ["📈 Активность 24ч", "ℹ Статус"],
-            ["🔄 Обновить мониторинг"],
             ["👥 Список заявок", "📋 Логи"],
             ["👤 Управление пользователями", "🧹 Очистить пользователей"]
         ], resize_keyboard=True, one_time_keyboard=False)
@@ -129,10 +129,10 @@ class TradingTelegramBot:
         # Клавиатура обычного пользователя
         self.user_keyboard = ReplyKeyboardMarkup([
             ["🚀 Запуск бота", "🛑 Остановка"],
+            ["🔄 Обновить мониторинг"],
             ["➕ Добавить", "➖ Удалить"],
             ["📋 Список", "⚙ Настройки"],
-            ["📈 Активность 24ч", "ℹ Статус"],
-            ["🔄 Обновить мониторинг"]
+            ["📈 Активность 24ч", "ℹ Статус"]
         ], resize_keyboard=True, one_time_keyboard=False)
 
         # Основная клавиатура (используется по умолчанию для админа)
@@ -1723,9 +1723,9 @@ class TradingTelegramBot:
         user_keyboard = self.get_user_keyboard(chat_id)
 
         try:
-            # Получаем статистику активности
-            from activity_level_calculator import activity_calculator
-            stats = activity_calculator.get_24h_summary()
+            # Получаем статистику активности из session_recorder
+            from session_recorder import session_recorder
+            stats = session_recorder.get_24h_summary()
 
             if not stats:
                 await update.message.reply_text(
@@ -1735,13 +1735,30 @@ class TradingTelegramBot:
                 )
                 return
 
+            # Формируем статистику из доступных данных
+            total_sessions = len(stats.get('sessions', []))
+            total_duration = sum(session.get('total_duration', 0) for session in stats.get('sessions', []))
+            avg_duration = total_duration / total_sessions if total_sessions > 0 else 0
+            
+            # Находим топ монету по количеству сессий
+            symbol_counts = {}
+            total_volume = 0
+            for session in stats.get('sessions', []):
+                symbol = session.get('symbol', 'Unknown')
+                symbol_counts[symbol] = symbol_counts.get(symbol, 0) + 1
+                # Суммируем объём из summary если есть
+                session_summary = session.get('summary', {})
+                total_volume += session_summary.get('total_volume', 0)
+            
+            top_coin = max(symbol_counts.items(), key=lambda x: x[1])[0] if symbol_counts else 'N/A'
+
             message = (
                 f"📈 <b>Активность за 24 часа</b>\n\n"
-                f"🔥 Всего активностей: <code>{stats.get('total_activities', 0)}</code>\n"
-                f"⏱ Средняя длительность: <code>{stats.get('avg_duration', 0):.1f} мин</code>\n"
-                f"📊 Общий объём: <code>${stats.get('total_volume', 0):,.0f}</code>\n"
-                f"🏆 Топ монета: <code>{stats.get('top_coin', 'N/A')}</code>\n"
-                f"⚡ Пиковая активность: <code>{stats.get('peak_hour', 'N/A')}</code>"
+                f"🔥 Всего сессий: <code>{total_sessions}</code>\n"
+                f"⏱ Средняя длительность: <code>{avg_duration/60:.1f} мин</code>\n"
+                f"📊 Общий объём: <code>${total_volume:,.0f}</code>\n"
+                f"🏆 Топ монета: <code>{top_coin}</code>\n"
+                f"📊 Общая длительность: <code>{total_duration/60:.1f} мин</code>"
             )
 
             await update.message.reply_text(
@@ -1753,7 +1770,7 @@ class TradingTelegramBot:
         except Exception as e:
             bot_logger.error(f"Ошибка получения статистики активности: {e}")
             await update.message.reply_text(
-                "❌ Ошибка получения статистики",
+                "❌ Ошибка получения статистики активности.\nВозможно, данных пока недостаточно.",
                 reply_markup=user_keyboard,
                 parse_mode=ParseMode.HTML
             )
@@ -1770,7 +1787,7 @@ class TradingTelegramBot:
         # Получаем список монет в зависимости от роли
         if user_manager.is_admin(chat_id):
             watchlist_count = watchlist_manager.size()
-            list_info = f"Глобальный список: {watchlist_count} монет"
+            list_info = f"Ваш список: {watchlist_count} монет"
         else:
             user_watchlist = user_manager.get_user_watchlist(chat_id)
             list_info = f"Ваш список: {len(user_watchlist)} монет"

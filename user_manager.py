@@ -340,6 +340,14 @@ class UserManager:
             'admin_chat_id': self.admin_chat_id
         }
 
+    def add_coin_to_user_watchlist(self, chat_id: str, symbol: str) -> bool:
+        """Добавляет монету в список пользователя (alias для add_user_coin)"""
+        return self.add_user_coin(chat_id, symbol)
+
+    def remove_coin_from_user_watchlist(self, chat_id: str, symbol: str) -> bool:
+        """Удаляет монету из списка пользователя (alias для remove_user_coin)"""
+        return self.remove_user_coin(chat_id, symbol)
+
     def reset_user_config_to_defaults(self, chat_id: str) -> str:
         """Сбрасывает настройки пользователя к значениям по умолчанию"""
         chat_id = str(chat_id)
