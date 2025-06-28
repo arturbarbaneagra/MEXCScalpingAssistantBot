@@ -4,9 +4,8 @@
 
 import os
 import json
-import time
 import math
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List
 from datetime import datetime, timedelta
 from logger import bot_logger
 
@@ -14,19 +13,14 @@ from logger import bot_logger
 class ActivityLevelCalculator:
     def __init__(self):
         self.stats_file = "activity_stats.json"
-        self.processed_hours_file = "processed_hours.json"
 
-        # Статистика Welford для онлайн расчета среднего и дисперсии
+        # Статистика Welford - только три переменные
         self.count = 0
         self.mean = 0.0
         self.M2 = 0.0  # Сумма квадратов отклонений
 
-        # Множество обработанных часов для избежания дублирования
-        self.processed_hours = set()
-
         # Загружаем сохраненную статистику
         self._load_stats()
-        self._load_processed_hours()
 
     def _load_stats(self):
         """Загружает сохраненную статистику"""
@@ -39,7 +33,8 @@ class ActivityLevelCalculator:
                 self.mean = data.get('mean', 0.0)
                 self.M2 = data.get('M2', 0.0)
 
-                bot_logger.info(f"📊 Загружена статистика активности: count={self.count}, mean={self.mean:.1f}")
+                std = self.get_std_dev()
+                bot_logger.info(f"📊 Загружена статистика активности: count={self.count}, mean={self.mean:.2f}, std={std:.2f}")
 
             except Exception as e:
                 bot_logger.warning(f"Ошибка загрузки статистики активности: {e}")
@@ -63,143 +58,31 @@ class ActivityLevelCalculator:
         except Exception as e:
             bot_logger.error(f"Ошибка сохранения статистики активности: {e}")
 
-    def _load_processed_hours(self):
-        """Загружает список обработанных часов"""
-        if os.path.exists(self.processed_hours_file):
-            try:
-                with open(self.processed_hours_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    self.processed_hours = set(data.get('hours', []))
-
-                bot_logger.debug(f"📊 Загружено {len(self.processed_hours)} обработанных часов")
-
-            except Exception as e:
-                bot_logger.warning(f"Ошибка загрузки обработанных часов: {e}")
-                self.processed_hours = set()
-        else:
-            self.processed_hours = set()
-
-    def _save_processed_hours(self):
-        """Сохраняет список обработанных часов"""
-        try:
-            data = {
-                'hours': list(self.processed_hours),
-                'last_updated': datetime.now().isoformat()
-            }
-
-            with open(self.processed_hours_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2)
-
-        except Exception as e:
-            bot_logger.error(f"Ошибка сохранения обработанных часов: {e}")
-
     def _reset_stats(self):
         """Сброс статистики"""
         self.count = 0
         self.mean = 0.0
         self.M2 = 0.0
-        self.processed_hours = set()
 
-    def update_activity_stats(self, new_value: float, hour_key: str = None):
+    def update_with_new_value(self, new_value: float):
         """
-        Обновляет статистику активности новым значением (алгоритм Welford)
-        Учитывает все часы начиная с первого записанного, включая пустые часы как 0
+        Обновляет статистику новым значением по алгоритму Welford
 
         Args:
             new_value: Новое значение уровня активности в минутах
-            hour_key: Уникальный ключ часа для избежания дублирования
         """
-        # Если указан ключ часа, проверяем уникальность
-        if hour_key:
-            if hour_key in self.processed_hours:
-                bot_logger.debug(f"📊 Час {hour_key} уже обработан, пропускаем")
-                return
-
-            # Если это первый час, просто добавляем его
-            if not self.processed_hours:
-                self.processed_hours.add(hour_key)
-                self._save_processed_hours()
-
-                self.count += 1
-                delta = new_value - self.mean
-                self.mean += delta / self.count
-                delta2 = new_value - self.mean
-                self.M2 += delta * delta2
-
-                self._save_stats()
-                bot_logger.info(f"📊 Первый час добавлен: час={hour_key}, значение={new_value:.1f}мин, среднее={self.mean:.1f}мин, count={self.count}")
-                return
-
-            # Находим пропущенные часы между последним записанным и текущим
-            missing_hours = self._find_missing_hours(hour_key)
-
-            # Добавляем пропущенные часы со значением 0
-            for missing_hour in missing_hours:
-                if missing_hour not in self.processed_hours:
-                    bot_logger.debug(f"📊 Добавляем пропущенный час {missing_hour} со значением 0")
-                    self.processed_hours.add(missing_hour)
-
-                    # Обновляем статистику Welford для пропущенного часа (значение = 0)
-                    self.count += 1
-                    delta = 0.0 - self.mean
-                    self.mean += delta / self.count
-                    delta2 = 0.0 - self.mean
-                    self.M2 += delta * delta2
-
-            # Добавляем текущий час
-            self.processed_hours.add(hour_key)
-            self._save_processed_hours()
-
-        # Обновляем статистику для текущего значения
+        # Алгоритм Welford для онлайн обновления
         self.count += 1
         delta = new_value - self.mean
         self.mean += delta / self.count
         delta2 = new_value - self.mean
         self.M2 += delta * delta2
 
-        # Сохраняем статистику
+        # Сохраняем обновленную статистику
         self._save_stats()
 
-        bot_logger.info(f"📊 Обновлена статистика активности: час={hour_key}, значение={new_value:.1f}мин, среднее={self.mean:.1f}мин, count={self.count}")
-
-    def _find_missing_hours(self, current_hour_key: str) -> List[str]:
-        """
-        Находит пропущенные часы между последним записанным и текущим часом
-
-        Args:
-            current_hour_key: Текущий ключ часа в формате "YYYY-MM-DD_HH"
-
-        Returns:
-            Список ключей пропущенных часов
-        """
-        try:
-            from datetime import datetime, timedelta
-
-            if not self.processed_hours:
-                return []
-
-            # Парсим текущий час
-            current_dt = datetime.strptime(current_hour_key, "%Y-%m-%d_%H")
-
-            # Находим последний записанный час
-            sorted_hours = sorted(self.processed_hours)
-            last_hour_key = sorted_hours[-1]
-            last_dt = datetime.strptime(last_hour_key, "%Y-%m-%d_%H")
-
-            missing_hours = []
-
-            # Генерируем все часы между последним и текущим
-            current_check = last_dt + timedelta(hours=1)
-            while current_check < current_dt:
-                hour_key = current_check.strftime("%Y-%m-%d_%H")
-                missing_hours.append(hour_key)
-                current_check += timedelta(hours=1)
-
-            return missing_hours
-
-        except Exception as e:
-            bot_logger.warning(f"Ошибка поиска пропущенных часов: {e}")
-            return []
+        std = self.get_std_dev()
+        bot_logger.info(f"📊 Обновлена статистика: значение={new_value:.1f}мин, среднее={self.mean:.2f}мин, std={std:.2f}, count={self.count}")
 
     def get_variance(self) -> float:
         """Возвращает дисперсию"""
@@ -244,8 +127,6 @@ class ActivityLevelCalculator:
 
             # Попробуем найти данные в файлах сессий
             date_str = hour_dt.strftime('%Y-%m-%d')
-            hour_key = hour_dt.strftime('%H:00')
-
             activity_found = False
 
             # Проверяем файл за эту дату
@@ -285,7 +166,6 @@ class ActivityLevelCalculator:
             return {'mean': 0.0, 'std': 0.0, 'count': 0}
 
         # Алгоритм Welford для онлайн расчета среднего и дисперсии
-        # Важно: обрабатываем ВСЕ значения, включая нули!
         count = 0
         mean = 0.0
         M2 = 0.0  # сумма квадратов отклонений
@@ -407,7 +287,6 @@ class ActivityLevelCalculator:
     def calculate_hourly_activity(self, sessions: List[Dict], hour_start: datetime) -> float:
         """
         Рассчитывает общее время активности для определенного часа
-        Простая сумма длительностей всех сессий в этом часу
 
         Args:
             sessions: Список сессий
@@ -426,7 +305,6 @@ class ActivityLevelCalculator:
 
     def get_stats_summary(self) -> Dict:
         """Возвращает сводку статистики"""
-        # Если данных недостаточно, возвращаем None для средних значений
         if self.count < 2:
             return {
                 'count': self.count,
