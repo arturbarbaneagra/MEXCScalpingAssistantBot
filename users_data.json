@@ -5,8 +5,8 @@
       "username": "arturlorf",
       "first_name": "Artur",
       "last_name": "",
-      "approved_time": 1751113395.3682368,
-      "approved_datetime": "2025-06-28T12:23:15.368238",
+      "approved_time": 1751113851.4877582,
+      "approved_datetime": "2025-06-28T12:30:51.487759",
       "setup_completed": true,
       "watchlist": [
         "BTC"
@@ -17,14 +17,14 @@
         "NATR_THRESHOLD": 0.5
       },
       "active_coins": {},
-      "last_activity": 1751113522.229725,
-      "setup_state": "completed",
+      "last_activity": 1751114082.3076859,
+      "setup_state": "",
       "current_mode": "notification",
-      "mode_start_time": 1751113522.2297208,
-      "mode_stop_time": null
+      "mode_start_time": 1751114082.3076816,
+      "mode_stop_time": 1751114082.1448207
     }
   },
   "pending_requests": {},
   "rejected_users": {},
-  "last_updated": "2025-06-28T12:25:22.229727"
+  "last_updated": "2025-06-28T12:34:42.307687"
 }
