@@ -477,15 +477,7 @@ class TradingTelegramBot:
 
         # Проверяем, одобрен ли пользователь
         if user_manager.is_user_approved(chat_id):
-            #await self._handle_approved_user_start(update, context)
-            # Проверяем, завершил ли пользователь настройку
-            if not user_manager.is_setup_completed(chat_id):
-                await self._start_coin_setup(update, context)  # Начинаем сетап монет
-                return ConversationHandler.END
-
-            else:
-                await self._handle_approved_user_start(update, context)
-                return ConversationHandler.END
+            return await self._handle_approved_user_start(update, context)
 
         # Проверяем, есть ли уже заявка от этого пользователя
         if user_manager.is_user_pending(chat_id):
@@ -590,7 +582,7 @@ class TradingTelegramBot:
             if not user_watchlist:
                 # Запускаем первоначальную настройку монет БЕЗ кнопок
                 await self._start_coin_setup(update, context)
-                return
+                return ConversationHandler.END
             else:
                 # Нужно настроить фильтры
                 user_config = user_manager.get_user_config(chat_id)
@@ -608,7 +600,7 @@ class TradingTelegramBot:
 
                 # Отмечаем настройку как завершенную
                 user_manager.mark_setup_completed(chat_id)
-                return
+                return ConversationHandler.END
 
         # Пользователь полностью настроен
         welcome_text = (
@@ -625,6 +617,7 @@ class TradingTelegramBot:
         )
 
         await update.message.reply_text(welcome_text, reply_markup=self.user_keyboard, parse_mode=ParseMode.HTML)
+        return ConversationHandler.END
 
     async def button_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Основной обработчик кнопок с защитой от spam"""
@@ -2175,12 +2168,19 @@ class TradingTelegramBot:
         """Начинает первоначальную настройку монет"""
         chat_id = update.effective_chat.id
 
-        await update.message.reply_text(
-            "👋 <b>Добро пожаловать!</b>\n\n"
-            "Чтобы начать, добавьте хотя бы одну монету для отслеживания.\n\n"
-            "Введите символ монеты (например: BTC, ETH, ADA):",
-            parse_mode=ParseMode.HTML
-        )
+        # Проверяем, есть ли уже состояние setup - если да, не дублируем сообщение
+        user_data = user_manager.get_user_data(chat_id)
+        current_setup_state = user_data.get('setup_state', '') if user_data else ''
+        
+        # Отправляем приветственное сообщение только если не находимся уже в процессе настройки
+        if current_setup_state != 'initial_coin_setup':
+            await update.message.reply_text(
+                "👋 <b>Добро пожаловать!</b>\n\n"
+                "Чтобы начать, добавьте хотя бы одну монету для отслеживания.\n\n"
+                "Введите символ монеты (например: BTC, ETH, ADA):",
+                parse_mode=ParseMode.HTML
+            )
+        
         # Сохраняем состояние, что сейчас идет добавление монет
         user_manager.update_user_data(chat_id, {'setup_state': 'initial_coin_setup'})
 
