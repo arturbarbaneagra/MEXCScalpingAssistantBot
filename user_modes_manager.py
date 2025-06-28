@@ -363,9 +363,10 @@ class UserMonitoringMode(UserMode):
         
     def get_stats(self):
         stats = super().get_stats()
+        user_watchlist = user_manager.get_user_watchlist(self.user_id)
         stats.update({
             'monitoring_message_id': self.monitoring_message_id,
-            'watchlist_size': len(user_manager.get_user_watchlist(self.user_id))
+            'watchlist_size': len(user_watchlist) if user_watchlist else 0
         })
         return stats
 

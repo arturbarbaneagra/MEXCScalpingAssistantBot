@@ -102,7 +102,7 @@ class TradingTelegramBot:
         """Получает список монет пользователя"""
         if user_manager.is_admin(chat_id):
             # Для админа используем глобальный список
-            return watchlist_manager.get_all()
+            return list(watchlist_manager.get_all())
         else:
             # Для пользователя используем его личный список
             return user_manager.get_user_watchlist(chat_id)
@@ -851,17 +851,29 @@ class TradingTelegramBot:
         chat_id = update.effective_chat.id
         user_keyboard = self.get_user_keyboard(chat_id)
 
-        # Проверяем наличие монет у пользователя
-        user_watchlist = self.get_user_watchlist(chat_id)
-        if not user_watchlist:
-            await update.message.reply_text(
-                "⚠️ <b>Нет монет для отслеживания!</b>\n\n"
-                "Чтобы запустить режим мониторинга, сначала добавьте хотя бы одну монету.\n\n"
-                "Нажмите ➕ <b>Добавить</b> для добавления монеты.",
-                reply_markup=user_keyboard,
-                parse_mode="HTML"
-            )
-            return
+        # Проверяем наличие монет у пользователя (для обычных пользователей)
+        if not user_manager.is_admin(chat_id):
+            user_watchlist = user_manager.get_user_watchlist(chat_id)
+            if not user_watchlist:
+                await update.message.reply_text(
+                    "⚠️ <b>Нет монет для отслеживания!</b>\n\n"
+                    "Чтобы запустить режим мониторинга, сначала добавьте хотя бы одну монету.\n\n"
+                    "Нажмите ➕ <b>Добавить</b> для добавления монеты.",
+                    reply_markup=user_keyboard,
+                    parse_mode="HTML"
+                )
+                return
+        else:
+            # Для админа проверяем глобальный список
+            admin_watchlist = watchlist_manager.get_all()
+            if not admin_watchlist:
+                await update.message.reply_text(
+                    "⚠️ <b>Глобальный список отслеживания пуст!</b>\n\n"
+                    "Добавьте монеты в список для мониторинга.",
+                    reply_markup=user_keyboard,
+                    parse_mode="HTML"
+                )
+                return
 
         # Проверяем текущий режим пользователя
         current_mode = self.user_modes_manager.get_user_mode(chat_id)
