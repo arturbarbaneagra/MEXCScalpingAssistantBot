@@ -188,7 +188,7 @@ class UserManager:
     def get_user_watchlist(self, chat_id: str) -> List[str]:
         """Возвращает список монет пользователя"""
         if self.is_admin(chat_id):
-            # Администратор использует глобальный список
+            # Администратор использует список из watchlist.json
             from watchlist_manager import watchlist_manager
             return list(watchlist_manager.get_all())
         else:
@@ -198,7 +198,7 @@ class UserManager:
     def add_user_coin(self, chat_id: str, symbol: str) -> bool:
         """Добавляет монету в список пользователя"""
         if self.is_admin(chat_id):
-            # Администратор работает с глобальным списком
+            # Администратор работает со своим списком в watchlist.json
             from watchlist_manager import watchlist_manager
             return watchlist_manager.add(symbol)
         else:
@@ -216,7 +216,7 @@ class UserManager:
     def remove_user_coin(self, chat_id: str, symbol: str) -> bool:
         """Удаляет монету из списка пользователя"""
         if self.is_admin(chat_id):
-            # Администратор работает с глобальным списком
+            # Администратор работает со своим списком в watchlist.json
             from watchlist_manager import watchlist_manager
             return watchlist_manager.remove(symbol)
         else:
