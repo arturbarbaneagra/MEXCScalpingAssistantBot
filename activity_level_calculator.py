@@ -330,6 +330,105 @@ class ActivityLevelCalculator:
             'variance': self.get_variance()
         }
 
+    def generate_24h_activity_report(self) -> str:
+        """
+        Генерирует отчет активности за последние 24 часа
+        
+        Returns:
+            Отформатированный отчет активности
+        """
+        try:
+            # Получаем данные активности за 24 часа
+            activities = self.get_last_24_hours_activity()
+            
+            if not activities:
+                return "❌ Нет данных об активности за последние 24 часа"
+            
+            # Рассчитываем статистику
+            stats = self.calculate_activity_statistics_welford(activities)
+            total_activity = sum(activities)
+            
+            # Получаем информацию об уровне активности
+            activity_info = self.get_activity_level_info(total_activity)
+            
+            # Находим часы с максимальной активностью
+            max_activity = max(activities)
+            max_hour_index = activities.index(max_activity)
+            
+            # Считаем активные часы (с активностью > 0)
+            active_hours = sum(1 for a in activities if a > 0)
+            
+            # Форматируем отчет
+            report_lines = []
+            
+            # Заголовок с общей информацией
+            report_lines.append(f"{activity_info['color']} <b>Уровень активности: {activity_info['level']}</b> {activity_info['emoji']}")
+            report_lines.append("")
+            
+            # Основная статистика
+            report_lines.append("<b>📊 Статистика за 24 часа:</b>")
+            report_lines.append(f"• Общая активность: <b>{total_activity:.1f} минут</b>")
+            report_lines.append(f"• Активных часов: <b>{active_hours}/24</b>")
+            report_lines.append(f"• Максимум за час: <b>{max_activity:.1f} мин</b> ({max_hour_index} часов назад)")
+            report_lines.append(f"• Среднее за час: <b>{stats['mean']:.1f} мин</b>")
+            
+            if stats['std'] > 0:
+                report_lines.append(f"• Z-score: <b>{activity_info['z_score']:.2f}</b>")
+            
+            report_lines.append("")
+            
+            # Топ-5 самых активных часов
+            indexed_activities = [(i, act) for i, act in enumerate(activities) if act > 0]
+            indexed_activities.sort(key=lambda x: x[1], reverse=True)
+            
+            if indexed_activities:
+                report_lines.append("<b>🔥 Топ активных часов:</b>")
+                for i, (hour_idx, activity) in enumerate(indexed_activities[:5]):
+                    hours_ago = hour_idx
+                    if hours_ago == 0:
+                        time_label = "текущий час"
+                    elif hours_ago == 1:
+                        time_label = "1 час назад"
+                    else:
+                        time_label = f"{hours_ago} часов назад"
+                    
+                    report_lines.append(f"• <b>{activity:.1f} мин</b> - {time_label}")
+                
+                report_lines.append("")
+            
+            # Визуализация последних 12 часов
+            report_lines.append("<b>📈 Последние 12 часов:</b>")
+            visual_line = ""
+            for i in range(12):
+                activity = activities[i]
+                if activity >= 10:
+                    visual_line += "🔥"
+                elif activity >= 5:
+                    visual_line += "🔴"
+                elif activity >= 2:
+                    visual_line += "🟡"
+                elif activity >= 1:
+                    visual_line += "🟢"
+                else:
+                    visual_line += "⚪"
+            
+            report_lines.append(f"<code>{visual_line}</code>")
+            report_lines.append("<i>🔥≥10мин 🔴≥5мин 🟡≥2мин 🟢≥1мин ⚪<1мин</i>")
+            
+            # Информация о статистической модели
+            if self.count >= 5:
+                report_lines.append("")
+                report_lines.append(f"<i>📊 Статистика основана на {self.count} наблюдениях</i>")
+            else:
+                report_lines.append("")
+                report_lines.append(f"<i>⚠️ Мало данных для статистики ({self.count} наблюдений)</i>")
+            
+            return "\n".join(report_lines)
+            
+        except Exception as e:
+            bot_logger.error(f"Ошибка генерации отчета активности: {e}")
+            return f"❌ Ошибка генерации отчета: {str(e)}"
+
 
 # Глобальный экземпляр
 activity_calculator = ActivityLevelCalculator()
