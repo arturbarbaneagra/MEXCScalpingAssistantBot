@@ -26,13 +26,34 @@ class ConfigManager:
         self.load()
 
     def load(self):
-        """Загружает конфигурацию из файла"""
+        """Загружает конфигурацию из файла с валидацией"""
         try:
             if os.path.exists(self.config_file):
                 with open(self.config_file, 'r', encoding='utf-8') as f:
                     file_config = json.load(f)
                     # Объединяем с дефолтными значениями
                     self.config = {**self.default_config, **file_config}
+                    
+                    # Валидируем и исправляем конфигурацию
+                    try:
+                        from config_validator import config_validator
+                        fixed_config, errors, recommendations = config_validator.validate_and_fix(self.config)
+                        
+                        if errors:
+                            bot_logger.warning(f"Ошибки в конфигурации: {'; '.join(errors)}")
+                        
+                        if recommendations:
+                            bot_logger.info(f"Рекомендации по конфигурации: {'; '.join(recommendations[:3])}")
+                        
+                        # Применяем исправления если были изменения
+                        if fixed_config != self.config:
+                            self.config = fixed_config
+                            self.save()
+                            bot_logger.info("Конфигурация автоматически исправлена и сохранена")
+                        
+                    except ImportError:
+                        bot_logger.debug("Config validator недоступен, пропускаем валидацию")
+                    
                     bot_logger.info("Конфигурация загружена из файла")
             else:
                 self.config = self.default_config.copy()
