@@ -1574,7 +1574,7 @@ class TradingTelegramBot:
 
         await update.message.reply_text(
             "✅ <b>Мониторинг обновлен</b>\nСообщение перемещено вниз чата",
-            reply_markup=user_keyboard,```python
+            reply_markup=user_keyboard,
             parse_mode=ParseMode.HTML
         )
 
@@ -1584,6 +1584,12 @@ class TradingTelegramBot:
         """Обработчик кнопки Назад"""
         chat_id = update.effective_chat.id
         user_keyboard = self.get_user_keyboard(chat_id)
+        
+        await update.message.reply_text(
+            "🔙 Возврат в главное меню",
+            reply_markup=user_keyboard,
+            parse_mode=ParseMode.HTML
+        )
 
     async def callback_query_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик инлайн кнопок"""
