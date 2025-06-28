@@ -158,7 +158,11 @@ def health_check():
                     • Автоматический мониторинг списка монет<br>
                     • Мгновенные уведомления об активности<br>
                     • Автоудаление коротких уведомлений (< 1 мин)<br>
-                    • Единая сводка в реальном времени
+                    • Единая сводка в реальном времени<br><br>
+                    <strong>🎯 Глобальные фильтры:</strong><br>
+                    • 1м оборот ≥$1,000.0<br>
+                    • Спред ≥0.1%<br>
+                    • NATR ≥0.5%
                 </div>
 
                 <p><small>Page auto-refreshes every 30 seconds</small></p>
@@ -456,17 +460,7 @@ async def main():
         flask_thread.start()
         bot_logger.info("🌐 Flask сервер запущен на порту 8080")
 
-        # Настраиваем callback для автоматического применения изменений настроек
-        async def on_config_change(key: str, old_value, new_value):
-            """Callback для обработки изменений конфигурации"""
-            filter_keys = ['VOLUME_THRESHOLD', 'SPREAD_THRESHOLD', 'NATR_THRESHOLD']
-            if key in filter_keys:
-                bot_logger.info(f"🔄 Изменен фильтр {key}: {old_value} → {new_value}")
-                if hasattr(telegram_bot, '_force_monitoring_update'):
-                    await telegram_bot._force_monitoring_update()
-
-        # Подключаем callback к менеджеру конфигурации
-        config_manager.add_change_callback(on_config_change)
+        
 
         # Настраиваем и запускаем Telegram бота
         app = telegram_bot.setup_application()

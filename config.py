@@ -57,45 +57,7 @@ class ConfigManager:
         """Получает значение конфигурации"""
         return self.config.get(key, default)
 
-    def set(self, key: str, value: Any):
-        """Устанавливает значение конфигурации"""
-        old_value = self.config.get(key)
-        self.config[key] = value
-        self.save()
-        bot_logger.debug(f"Параметр {key} установлен в {value}")
-        
-        # Уведомляем о изменении если значение действительно изменилось
-        if old_value != value:
-            self._notify_change(key, old_value, value)
-
-    def add_change_callback(self, callback):
-        """Добавляет callback для уведомления об изменениях"""
-        if callback not in self.change_callbacks:
-            self.change_callbacks.append(callback)
-
-    def remove_change_callback(self, callback):
-        """Удаляет callback"""
-        if callback in self.change_callbacks:
-            self.change_callbacks.remove(callback)
-
-    def _notify_change(self, key: str, old_value: Any, new_value: Any):
-        """Уведомляет все callback'и об изменении"""
-        for callback in self.change_callbacks:
-            try:
-                if asyncio.iscoroutinefunction(callback):
-                    # Для async callback'ов планируем выполнение
-                    asyncio.create_task(callback(key, old_value, new_value))
-                else:
-                    # Для обычных функций вызываем напрямую
-                    callback(key, old_value, new_value)
-            except Exception as e:
-                bot_logger.error(f"Ошибка в callback изменения конфигурации: {e}")
-
-    def reset_to_defaults(self):
-        """Сбрасывает конфигурацию к значениям по умолчанию"""
-        self.config = self.default_config.copy()
-        self.save()
-        bot_logger.info("Конфигурация сброшена к значениям по умолчанию")
+    
 
     def get_all(self) -> Dict[str, Any]:
         """Возвращает всю конфигурацию"""

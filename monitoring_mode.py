@@ -221,7 +221,7 @@ class MonitoringMode:
         natr_thresh = config_manager.get('NATR_THRESHOLD')
 
         parts.append(
-            f"<i>Фильтры: 1м оборот ≥${vol_thresh:,}, "
+            f"<i>Глобальные фильтры: 1м оборот ≥${vol_thresh:,}, "
             f"Спред ≥{spread_thresh}%, NATR ≥{natr_thresh}%</i>\n"
         )
 

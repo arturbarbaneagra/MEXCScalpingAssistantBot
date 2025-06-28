@@ -401,13 +401,12 @@ class UserMonitoringMode(UserMode):
             title = "<b>📊 Администраторский мониторинг (1м данные)</b>\n"
             filters_text = f"<i>Глобальные фильтры: 1м оборот ≥${vol_thresh:,}, Спред ≥{spread_thresh}%, NATR ≥{natr_thresh}%</i>\n"
         else:
-            # Для обычного пользователя используем его настройки
-            user_config = user_manager.get_user_config(self.user_id)
-            vol_thresh = user_config.get('VOLUME_THRESHOLD', 1000)
-            spread_thresh = user_config.get('SPREAD_THRESHOLD', 0.1)
-            natr_thresh = user_config.get('NATR_THRESHOLD', 0.5)
+            # Для обычного пользователя используем глобальные настройки
+            vol_thresh = config_manager.get('VOLUME_THRESHOLD')
+            spread_thresh = config_manager.get('SPREAD_THRESHOLD')
+            natr_thresh = config_manager.get('NATR_THRESHOLD')
             title = "<b>📊 Ваш персональный мониторинг (1м данные)</b>\n"
-            filters_text = f"<i>Ваши фильтры: 1м оборот ≥${vol_thresh:,}, Спред ≥{spread_thresh}%, NATR ≥{natr_thresh}%</i>\n"
+            filters_text = f"<i>Глобальные фильтры: 1м оборот ≥${vol_thresh:,}, Спред ≥{spread_thresh}%, NATR ≥{natr_thresh}%</i>\n"
 
         results.sort(key=lambda x: x.get('volume', 0), reverse=True)
 

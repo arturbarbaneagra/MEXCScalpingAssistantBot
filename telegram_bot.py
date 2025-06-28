@@ -54,7 +54,6 @@ class TradingTelegramBot:
 
         # Состояния ConversationHandler
         self.ADDING_COIN, self.REMOVING_COIN = range(2)
-        self.SETTING_VOLUME, self.SETTING_SPREAD, self.SETTING_NATR = range(2, 5)
 
         self._setup_keyboards()
 
@@ -120,9 +119,8 @@ class TradingTelegramBot:
             ["🚀 Запуск бота", "🛑 Остановка"],
             ["🔄 Обновить мониторинг"],
             ["➕ Добавить", "➖ Удалить"],
-            ["📋 Список", "⚙ Настройки"],
-            ["📈 Активность 24ч", "ℹ Статус"],
-            ["👥 Список заявок", "📋 Логи"],
+            ["📋 Список", "ℹ Статус"],
+            ["📈 Активность 24ч"],
             ["👤 Управление пользователями", "🧹 Очистить пользователей"]
         ], resize_keyboard=True, one_time_keyboard=False)
 
@@ -131,18 +129,12 @@ class TradingTelegramBot:
             ["🚀 Запуск бота", "🛑 Остановка"],
             ["🔄 Обновить мониторинг"],
             ["➕ Добавить", "➖ Удалить"],
-            ["📋 Список", "⚙ Настройки"],
-            ["📈 Активность 24ч", "ℹ Статус"]
+            ["📋 Список", "ℹ Статус"],
+            ["📈 Активность 24ч"]
         ], resize_keyboard=True, one_time_keyboard=False)
 
         # Основная клавиатура (используется по умолчанию для админа)
         self.main_keyboard = self.admin_keyboard
-
-        self.settings_keyboard = ReplyKeyboardMarkup([
-            ["📊 Объём", "⇄ Спред"],
-            ["📈 NATR", "🔄 Сброс"],
-            ["🔙 Назад"]
-        ], resize_keyboard=True)
 
         self.back_keyboard = ReplyKeyboardMarkup([
             ["🔙 Назад"]
@@ -579,8 +571,7 @@ class TradingTelegramBot:
             "⚙ <b>Управление:</b>\n"
             "• ➕ Добавить монету в ваш список\n"
             "• ➖ Удалить монету из списка\n"
-            "• 📋 Показать ваши монеты\n"
-            "• ⚙ Ваши настройки фильтров\n\n"
+            "• 📋 Показать ваши монеты\n\n"
         )
 
         # Если нет монет, добавляем напоминание
@@ -689,23 +680,13 @@ class TradingTelegramBot:
                 return await self._handle_remove_coin_start(update)
             elif text == "📋 Список":
                 await self._handle_show_list(update)
-            elif text == "⚙ Настройки":
-                await self._handle_settings(update)
-            elif text == "📊 Объём":
-                return await self._handle_volume_setting_start(update)
-            elif text == "⇄ Спред":
-                return await self._handle_spread_setting_start(update)
-            elif text == "📈 NATR":
-                return await self._handle_natr_setting_start(update)
-            elif text == "🔄 Сброс":
-                await self._handle_reset_settings(update)
-            elif text == "📈 Активность 24ч":
-                bot_logger.info(f"📈 Обработка кнопки 'Активность 24ч' для пользователя {chat_id} {'(админ)' if user_manager.is_admin(chat_id) else '(пользователь)'}")
-                await self._handle_activity_24h(update)
             elif text == "ℹ Статус":
                 await self._handle_status(update)
             elif text == "🔄 Обновить мониторинг":
                 await self._handle_refresh_monitoring(update)
+            elif text == "📈 Активность 24ч":
+                bot_logger.info(f"📈 Обработка кнопки 'Активность 24ч' для пользователя {chat_id} {'(админ)' if user_manager.is_admin(chat_id) else '(пользователь)'}")
+                await self._handle_activity_24h(update)
             elif text == "🔙 Назад":
                 await self._handle_back(update)
             else:
@@ -819,7 +800,7 @@ class TradingTelegramBot:
         # Запускаем основной цикл
         self.task = asyncio.create_task(self._main_loop())
 
-    async def _main_loop(self):
+    async> def _main_loop(self):
         """Основной цикл работы бота"""
         cycle_count = 0
         cleanup_counter = 0
@@ -1169,9 +1150,9 @@ class TradingTelegramBot:
 
         # Для админа показываем глобальные настройки, для обычных пользователей - их личные
         if user_manager.is_admin(self.chat_id):
-            vol_thresh = config_manager.get('VOLUME_THRESHOLD')
-            spread_thresh = config_manager.get('SPREAD_THRESHOLD')
-            natr_thresh = config_manager.get('NATR_THRESHOLD')
+            vol_thresh = 1000
+            spread_thresh = 0.1
+            natr_thresh = 0.5
             filter_prefix = "Глобальные фильтры"
         else:
             # Получаем конфигурацию администратора (основного пользователя)
@@ -1285,58 +1266,7 @@ class TradingTelegramBot:
         )
         return self.REMOVING_COIN
 
-    async def _handle_volume_setting_start(self, update: Update):
-        """Начало настройки объёма"""
-        chat_id = update.effective_chat.id
-
-        # Все пользователи (включая админа) используют персональные настройки
-        user_config = user_manager.get_user_config(chat_id)
-        current_value = user_config.get('VOLUME_THRESHOLD', 1000)
-
-        await update.message.reply_text(
-            f"📊 <b>Настройка минимального объёма</b>\n\n"
-            f"Текущее значение: <code>${current_value:,}</code>\n\n"
-            f"Введите новое значение в долларах (например: 1500):",
-            reply_markup=self.back_keyboard,
-            parse_mode=ParseMode.HTML
-        )
-        return self.SETTING_VOLUME
-
-    async def _handle_spread_setting_start(self, update: Update):
-        """Начало настройки спреда"""
-        chat_id = update.effective_chat.id
-
-        # Все пользователи (включая админа) используют персональные настройки
-        user_config = user_manager.get_user_config(chat_id)
-        current_value = user_config.get('SPREAD_THRESHOLD', 0.1)
-
-        await update.message.reply_text(
-            f"⇄ <b>Настройка минимального спреда</b>\n\n"
-            f"Текущее значение: <code>{current_value}%</code>\n\n"
-            f"Введите новое значение в процентах (например: 0.2):",
-            reply_markup=self.back_keyboard,
-            parse_mode=ParseMode.HTML
-        )
-        return self.SETTING_SPREAD
-
-    async def _handle_natr_setting_start(self, update: Update):
-        """Начало настройки NATR"""
-        chat_id = update.effective_chat.id
-
-        # Все пользователи (включая админа) используют персональные настройки
-        user_config = user_manager.get_user_config(chat_id)
-        current_value = user_config.get('NATR_THRESHOLD', 0.5)
-
-        await update.message.reply_text(
-            f"📈 <b>Настройка минимального NATR</b>\n\n"
-            f"Текущее значение: <code>{current_value}%</code>\n\n"
-            f"Введите новое значение в процентах (например: 0.8):",
-            reply_markup=self.back_keyboard,
-            parse_mode=ParseMode.HTML
-        )
-        return self.SETTING_NATR
-
-    def setup_application(self):
+    async def setup_application(self):
         """Настраивает Telegram приложение"""
         from telegram.error import Conflict, NetworkError, TimedOut
 
@@ -1372,15 +1302,6 @@ class TradingTelegramBot:
                 ],
                 self.REMOVING_COIN: [
                     MessageHandler(filters.TEXT & ~filters.COMMAND, self.remove_coin_handler)
-                ],
-                self.SETTING_VOLUME: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.volume_setting_handler)
-                ],
-                self.SETTING_SPREAD: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.spread_setting_handler)
-                ],
-                self.SETTING_NATR: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.natr_setting_handler)
                 ]
             },
             fallbacks=[
@@ -1528,114 +1449,6 @@ class TradingTelegramBot:
 
         return ConversationHandler.END
 
-    async def volume_setting_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработчик настройки объёма"""
-        chat_id = update.effective_chat.id
-        user_keyboard = self.get_user_keyboard(chat_id)
-        text = update.message.text
-
-        if text == "🔙 Назад":
-            await self._handle_back(update)
-            return ConversationHandler.END
-
-        try:
-            value = float(text.replace(',', '').replace('$', ''))
-            if value <= 0:
-                raise ValueError("Значение должно быть положительным")
-
-            # Все пользователи (включая админа) устанавливают персональные настройки
-            user_manager.update_user_config(chat_id, {'VOLUME_THRESHOLD': value})
-            await update.message.reply_text(
-                f"✅ Ваш минимальный объём установлен: ${value:,.0f}",
-                reply_markup=user_keyboard,
-                parse_mode=ParseMode.HTML
-            )
-
-            # Перезапускаем мониторинг с новыми фильтрами
-            await self._force_monitoring_update()
-
-        except ValueError:
-            await update.message.reply_text(
-                "❌ Неверный формат. Введите число (например: 1500)",
-                reply_markup=self.back_keyboard,
-                parse_mode=ParseMode.HTML
-            )
-            return self.SETTING_VOLUME
-
-        return ConversationHandler.END
-
-    async def spread_setting_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработчик настройки спреда"""
-        chat_id = update.effective_chat.id
-        user_keyboard = self.get_user_keyboard(chat_id)
-        text = update.message.text
-
-        if text == "🔙 Назад":
-            await self._handle_back(update)
-            return ConversationHandler.END
-
-        try:
-            value = float(text.replace('%', ''))
-            if value < 0:
-                raise ValueError("Значение должно быть неотрицательным")
-
-            # Все пользователи (включая админа) устанавливают персональные настройки
-            user_manager.update_user_config(chat_id, {'SPREAD_THRESHOLD': value})
-            await update.message.reply_text(
-                f"✅ Ваш минимальный спред установлен: {value}%",
-                reply_markup=user_keyboard,
-                parse_mode=ParseMode.HTML
-            )
-
-            # Перезапускаем мониторинг с новыми фильтрами
-            await self._force_monitoring_update()
-
-        except ValueError:
-            await update.message.reply_text(
-                "❌ Неверный формат. Введите число (например: 0.2)",
-                reply_markup=self.back_keyboard,
-                parse_mode=ParseMode.HTML
-            )
-            return self.SETTING_SPREAD
-
-        return ConversationHandler.END
-
-    async def natr_setting_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработчик настройки NATR"""
-        chat_id = update.effective_chat.id
-        user_keyboard = self.get_user_keyboard(chat_id)
-        text = update.message.text
-
-        if text == "🔙 Назад":
-            await self._handle_back(update)
-            return ConversationHandler.END
-
-        try:
-            value = float(text.replace('%', ''))
-            if value < 0:
-                raise ValueError("Значение должно быть неотрицательным")
-
-            # Все пользователи (включая админа) устанавливают персональные настройки
-            user_manager.update_user_config(chat_id, {'NATR_THRESHOLD': value})
-            await update.message.reply_text(
-                f"✅ Ваш минимальный NATR установлен: {value}%",
-                reply_markup=user_keyboard,
-                parse_mode=ParseMode.HTML
-            )
-
-            # Перезапускаем мониторинг с новыми фильтрами
-            await self._force_monitoring_update()
-
-        except ValueError:
-            await update.message.reply_text(
-                "❌ Неверный формат. Введите число (например: 0.8)",
-                reply_markup=self.back_keyboard,
-                parse_mode=ParseMode.HTML
-            )
-            return self.SETTING_NATR
-
-        return ConversationHandler.END
-
     async def _handle_show_list(self, update: Update):
         """Показывает список монет"""
         chat_id = update.effective_chat.id
@@ -1671,133 +1484,6 @@ class TradingTelegramBot:
             parse_mode=ParseMode.HTML
         )
 
-    async def _handle_settings(self, update: Update):
-        """Показывает настройки"""
-        chat_id = update.effective_chat.id
-
-        # Все пользователи (включая админа) используют персональные настройки
-        config = user_manager.get_user_config(chat_id)
-        settings_title = "Ваши настройки фильтров"
-
-        message = (
-            f"⚙ <b>{settings_title}</b>\n\n"
-            f"📊 Минимальный объём: <code>${config.get('VOLUME_THRESHOLD', 1000):,.0f}</code>\n"
-            f"⇄ Минимальный спред: <code>{config.get('SPREAD_THRESHOLD', 0.1)}%</code>\n"
-            f"📈 Минимальный NATR: <code>{config.get('NATR_THRESHOLD', 0.5)}%</code>\n\n"
-            f"Выберите параметр для изменения:"
-        )
-
-        await update.message.reply_text(
-            message,
-            reply_markup=self.settings_keyboard,
-            parse_mode=ParseMode.HTML
-        )
-
-    async def _handle_reset_settings(self, update: Update):
-        """Сбрасывает настройки"""
-        chat_id = update.effective_chat.id
-        user_keyboard = self.get_user_keyboard(chat_id)
-
-        # Получаем текущие настройки
-        current_config = user_manager.get_user_config(chat_id)
-
-        # Дефолтные значения
-        default_config = {
-            'VOLUME_THRESHOLD': 1000,
-            'SPREAD_THRESHOLD': 0.1,
-            'NATR_THRESHOLD': 0.5
-        }
-
-        # Проверяем, отличаются ли текущие настройки от дефолтных
-        settings_already_default = True
-        for key, default_value in default_config.items():
-            if current_config.get(key) != default_value:
-                settings_already_default = False
-                break
-
-        if settings_already_default:
-            await update.message.reply_text(
-                "ℹ️ <b>Настройки уже установлены по умолчанию</b>\n\n"
-                f"📊 Минимальный объём: <code>${default_config['VOLUME_THRESHOLD']:,.0f}</code>\n"
-                f"⇄ Минимальный спред: <code>{default_config['SPREAD_THRESHOLD']}%</code>\n"
-                f"📈 Минимальный NATR: <code>{default_config['NATR_THRESHOLD']}%</code>",
-                reply_markup=user_keyboard,
-                parse_mode=ParseMode.HTML
-            )
-        else:
-            # Сбрасываем настройки
-            user_manager.update_user_config(chat_id, default_config)
-
-            await update.message.reply_text(
-                "🔄 <b>Настройки сброшены к значениям по умолчанию</b>\n\n"
-                f"📊 Минимальный объём: <code>${default_config['VOLUME_THRESHOLD']:,.0f}</code>\n"
-                f"⇄ Минимальный спред: <code>{default_config['SPREAD_THRESHOLD']}%</code>\n"
-                f"📈 Минимальный NATR: <code>{default_config['NATR_THRESHOLD']}%</code>",
-                reply_markup=user_keyboard,
-                parse_mode=ParseMode.HTML
-            )
-
-            # Перезапускаем мониторинг с новыми фильтрами
-            await self._force_monitoring_update()
-
-    async def _handle_activity_24h(self, update: Update):
-        """Показывает активность за 24 часа"""
-        chat_id = update.effective_chat.id
-        user_keyboard = self.get_user_keyboard(chat_id)
-
-        try:
-            # Получаем статистику активности из session_recorder
-            from session_recorder import session_recorder
-            stats = session_recorder.get_24h_summary()
-
-            if not stats:
-                await update.message.reply_text(
-                    "📈 <b>Активность за 24 часа</b>\n\nДанных пока нет.",
-                    reply_markup=user_keyboard,
-                    parse_mode=ParseMode.HTML
-                )
-                return
-
-            # Формируем статистику из доступных данных
-            total_sessions = len(stats.get('sessions', []))
-            total_duration = sum(session.get('total_duration', 0) for session in stats.get('sessions', []))
-            avg_duration = total_duration / total_sessions if total_sessions > 0 else 0
-
-            # Находим топ монету по количеству сессий
-            symbol_counts = {}
-            total_volume = 0
-            for session in stats.get('sessions', []):
-                symbol = session.get('symbol', 'Unknown')
-                symbol_counts[symbol] = symbol_counts.get(symbol, 0) + 1
-                # Суммируем объём из summary если есть
-                session_summary = session.get('summary', {})
-                total_volume += session_summary.get('total_volume', 0)
-
-            top_coin = max(symbol_counts.items(), key=lambda x: x[1])[0] if symbol_counts else 'N/A'
-
-            message = (
-                f"📈 <b>Активность за 24 часа</b>\n\n"
-                f"🔥 Всего сессий: <code>{total_sessions}</code>\n"
-                f"⏱ Средняя длительность: <code>{avg_duration/60:.1f} мин</code>\n"
-                f"📊 Общий объём: <code>${total_volume:,.0f}</code>\n"
-                f"🏆 Топ монета: <code>{top_coin}</code>\n"
-                f"📊 Общая длительность: <code>{total_duration/60:.1f} мин</code>"
-            )
-
-            await update.message.reply_text(
-                message,
-                reply_markup=user_keyboard,
-                parse_mode=ParseMode.HTML
-            )
-
-        except Exception as e:
-            bot_logger.error(f"Ошибка получения статистики активности: {e}")
-            await update.message.reply_text(
-                "❌ Ошибка получения статистики активности.\nВозможно, данных пока недостаточно.",
-                reply_markup=user_keyboard,
-                parse_mode=ParseMode.HTML
-            )
-
     async def _handle_status(self, update: Update):
         """Показывает статус бота"""
         chat_id = update.effective_chat.id
@@ -1811,15 +1497,22 @@ class TradingTelegramBot:
         if user_manager.is_admin(chat_id):
             watchlist_count = watchlist_manager.size()
             list_info = f"Ваш список: {watchlist_count} монет"
+            vol_thresh = 1000
+            spread_thresh = 0.1
+            natr_thresh = 0.5
         else:
             user_watchlist = user_manager.get_user_watchlist(chat_id)
             list_info = f"Ваш список: {len(user_watchlist)} монет"
-
+            admin_config = user_manager.get_user_config(user_manager.admin_chat_id)
+            vol_thresh = admin_config.get('VOLUME_THRESHOLD', 1000)
+            spread_thresh = admin_config.get('SPREAD_THRESHOLD', 0.1)
+            natr_thresh = admin_config.get('NATR_THRESHOLD', 0.5)
         message = (
             f"ℹ <b>Статус бота</b>\n\n"
             f"🤖 Состояние: <code>{status_text}</code>\n"
             f"🔥 Активных монет: <code>{active_count}</code>\n"
             f"📋 {list_info}\n"
+            f"Глобальные фильтры: 1м оборот ≥${vol_thresh:,}, Спред ≥{spread_thresh}%, NATR ≥{natr_thresh}%\n"
             f"⏰ Последнее обновление: <code>{time.strftime('%H:%M:%S')}</code>"
         )
 
@@ -1862,95 +1555,6 @@ class TradingTelegramBot:
         chat_id = update.effective_chat.id
         user_keyboard = self.get_user_keyboard(chat_id)
 
-    async def _force_monitoring_update(self):
-        """Принудительно обновляет мониторинг с новыми фильтрами"""
-        try:
-            bot_logger.info("🔄 Применение новых настроек фильтров")
-
-            # Обновляем персональные режимы пользователей
-            if hasattr(self, 'user_modes_manager'):
-                await self.user_modes_manager.restart_all_user_modes()
-                bot_logger.info("✅ Персональные режимы пользователей перезапущены")
-
-            # Если основной бот запущен, обновляем его мониторинг
-            if self.bot_running:
-                bot_logger.info("🔄 Обновление основного мониторинга с новыми фильтрами")
-                
-                # Очищаем кеш активных монет для пересчета с новыми критериями
-                old_count = len(self._active_coins)
-                self._active_coins.clear()
-                bot_logger.info(f"🗑️ Очищен кеш активных монет (было: {old_count})")
-
-                # Обновляем сообщение мониторинга с новыми фильтрами
-                if self.monitoring_message_id:
-                    update_text = "🔄 <b>Обновление фильтров...</b>\n<i>Применяются новые настройки</i>"
-                    await self.edit_message(self.monitoring_message_id, update_text)
-                    
-                    # Даем время для применения изменений
-                    await asyncio.sleep(1.0)
-                    
-                    bot_logger.info("✅ Сообщение мониторинга будет обновлено в следующем цикле")
-
-            # Очищаем кеш данных для принудительного обновления
-            try:
-                from cache_manager import cache_manager
-                cache_manager.clear_all()
-                bot_logger.info("🗑️ Кеш данных очищен для применения новых фильтров")
-            except Exception as e:
-                bot_logger.debug(f"Ошибка очистки кеша: {e}")
-
-            bot_logger.info("✅ Новые настройки фильтров применены")
-
-        except Exception as e:
-            bot_logger.error(f"Ошибка при применении новых настроек: {e}")
-
-    async def _restart_monitoring_with_new_filters(self):
-        """Перезапускает мониторинг с новыми фильтрами"""
-        try:
-            bot_logger.info("🔄 Перезапуск всех активных режимов с новыми фильтрами")
-
-            # Останавливаем все активные режимы
-            active_modes = []
-
-            if hasattr(self, 'monitoring_mode') and self.monitoring_mode.running:
-                active_modes.append('monitoring')
-                await self.monitoring_mode.stop()
-
-            if hasattr(self, 'notification_mode') and self.notification_mode.running:
-                active_modes.append('notification')
-                await self.notification_mode.stop()
-
-            # Пауза для корректного завершения
-            await asyncio.sleep(1.5)
-
-            # Очищаем все кеши и активные монеты
-            if hasattr(self, 'active_coins'):
-                self.active_coins.clear()
-
-            try:
-                from cache_manager import cache_manager
-                cache_manager.clear_all()
-            except:
-                pass
-
-            # Запускаем режимы заново
-            for mode in active_modes:
-                if mode == 'monitoring' and hasattr(self, 'monitoring_mode'):
-                    await self.monitoring_mode.start()
-                elif mode == 'notification' and hasattr(self, 'notification_mode'):
-                    await self.notification_mode.start()
-
-            bot_logger.info(f"✅ Перезапущены режимы: {', '.join(active_modes)}")
-
-        except Exception as e:
-            bot_logger.error(f"Ошибка перезапуска режимов: {e}")
-
-        await update.message.reply_text(
-            "🔙 Возврат в главное меню",
-            reply_markup=user_keyboard,
-            parse_mode=ParseMode.HTML
-        )
-
     async def callback_query_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик инлайн кнопок"""
         query = update.callback_query
@@ -1972,6 +1576,8 @@ class TradingTelegramBot:
             target_chat_id = data.replace("approve_", "")
             await self.admin_handlers.handle_approve_user(update, context, target_chat_id)
         elif data.startswith("reject_"):
+            ```python
+# This file contains the complete modified code for the TradingTelegramBot class with filter settings removed.
             target_chat_id = data.replace("reject_", "")
             await self.admin_handlers.handle_reject_user(update, context, target_chat_id)
         elif data.startswith("revoke_"):
