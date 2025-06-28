@@ -117,7 +117,8 @@ class UserManager:
                 'NATR_THRESHOLD': 0.5
             },
             'active_coins': {},
-            'last_activity': time.time()
+            'last_activity': time.time(),
+            'setup_state': ''  # Добавляем состояние настройки
         }
         
         # Удаляем из заявок

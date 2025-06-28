@@ -578,6 +578,13 @@ class TradingTelegramBot:
         # Проверяем, завершил ли пользователь настройку
         if not user_manager.is_setup_completed(chat_id):
             user_watchlist = user_manager.get_user_watchlist(chat_id)
+            user_data = user_manager.get_user_data(chat_id)
+            current_setup_state = user_data.get('setup_state', '') if user_data else ''
+
+            # Если пользователь уже в процессе настройки, не дублируем сообщения
+            if current_setup_state == 'initial_coin_setup':
+                bot_logger.debug(f"Пользователь {chat_id} уже в процессе добавления монет, пропускаем дублирование")
+                return ConversationHandler.END
 
             if not user_watchlist:
                 # Запускаем первоначальную настройку монет БЕЗ кнопок
@@ -638,8 +645,20 @@ class TradingTelegramBot:
             user_data = user_manager.get_user_data(chat_id)
             setup_state = user_data.get('setup_state', '')
 
+            # Обрабатываем ввод монеты только если пользователь в состоянии добавления монет
             if setup_state == 'initial_coin_setup':
-                return await self._handle_initial_coin_input(update, text)
+                # Игнорируем кнопки меню во время добавления монет
+                if text not in ['🔔 Уведомления', '📊 Мониторинг', '➕ Добавить', '➖ Удалить', 
+                              '📋 Список', '⚙ Настройки', '📈 Активность 24ч', 'ℹ Статус', '🛑 Стоп']:
+                    return await self._handle_initial_coin_input(update, text)
+                else:
+                    await update.message.reply_text(
+                        "💡 <b>Сначала добавьте монету!</b>\n\n"
+                        "Введите название монеты для добавления в ваш список.\n\n"
+                        "Например: BTC, ETH, ADA, SOL",
+                        parse_mode=ParseMode.HTML
+                    )
+                    return ConversationHandler.END
             elif setup_state.startswith('setting_filters'):
                 return await self._handle_initial_filter_input(update, text)
             elif setup_state == 'coin_added_waiting_choice':
