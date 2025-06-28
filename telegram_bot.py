@@ -1877,6 +1877,10 @@ class TradingTelegramBot:
             # Обработка пагинации пользователей (можно расширить позже)
             page = int(data.replace("users_page_", ""))
             await self.admin_handlers.handle_show_all_users(update, context)
+        elif data == "add_more_coin":
+            await self._handle_add_more_coin(update, context)
+        elif data == "setup_filters":
+            await self._handle_setup_filters_callback(update, context)
 
     async def _handle_initial_coin_input(self, update: Update, text: str):
         """Обработка ввода монеты во время первоначальной настройки (без кнопок)"""
@@ -1930,14 +1934,22 @@ class TradingTelegramBot:
                 user_watchlist = user_manager.get_user_watchlist(chat_id)
                 price = float(ticker_data.get('lastPrice', 0))
 
+                # Создаем inline кнопки
+                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+                keyboard = [
+                    [InlineKeyboardButton("➕ Добавить еще монету", callback_data="add_more_coin")],
+                    [InlineKeyboardButton("⚙️ Перейти к настройкам", callback_data="setup_filters")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+
                 await update.message.reply_text(
                     f"✅ <b>Монета добавлена!</b>\n\n"
                     f"📊 <b>{symbol}</b>\n"
                     f"💰 Цена: <code>${price:.6f}</code>\n"
                     f"📈 Всего монет: <b>{len(user_watchlist)}</b>\n\n"
-                    "🔄 <b>Хотите добавить еще одну монету?</b>\n"
-                    "Введите название следующей монеты или напишите 'далее' для перехода к настройкам.",
-                    parse_mode=ParseMode.HTML
+                    "🔄 <b>Что дальше?</b>",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=reply_markup
                 )
             else:
                 await update.message.reply_text(
@@ -2093,6 +2105,52 @@ class TradingTelegramBot:
         await update.message.reply_text(
             "⚙️ <b>Настройка фильтров</b>\n\n"
             "Теперь настройте фильтры, чтобы бот уведомлял только об интересующих вас монетах.\n\n"
+            "📊 <b>1/3 - Минимальный объём</b>\n\n"
+            "Введите минимальный объём торгов в долларах.\n\n"
+            "💡 <b>Рекомендуется:</b> 500-2000\n"
+            "Объём - суммарный объём торгов за последние 24ч\n\n"
+            "Введите число (например: 1000):",
+            parse_mode=ParseMode.HTML
+        )
+
+    async def _handle_add_more_coin(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик кнопки 'Добавить еще монету'"""
+        query = update.callback_query
+        await query.answer()
+        
+        chat_id = query.from_user.id
+        
+        await query.edit_message_text(
+            "➕ <b>Добавление монеты</b>\n\n"
+            "Введите символ следующей монеты:\n\n"
+            "Примеры: BTC, ETH, ADA, SOL",
+            parse_mode=ParseMode.HTML
+        )
+        
+        # Остаемся в том же состоянии для добавления монет
+        user_manager.update_user_data(chat_id, {'setup_state': 'initial_coin_setup'})
+
+    async def _handle_setup_filters_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик кнопки 'Перейти к настройкам'"""
+        query = update.callback_query
+        await query.answer()
+        
+        chat_id = query.from_user.id
+        
+        await query.edit_message_text(
+            "⚙️ <b>Переход к настройке фильтров</b>\n\n"
+            "Отлично! Теперь настроим фильтры для поиска активных монет.",
+            parse_mode=ParseMode.HTML
+        )
+        
+        # Запускаем настройку фильтров
+        await self._start_filter_setup_initial_callback(query, chat_id)
+
+    async def _start_filter_setup_initial_callback(self, query, chat_id: str):
+        """Начинает первоначальную настройку фильтров после callback"""
+        user_manager.update_user_data(chat_id, {'setup_state': 'setting_filters_volume'})
+
+        await query.message.reply_text(
             "📊 <b>1/3 - Минимальный объём</b>\n\n"
             "Введите минимальный объём торгов в долларах.\n\n"
             "💡 <b>Рекомендуется:</b> 500-2000\n"
