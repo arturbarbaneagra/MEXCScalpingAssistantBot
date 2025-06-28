@@ -42,50 +42,6 @@ class UserMode:
         self.task = None
         return True
 
-    def has_active_modes(self, user_id: str) -> bool:
-        """Проверяет, есть ли у пользователя активные режимы"""
-        user_modes = self.user_modes.get(user_id, {})
-        return any(mode.running for mode in user_modes.values() if mode)
-
-    async def stop_all_user_modes(self, user_id: str) -> int:
-        """Останавливает все режимы пользователя, возвращает количество остановленных"""
-        user_modes = self.user_modes.get(user_id, {})
-        stopped_count = 0
-        
-        for mode_type, user_mode in list(user_modes.items()):
-            if user_mode and user_mode.running:
-                try:
-                    await user_mode.stop()
-                    stopped_count += 1
-                    bot_logger.info(f"Остановлен режим {mode_type} для пользователя {user_id}")
-                except Exception as e:
-                    bot_logger.error(f"Ошибка остановки режима {mode_type} для пользователя {user_id}: {e}")
-        
-        return stopped_count
-
-    def get_all_stats(self) -> Dict[str, Any]:
-        """Получает статистику всех пользователей и их режимов"""
-        stats = {
-            'total_users': len(self.user_modes),
-            'users': {}
-        }
-        
-        for user_id, user_modes in self.user_modes.items():
-            user_stats = {
-                'active_modes_count': sum(1 for mode in user_modes.values() if mode and mode.running),
-                'modes': {}
-            }
-            
-            for mode_type, user_mode in user_modes.items():
-                if user_mode:
-                    mode_stats = user_mode.get_stats()
-                    mode_stats['running'] = user_mode.running
-                    user_stats['modes'][mode_type] = mode_stats
-            
-            stats['users'][user_id] = user_stats
-        
-        return stats
-
     def get_stats(self):
         """Возвращает статистику режима"""
         return {
@@ -645,6 +601,29 @@ class UserModesManager:
             stats['modes'][mode_type] = mode.get_stats()
 
         return stats
+
+    def has_active_modes(self, user_id: str) -> bool:
+        """Проверяет, есть ли у пользователя активные режимы"""
+        user_id_str = str(user_id)
+        user_modes = self.user_modes.get(user_id_str, {})
+        return any(mode.running for mode in user_modes.values() if mode)
+
+    async def stop_all_user_modes(self, user_id: str) -> int:
+        """Останавливает все режимы пользователя, возвращает количество остановленных"""
+        user_id_str = str(user_id)
+        user_modes = self.user_modes.get(user_id_str, {})
+        stopped_count = 0
+        
+        for mode_type, user_mode in list(user_modes.items()):
+            if user_mode and user_mode.running:
+                try:
+                    await user_mode.stop()
+                    stopped_count += 1
+                    bot_logger.info(f"Остановлен режим {mode_type} для пользователя {user_id_str}")
+                except Exception as e:
+                    bot_logger.error(f"Ошибка остановки режима {mode_type} для пользователя {user_id_str}: {e}")
+        
+        return stopped_count
 
     def get_all_stats(self) -> Dict:
         """Возвращает статистику всех пользователей"""
