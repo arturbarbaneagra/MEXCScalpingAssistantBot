@@ -78,14 +78,30 @@ class UserNotificationMode(UserMode):
         
         while self.running:
             try:
-                # Получаем список монет пользователя
-                user_watchlist = user_manager.get_user_watchlist(self.user_id)
+                # Получаем список монет в зависимости от роли
+                if user_manager.is_admin(self.user_id):
+                    # Для админа используем глобальный список
+                    from watchlist_manager import watchlist_manager
+                    user_watchlist = list(watchlist_manager.get_all())
+                else:
+                    # Для обычного пользователя используем его личный список
+                    user_watchlist = user_manager.get_user_watchlist(self.user_id)
+                
                 if not user_watchlist:
                     await asyncio.sleep(30)
                     continue
                 
                 # Получаем настройки пользователя
-                user_config = user_manager.get_user_config(self.user_id)
+                if user_manager.is_admin(self.user_id):
+                    # Для админа используем глобальные настройки
+                    from config import config_manager
+                    user_config = {
+                        'VOLUME_THRESHOLD': config_manager.get('VOLUME_THRESHOLD'),
+                        'SPREAD_THRESHOLD': config_manager.get('SPREAD_THRESHOLD'),
+                        'NATR_THRESHOLD': config_manager.get('NATR_THRESHOLD')
+                    }
+                else:
+                    user_config = user_manager.get_user_config(self.user_id)
                 
                 # Проверяем каждую монету
                 for symbol in user_watchlist:
@@ -260,12 +276,20 @@ class UserMonitoringMode(UserMode):
         
         while self.running:
             try:
-                # Получаем список монет пользователя
-                user_watchlist = user_manager.get_user_watchlist(self.user_id)
+                # Получаем список монет в зависимости от роли
+                if user_manager.is_admin(self.user_id):
+                    # Для админа используем глобальный список
+                    from watchlist_manager import watchlist_manager
+                    user_watchlist = list(watchlist_manager.get_all())
+                    empty_message = "❌ <b>Глобальный список отслеживания пуст</b>\nДобавьте монеты для мониторинга."
+                else:
+                    # Для обычного пользователя используем его личный список
+                    user_watchlist = user_manager.get_user_watchlist(self.user_id)
+                    empty_message = "❌ <b>Ваш список отслеживания пуст</b>\nДобавьте монеты для мониторинга."
+                
                 if not user_watchlist:
-                    no_coins_text = "❌ <b>Ваш список отслеживания пуст</b>\nДобавьте монеты для мониторинга."
                     if self.monitoring_message_id:
-                        await self._edit_monitoring_message(no_coins_text)
+                        await self._edit_monitoring_message(empty_message)
                     await asyncio.sleep(30)
                     continue
                 
@@ -341,17 +365,29 @@ class UserMonitoringMode(UserMode):
                 
     def _format_monitoring_report(self, results: list, failed_coins: list) -> str:
         """Форматирует отчет мониторинга"""
-        # Получаем настройки пользователя
-        user_config = user_manager.get_user_config(self.user_id)
-        vol_thresh = user_config.get('VOLUME_THRESHOLD', 1000)
-        spread_thresh = user_config.get('SPREAD_THRESHOLD', 0.1)
-        natr_thresh = user_config.get('NATR_THRESHOLD', 0.5)
+        # Получаем настройки в зависимости от роли
+        if user_manager.is_admin(self.user_id):
+            # Для админа используем глобальные настройки
+            from config import config_manager
+            vol_thresh = config_manager.get('VOLUME_THRESHOLD')
+            spread_thresh = config_manager.get('SPREAD_THRESHOLD')
+            natr_thresh = config_manager.get('NATR_THRESHOLD')
+            title = "<b>📊 Администраторский мониторинг</b>\n"
+            filters_text = f"<i>Глобальные фильтры: Объём ≥${vol_thresh:,}, Спред ≥{spread_thresh}%, NATR ≥{natr_thresh}%</i>\n"
+        else:
+            # Для обычного пользователя используем его настройки
+            user_config = user_manager.get_user_config(self.user_id)
+            vol_thresh = user_config.get('VOLUME_THRESHOLD', 1000)
+            spread_thresh = user_config.get('SPREAD_THRESHOLD', 0.1)
+            natr_thresh = user_config.get('NATR_THRESHOLD', 0.5)
+            title = "<b>📊 Ваш персональный мониторинг</b>\n"
+            filters_text = f"<i>Ваши фильтры: Объём ≥${vol_thresh:,}, Спред ≥{spread_thresh}%, NATR ≥{natr_thresh}%</i>\n"
         
         results.sort(key=lambda x: x.get('volume', 0), reverse=True)
         
         parts = [
-            "<b>📊 Ваш персональный мониторинг</b>\n",
-            f"<i>Ваши фильтры: Объём ≥${vol_thresh:,}, Спред ≥{spread_thresh}%, NATR ≥{natr_thresh}%</i>\n"
+            title,
+            filters_text
         ]
         
         if failed_coins:
@@ -406,10 +442,18 @@ class UserMonitoringMode(UserMode):
         
     def get_stats(self):
         stats = super().get_stats()
-        user_watchlist = user_manager.get_user_watchlist(self.user_id)
+        
+        # Получаем размер списка в зависимости от роли
+        if user_manager.is_admin(self.user_id):
+            from watchlist_manager import watchlist_manager
+            watchlist_size = watchlist_manager.size()
+        else:
+            user_watchlist = user_manager.get_user_watchlist(self.user_id)
+            watchlist_size = len(user_watchlist) if user_watchlist else 0
+            
         stats.update({
             'monitoring_message_id': self.monitoring_message_id,
-            'watchlist_size': len(user_watchlist) if user_watchlist else 0
+            'watchlist_size': watchlist_size
         })
         return stats
 
