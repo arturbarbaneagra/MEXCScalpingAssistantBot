@@ -17,14 +17,14 @@
         "NATR_THRESHOLD": 0.5
       },
       "active_coins": {},
-      "last_activity": 1751114082.3076859,
+      "last_activity": 1751114279.7850983,
       "setup_state": "",
-      "current_mode": "notification",
-      "mode_start_time": 1751114082.3076816,
-      "mode_stop_time": 1751114082.1448207
+      "current_mode": "monitoring",
+      "mode_start_time": 1751114279.7850938,
+      "mode_stop_time": 1751114279.3359551
     }
   },
   "pending_requests": {},
   "rejected_users": {},
-  "last_updated": "2025-06-28T12:34:42.307687"
+  "last_updated": "2025-06-28T12:37:59.785101"
 }
