@@ -114,10 +114,7 @@ class UserManager:
             'watchlist': [],
             'active_coins': {},
             'last_activity': time.time(),
-            'setup_state': '',  # Добавляем состояние настройки
-            'current_mode': None,  # Текущий режим пользователя
-            'mode_start_time': None,  # Время запуска режима
-            'mode_stop_time': None   # Время остановки режима
+            'setup_state': ''
         }
 
         # Удаляем из заявок
@@ -218,15 +215,7 @@ class UserManager:
             return True
         return False
 
-    def get_user_config(self, chat_id: str) -> Dict:
-        """Возвращает конфигурацию пользователя (всегда пустая - используем глобальные)"""
-        # Персональные настройки убраны - все используют глобальные
-        return {}
-
-    def update_user_config(self, chat_id: str, config_updates: Dict[str, Any]):
-        """Обновляет конфигурацию пользователя (не используется - все настройки глобальные)"""
-        # Персональные настройки убраны - все используют глобальные
-        pass
+    
 
     def get_all_users(self) -> List[Dict]:
         """Возвращает всех одобренных пользователей"""
@@ -256,37 +245,9 @@ class UserManager:
         chat_id_str = str(chat_id)
         return getattr(self, 'rejected_users', {}).get(chat_id_str)
 
-    def get_user_mode(self, chat_id: str) -> Optional[str]:
-        """Возвращает текущий режим пользователя"""
-        user_data = self.get_user_data(chat_id)
-        return user_data.get('current_mode') if user_data else None
+    
 
-    def set_user_mode(self, chat_id: str, mode: Optional[str]):
-        """Устанавливает текущий режим пользователя"""
-        current_time = time.time()
-        if mode:
-            self.update_user_data(chat_id, {
-                'current_mode': mode,
-                'mode_start_time': current_time
-            })
-        else:
-            self.update_user_data(chat_id, {
-                'current_mode': None,
-                'mode_stop_time': current_time
-            })
-
-    def get_users_with_mode(self, mode: str = None) -> List[Dict]:
-        """Возвращает пользователей с определенным режимом"""
-        users_with_mode = []
-        for user_data in self.users_data.values():
-            user_mode = user_data.get('current_mode')
-            if mode is None:
-                if user_mode is not None:
-                    users_with_mode.append(user_data)
-            else:
-                if user_mode == mode:
-                    users_with_mode.append(user_data)
-        return users_with_mode
+    
 
     def clear_all_users_except_admin(self) -> int:
         """Очищает всех пользователей кроме администратора"""
@@ -316,18 +277,11 @@ class UserManager:
 
     def get_stats(self) -> Dict:
         """Возвращает статистику пользователей"""
-        users_with_notification = len(self.get_users_with_mode('notification'))
-        users_with_monitoring = len(self.get_users_with_mode('monitoring'))
-        users_with_any_mode = len(self.get_users_with_mode())
-
         return {
             'total_users': len(self.users_data),
             'pending_requests': len(self.pending_requests),
             'rejected_users': len(getattr(self, 'rejected_users', {})),
             'completed_setup': len([u for u in self.users_data.values() if u.get('setup_completed', False)]),
-            'users_with_notification': users_with_notification,
-            'users_with_monitoring': users_with_monitoring,
-            'users_with_active_modes': users_with_any_mode,
             'admin_chat_id': self.admin_chat_id
         }
 
@@ -339,11 +293,7 @@ class UserManager:
         """Удаляет монету из списка пользователя (alias для remove_user_coin)"""
         return self.remove_user_coin(chat_id, symbol)
 
-    def reset_user_config_to_defaults(self, chat_id: str) -> str:
-        """Сбрасывает настройки пользователя к значениям по умолчанию (не используется)"""
-        # Персональные настройки убраны - все используют глобальные
-        bot_logger.info(f"Сброс настроек не требуется - все пользователи используют глобальные настройки")
-        return "already_default"
+    
 
 
 # Глобальный экземпляр менеджера пользователей

@@ -48,7 +48,8 @@ class TradingTelegramBot:
         self.admin_handlers = create_admin_handlers(self)
         self.user_session_recorders: Dict[str, UserSessionRecorder] = {}
 
-        # Менеджер пользовательских режимов убран
+        # Инициализируем менеджер режимов администратора
+        self.admin_modes_manager = AdminModesManager(self)
 
         # Состояния ConversationHandler
         self.ADDING_COIN, self.REMOVING_COIN = range(2)
@@ -100,6 +101,12 @@ class TradingTelegramBot:
             ["👥 Список заявок", "📋 Логи"],
             ["👤 Управление пользователями", "🧹 Очистить пользователей"]
         ], resize_keyboard=True, one_time_keyboard=False)
+
+        # Обычная клавиатура для одобренных пользователей
+        user_keyboard = ReplyKeyboardMarkup([
+            ['➕ Добавить', '➖ Удалить'],
+            ['📋 Список']
+        ], resize_keyboard=True)
 
         # Клавиатура обычного пользователя
         self.user_keyboard = ReplyKeyboardMarkup([
@@ -743,7 +750,7 @@ class TradingTelegramBot:
 
         # Запускаем бота
         await self._start_bot_mode()
-        
+
         await update.message.reply_text(
             "✅ <b>Бот запущен</b>\n"
             "🔄 Мониторинг активен, уведомления включены",
@@ -775,7 +782,7 @@ class TradingTelegramBot:
 
         # Останавливаем бота
         await self._stop_bot()
-        
+
         await update.message.reply_text(
             "🛑 <b>Бот остановлен</b>",
             reply_markup=user_keyboard,
@@ -802,7 +809,7 @@ class TradingTelegramBot:
 
         # Отправляем начальное сообщение мониторинга
         initial_text = "🔄 <b>Инициализация мониторинга...</b>"
-        self.monitoring_message_id = await self.send_message(initial_text)
+        self.monitoring_message_id = await self.send_message(initial_text).
 
         # Запускаем основной цикл
         self.task = asyncio.create_task(self._main_loop())
@@ -1589,7 +1596,8 @@ class TradingTelegramBot:
             target_chat_id = data.replace("approve_", "")
             await self.admin_handlers.handle_approve_user(update, context, target_chat_id)
         elif data.startswith("reject_"):
-            target_chat_id = data.replace("reject_", "")
+            target_chat_id =```python
+data.replace("reject_", "")
             await self.admin_handlers.handle_reject_user(update, context, target_chat_id)
         elif data.startswith("revoke_"):
             target_chat_id = data.replace("revoke_", "")
