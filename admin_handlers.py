@@ -260,6 +260,8 @@ class AdminHandlers:
             f"• Завершили настройку: {stats['completed_setup']}\n\n"
         )
         
+        keyboard = []
+        
         if users:
             text += "👤 <b>Активные пользователи:</b>\n"
             for user in users[:10]:  # Показываем первых 10
@@ -272,14 +274,126 @@ class AdminHandlers:
                     f"(@{user.get('username', 'no_username')})\n"
                     f"   • Монет: {watchlist_count} • Активность: {last_activity}\n"
                 )
+                
+                # Создаем инлайн кнопку для отключения пользователя
+                row = [
+                    InlineKeyboardButton(
+                        f"🚫 Отключить {user['first_name']}", 
+                        callback_data=f"revoke_{user['chat_id']}"
+                    )
+                ]
+                keyboard.append(row)
             
             if len(users) > 10:
                 text += f"\n... и еще {len(users) - 10} пользователей"
 
+        # Добавляем кнопку для показа всех пользователей если их больше 10
+        if len(users) > 10:
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"📋 Показать всех пользователей ({len(users)})", 
+                    callback_data="show_all_users"
+                )
+            ])
+
+        reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
+        
         await update.message.reply_text(
             text,
             parse_mode=ParseMode.HTML,
-            reply_markup=self.get_admin_keyboard()
+            reply_markup=reply_markup
+        )
+
+    async def handle_revoke_user(self, update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id: str):
+        """Обработчик отключения пользователя"""
+        if not user_manager.is_admin(update.effective_chat.id):
+            await update.callback_query.answer("❌ У вас нет прав администратора")
+            return
+
+        if user_manager.revoke_user_access(chat_id):
+            # Уведомляем пользователя об отключении
+            try:
+                await self.bot.app.bot.send_message(
+                    chat_id=chat_id,
+                    text=(
+                        "🚫 <b>Ваш доступ к боту отключен</b>\n\n"
+                        "Администратор отозвал ваши права доступа.\n"
+                        "Для восстановления доступа обратитесь к администратору."
+                    ),
+                    parse_mode=ParseMode.HTML
+                )
+                
+                await update.callback_query.edit_message_text(
+                    text=f"🚫 Доступ пользователя {chat_id} отключен и он уведомлен",
+                    parse_mode=ParseMode.HTML
+                )
+                
+            except Exception as e:
+                bot_logger.error(f"Ошибка уведомления пользователя {chat_id} об отключении: {e}")
+                await update.callback_query.edit_message_text(
+                    text=f"🚫 Доступ пользователя {chat_id} отключен, но не удалось отправить уведомление"
+                )
+        else:
+            await update.callback_query.answer("❌ Ошибка при отключении пользователя")
+
+    async def handle_show_all_users(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик показа всех пользователей"""
+        if not user_manager.is_admin(update.effective_chat.id):
+            await update.callback_query.answer("❌ У вас нет прав администратора")
+            return
+
+        users = user_manager.get_all_users()
+        
+        if not users:
+            await update.callback_query.edit_message_text(
+                "👥 Нет активных пользователей",
+                parse_mode=ParseMode.HTML
+            )
+            return
+
+        # Разбиваем пользователей на страницы по 15
+        page_size = 15
+        total_pages = (len(users) - 1) // page_size + 1
+        
+        text = f"👥 <b>Все пользователи ({len(users)}):</b>\n\n"
+        
+        keyboard = []
+        
+        for i, user in enumerate(users[:page_size]):  # Показываем первую страницу
+            setup_status = "✅" if user.get('setup_completed', False) else "⚙️"
+            watchlist_count = len(user.get('watchlist', []))
+            last_activity = datetime.fromtimestamp(user['last_activity']).strftime('%d.%m %H:%M')
+            
+            text += (
+                f"{i+1}. {setup_status} <b>{user['first_name']}</b> "
+                f"(@{user.get('username', 'no_username')})\n"
+                f"    • Монет: {watchlist_count} • Активность: {last_activity}\n"
+            )
+            
+            # Создаем инлайн кнопку для отключения пользователя
+            row = [
+                InlineKeyboardButton(
+                    f"🚫 Отключить {user['first_name']}", 
+                    callback_data=f"revoke_{user['chat_id']}"
+                )
+            ]
+            keyboard.append(row)
+
+        if total_pages > 1:
+            text += f"\n📄 Страница 1 из {total_pages}"
+            
+            # Добавляем кнопки навигации если больше одной страницы
+            nav_row = []
+            if total_pages > 1:
+                nav_row.append(InlineKeyboardButton("➡️ Далее", callback_data="users_page_2"))
+            keyboard.append(nav_row)
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.callback_query.edit_message_text(
+            text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=reply_markup
         )
 
     def _get_user_keyboard(self) -> ReplyKeyboardMarkup:

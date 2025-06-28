@@ -1715,6 +1715,15 @@ class TradingTelegramBot:
         elif data.startswith("reject_"):
             chat_id = data.replace("reject_", "")
             await self.admin_handlers.handle_reject_user(update, context, chat_id)
+        elif data.startswith("revoke_"):
+            chat_id = data.replace("revoke_", "")
+            await self.admin_handlers.handle_revoke_user(update, context, chat_id)
+        elif data == "show_all_users":
+            await self.admin_handlers.handle_show_all_users(update, context)
+        elif data.startswith("users_page_"):
+            # Обработка пагинации пользователей (можно расширить позже)
+            page = int(data.replace("users_page_", ""))
+            await self.admin_handlers.handle_show_all_users(update, context)
 
 # Глобальный экземпляр бота
 telegram_bot = TradingTelegramBot()

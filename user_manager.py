@@ -210,6 +210,20 @@ class UserManager:
         """Возвращает всех одобренных пользователей"""
         return list(self.users_data.values())
 
+    def revoke_user_access(self, chat_id: str) -> bool:
+        """Отключает доступ пользователя"""
+        chat_id_str = str(chat_id)
+        
+        if chat_id_str not in self.users_data:
+            return False
+        
+        # Удаляем пользователя из системы
+        del self.users_data[chat_id_str]
+        self.save_data()
+        
+        bot_logger.info(f"Доступ пользователя {chat_id_str} отключен")
+        return True
+
     def get_stats(self) -> Dict:
         """Возвращает статистику пользователей"""
         return {
