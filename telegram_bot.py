@@ -800,7 +800,7 @@ class TradingTelegramBot:
         # Запускаем основной цикл
         self.task = asyncio.create_task(self._main_loop())
 
-    async> def _main_loop(self):
+    async def _main_loop(self):
         """Основной цикл работы бота"""
         cycle_count = 0
         cleanup_counter = 0
