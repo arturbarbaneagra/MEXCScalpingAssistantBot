@@ -791,7 +791,7 @@ class TradingTelegramBot:
         if not self.bot_running:
             await update.message.reply_text(
                 "ℹ️ Бот не запущен.",
-                reply_markup=user_keyboard
+                replymarkup=user_keyboard
             )
             return
 
@@ -1584,7 +1584,7 @@ class TradingTelegramBot:
         """Обработчик кнопки Назад"""
         chat_id = update.effective_chat.id
         user_keyboard = self.get_user_keyboard(chat_id)
-        
+
         await update.message.reply_text(
             "🔙 Возврат в главное меню",
             reply_markup=user_keyboard,
@@ -1619,6 +1619,19 @@ class TradingTelegramBot:
             await self.admin_handlers.handle_revoke_user(update, context, target_chat_id)
         elif data == "show_all_users":
             await self.admin_handlers.handle_show_all_users(update, context)
+        elif data == "activity_24h":
+            # Импортируем здесь, чтобы избежать циклических импортов
+            from user_activity_calculator import user_activity_manager
+
+            activity_report = user_activity_manager.get_user_detailed_activity_report(str(chat_id))
+
+            await query.edit_message_text(
+                text=activity_report,
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("↩️ Назад в личный кабинет", callback_data="personal_cabinet")]
+                ]),
+                parse_mode=ParseMode.HTML
+            )
 
 # Creates an instance of the bot
 telegram_bot = TradingTelegramBot()
