@@ -793,6 +793,7 @@ class TradingTelegramBot:
             reply_markup=user_keyboard,
             parse_mode=ParseMode.HTML
         )
+        ```python
         bot_logger.info("Бот остановлен через кнопку")
 
     async def _start_bot_mode(self):
