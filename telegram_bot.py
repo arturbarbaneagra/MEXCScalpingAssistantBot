@@ -586,45 +586,9 @@ class TradingTelegramBot:
     async def _handle_approved_user_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка старта для одобренного пользователя"""
         chat_id = update.effective_chat.id
+        user_watchlist = user_manager.get_user_watchlist(chat_id)
 
-        # Проверяем, завершил ли пользователь настройку
-        if not user_manager.is_setup_completed(chat_id):
-            user_watchlist = user_manager.get_user_watchlist(chat_id)
-            user_data = user_manager.get_user_data(chat_id)
-            current_setup_state = user_data.get('setup_state', '') if user_data else ''
-
-            bot_logger.debug(f"Пользователь {chat_id} не завершил настройку. Состояние: {current_setup_state}, Монеты: {len(user_watchlist)}")
-
-            # Если пользователь уже в процессе настройки, НЕ отправляем дублирующие сообщения
-            if current_setup_state in ['initial_coin_setup', 'coin_added_waiting_choice', 
-                                     'setting_filters_volume', 'setting_filters_spread', 'setting_filters_natr']:
-                bot_logger.debug(f"Пользователь {chat_id} уже в процессе настройки ({current_setup_state}), пропускаем дублирование")
-                return ConversationHandler.END
-
-            if not user_watchlist:
-                # Запускаем первоначальную настройку монет БЕЗ кнопок
-                await self._start_coin_setup(update, context)
-                return ConversationHandler.END
-            else:
-                # Нужно настроить фильтры
-                user_config = user_manager.get_user_config(chat_id)
-                await update.message.reply_text(
-                    "🔧 <b>Завершите настройку фильтров</b>\n\n"
-                    "2️⃣ Настройте фильтры для поиска активных монет\n\n"
-                    f"📊 Текущие настройки:\n"
-                    f"• Объём: ${user_config.get('VOLUME_THRESHOLD', 1000):,}\n"
-                    f"• Спред: {user_config.get('SPREAD_THRESHOLD', 0.1)}%\n"
-                    f"• NATR: {user_config.get('NATR_THRESHOLD', 0.5)}%\n\n"
-                    "Нажмите ⚙ <b>Настройки</b> для изменения",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=self.user_keyboard
-                )
-
-                # Отмечаем настройку как завершенную
-                user_manager.mark_setup_completed(chat_id)
-                return ConversationHandler.END
-
-        # Пользователь полностью настроен
+        # Всегда показываем пользователю меню с кнопками
         welcome_text = (
             "🤖 <b>Добро пожаловать в MEXCScalping Assistant!</b>\n\n"
             "📊 <b>Ваши режимы работы:</b>\n"
@@ -635,10 +599,27 @@ class TradingTelegramBot:
             "• ➖ Удалить монету из списка\n"
             "• 📋 Показать ваши монеты\n"
             "• ⚙ Ваши настройки фильтров\n\n"
-            "Выберите действие:"
         )
 
-        await update.message.reply_text(welcome_text, reply_markup=self.user_keyboard, parse_mode=ParseMode.HTML)
+        # Если нет монет, добавляем напоминание
+        if not user_watchlist:
+            welcome_text += (
+                "⚠️ <b>Важно:</b> У вас нет монет для отслеживания!\n"
+                "Нажмите ➕ <b>Добавить</b> чтобы добавить первую монету.\n\n"
+            )
+        else:
+            welcome_text += f"📋 <b>Ваши монеты:</b> {len(user_watchlist)} шт.\n\n"
+
+        welcome_text += "Выберите действие:"
+
+        await update.message.reply_text(
+            welcome_text, 
+            reply_markup=self.user_keyboard, 
+            parse_mode=ParseMode.HTML
+        )
+        
+        # Отмечаем настройку как завершенную
+        user_manager.mark_setup_completed(chat_id)
         return ConversationHandler.END
 
     async def button_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -771,6 +752,18 @@ class TradingTelegramBot:
         chat_id = update.effective_chat.id
         user_keyboard = self.get_user_keyboard(chat_id)
 
+        # Проверяем наличие монет у пользователя
+        user_watchlist = self.get_user_watchlist(chat_id)
+        if not user_watchlist:
+            await update.message.reply_text(
+                "⚠️ <b>Нет монет для отслеживания!</b>\n\n"
+                "Чтобы запустить режим уведомлений, сначала добавьте хотя бы одну монету.\n\n"
+                "Нажмите ➕ <b>Добавить</b> для добавления монеты.",
+                reply_markup=user_keyboard,
+                parse_mode="HTML"
+            )
+            return
+
         # Проверяем текущий режим пользователя
         current_mode = self.user_modes_manager.get_user_mode(chat_id)
         if current_mode == 'notification':
@@ -806,6 +799,18 @@ class TradingTelegramBot:
         """Обработка режима мониторинга"""
         chat_id = update.effective_chat.id
         user_keyboard = self.get_user_keyboard(chat_id)
+
+        # Проверяем наличие монет у пользователя
+        user_watchlist = self.get_user_watchlist(chat_id)
+        if not user_watchlist:
+            await update.message.reply_text(
+                "⚠️ <b>Нет монет для отслеживания!</b>\n\n"
+                "Чтобы запустить режим мониторинга, сначала добавьте хотя бы одну монету.\n\n"
+                "Нажмите ➕ <b>Добавить</b> для добавления монеты.",
+                reply_markup=user_keyboard,
+                parse_mode="HTML"
+            )
+            return
 
         # Проверяем текущий режим пользователя
         current_mode = self.user_modes_manager.get_user_mode(chat_id)
@@ -2273,31 +2278,7 @@ class TradingTelegramBot:
             parse_mode=ParseMode.HTML
         )
 
-    async def _start_coin_setup(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Начинает первоначальную настройку монет"""
-        chat_id = update.effective_chat.id
-
-        # Проверяем текущее состояние пользователя
-        user_data = user_manager.get_user_data(chat_id)
-        current_setup_state = user_data.get('setup_state', '') if user_data else ''
-
-        # Если пользователь уже в процессе настройки, не отправляем дублирующее сообщение
-        if current_setup_state == 'initial_coin_setup':
-            bot_logger.debug(f"Пользователь {chat_id} уже в процессе добавления монет, пропускаем дублирование")
-            return ConversationHandler.END
-
-        # Отправляем приветственное сообщение только если пользователь не в процессе настройки
-        await update.message.reply_text(
-            "👋 <b>Добро пожаловать!</b>\n\n"
-            "Чтобы начать, добавьте хотя бы одну монету для отслеживания.\n\n"
-            "Введите символ монеты (например: BTC, ETH, ADA):",
-            parse_mode=ParseMode.HTML
-        )
-
-        # Сохраняем состояние, что сейчас идет добавление монет
-        user_manager.update_user_data(chat_id, {'setup_state': 'initial_coin_setup'})
-
-        return ConversationHandler.END
+    
 
     async def initial_setup_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик для первоначальной настройки (добавление монет и фильтров)"""
