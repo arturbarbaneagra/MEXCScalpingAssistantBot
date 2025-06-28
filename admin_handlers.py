@@ -1,4 +1,3 @@
-
 """
 Административные обработчики для многопользовательского бота
 """
@@ -36,7 +35,7 @@ class AdminHandlers:
             return
 
         pending_requests = user_manager.get_pending_requests()
-        
+
         if not pending_requests:
             await update.message.reply_text(
                 "📭 <b>Нет заявок на подключение</b>",
@@ -46,21 +45,21 @@ class AdminHandlers:
             return
 
         text = f"👥 <b>Заявки на подключение ({len(pending_requests)}):</b>\n\n"
-        
+
         keyboard = []
-        
+
         for request in pending_requests:
             username = request.get('username', 'Unknown')
             first_name = request.get('first_name', 'Unknown')
             request_time = datetime.fromisoformat(request['request_datetime']).strftime('%d.%m %H:%M')
-            
+
             text += (
                 f"👤 <b>{first_name}</b>\n"
                 f"• Username: @{username}\n"
                 f"• ID: <code>{request['chat_id']}</code>\n"
                 f"• Время: {request_time}\n\n"
             )
-            
+
             # Создаем инлайн кнопки для каждой заявки
             row = [
                 InlineKeyboardButton(
@@ -75,7 +74,7 @@ class AdminHandlers:
             keyboard.append(row)
 
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
+
         await update.message.reply_text(
             text,
             parse_mode=ParseMode.HTML,
@@ -89,32 +88,24 @@ class AdminHandlers:
             return
 
         if user_manager.approve_user(chat_id):
-            # Уведомляем пользователя об одобрении
-            try:
-                await self.bot.app.bot.send_message(
-                    chat_id=chat_id,
-                    text=(
-                        "🎉 <b>Поздравляем! Ваша заявка одобрена!</b>\n\n"
-                        "Теперь вам нужно настроить бота:\n\n"
-                        "1️⃣ Добавьте хотя бы одну монету в свой список\n"
-                        "2️⃣ Настройте фильтры (объём, спред, NATR)\n\n"
-                        "После этого вам станут доступны все функции бота!\n\n"
-                        "Для начала нажмите ➕ <b>Добавить</b>"
-                    ),
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=self._get_user_keyboard()
-                )
-                
-                await update.callback_query.edit_message_text(
-                    text=f"✅ Пользователь {chat_id} одобрен и уведомлен",
-                    parse_mode=ParseMode.HTML
-                )
-                
-            except Exception as e:
-                bot_logger.error(f"Ошибка уведомления пользователя {chat_id}: {e}")
-                await update.callback_query.edit_message_text(
-                    text=f"✅ Пользователь {chat_id} одобрен, но не удалось отправить уведомление"
-                )
+            # Отправляем уведомление одобренному пользователю
+            await self.bot.app.bot.send_message(
+                chat_id=chat_id,
+                text=(
+                    "🎉 <b>Поздравляем! Ваша заявка одобрена!</b>\n\n"
+                    "👋 <b>Добро пожаловать!</b>\n\n"
+                    "Чтобы начать, добавьте хотя бы одну монету для отслеживания.\n\n"
+                    "Введите символ монеты (например: BTC, ETH, ADA):"
+                ),
+                parse_mode=ParseMode.HTML
+            )
+
+            await update.callback_query.edit_message_text(
+                text=f"✅ Пользователь {chat_id} одобрен и уведомлен",
+                parse_mode=ParseMode.HTML
+            )
+
+
         else:
             await update.callback_query.answer("❌ Ошибка при одобрении пользователя")
 
@@ -135,11 +126,11 @@ class AdminHandlers:
                     ),
                     parse_mode=ParseMode.HTML
                 )
-                
+
                 await update.callback_query.edit_message_text(
                     text=f"❌ Заявка пользователя {chat_id} отклонена"
                 )
-                
+
             except Exception as e:
                 bot_logger.error(f"Ошибка уведомления пользователя {chat_id}: {e}")
                 await update.callback_query.edit_message_text(
@@ -157,11 +148,11 @@ class AdminHandlers:
         try:
             # Ищем файлы логов
             log_files = []
-            
+
             # Основной лог
             if os.path.exists("trading_bot.log"):
                 log_files.append(("trading_bot.log", "Основной лог"))
-            
+
             # Ротированные логи (последние 2)
             for i in range(1, 3):
                 log_file = f"trading_bot.log.{i}"
@@ -186,28 +177,28 @@ class AdminHandlers:
                 try:
                     # Проверяем размер файла
                     file_size = os.path.getsize(log_file)
-                    
+
                     if file_size > 50 * 1024 * 1024:  # 50MB лимит Telegram
                         # Если файл слишком большой, отправляем последние строки
                         with open(log_file, 'r', encoding='utf-8') as f:
                             lines = f.readlines()
                             last_lines = lines[-1000:]  # Последние 1000 строк
-                            
+
                         content = ''.join(last_lines)
-                        
+
                         # Создаем временный файл
                         temp_file = f"temp_{log_file}"
                         with open(temp_file, 'w', encoding='utf-8') as f:
                             f.write(f"=== ПОСЛЕДНИЕ 1000 СТРОК ИЗ {log_file} ===\n\n")
                             f.write(content)
-                        
+
                         with open(temp_file, 'rb') as f:
                             await update.message.reply_document(
                                 document=f,
                                 caption=f"📋 {description} (последние 1000 строк)",
                                 filename=f"last1000_{log_file}"
                             )
-                        
+
                         # Удаляем временный файл
                         os.remove(temp_file)
                     else:
@@ -218,12 +209,12 @@ class AdminHandlers:
                                 caption=f"📋 {description} ({file_size // 1024} KB)",
                                 filename=log_file
                             )
-                    
+
                     await context.bot.send_chat_action(
                         chat_id=update.effective_chat.id, 
                         action="upload_document"
                     )
-                    
+
                 except Exception as e:
                     bot_logger.error(f"Ошибка отправки лога {log_file}: {e}")
                     await update.message.reply_text(
@@ -251,7 +242,7 @@ class AdminHandlers:
 
         stats = user_manager.get_stats()
         users = user_manager.get_all_users()
-        
+
         text = (
             f"👥 <b>Управление пользователями</b>\n\n"
             f"📊 <b>Статистика:</b>\n"
@@ -259,22 +250,22 @@ class AdminHandlers:
             f"• Заявок в ожидании: {stats['pending_requests']}\n"
             f"• Завершили настройку: {stats['completed_setup']}\n\n"
         )
-        
+
         keyboard = []
-        
+
         if users:
             text += "👤 <b>Активные пользователи:</b>\n"
             for user in users[:10]:  # Показываем первых 10
                 setup_status = "✅" if user.get('setup_completed', False) else "⚙️"
                 watchlist_count = len(user.get('watchlist', []))
                 last_activity = datetime.fromtimestamp(user['last_activity']).strftime('%d.%m %H:%M')
-                
+
                 text += (
                     f"{setup_status} <b>{user['first_name']}</b> "
                     f"(@{user.get('username', 'no_username')})\n"
                     f"   • Монет: {watchlist_count} • Активность: {last_activity}\n"
                 )
-                
+
                 # Создаем инлайн кнопку для отключения пользователя
                 row = [
                     InlineKeyboardButton(
@@ -283,7 +274,7 @@ class AdminHandlers:
                     )
                 ]
                 keyboard.append(row)
-            
+
             if len(users) > 10:
                 text += f"\n... и еще {len(users) - 10} пользователей"
 
@@ -297,7 +288,7 @@ class AdminHandlers:
             ])
 
         reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
-        
+
         await update.message.reply_text(
             text,
             parse_mode=ParseMode.HTML,
@@ -322,12 +313,12 @@ class AdminHandlers:
                     ),
                     parse_mode=ParseMode.HTML
                 )
-                
+
                 await update.callback_query.edit_message_text(
                     text=f"🚫 Доступ пользователя {chat_id} отключен и он уведомлен",
                     parse_mode=ParseMode.HTML
                 )
-                
+
             except Exception as e:
                 bot_logger.error(f"Ошибка уведомления пользователя {chat_id} об отключении: {e}")
                 await update.callback_query.edit_message_text(
@@ -343,7 +334,7 @@ class AdminHandlers:
             return
 
         users = user_manager.get_all_users()
-        
+
         if not users:
             await update.callback_query.edit_message_text(
                 "👥 Нет активных пользователей",
@@ -354,22 +345,22 @@ class AdminHandlers:
         # Разбиваем пользователей на страницы по 15
         page_size = 15
         total_pages = (len(users) - 1) // page_size + 1
-        
+
         text = f"👥 <b>Все пользователи ({len(users)}):</b>\n\n"
-        
+
         keyboard = []
-        
+
         for i, user in enumerate(users[:page_size]):  # Показываем первую страницу
             setup_status = "✅" if user.get('setup_completed', False) else "⚙️"
             watchlist_count = len(user.get('watchlist', []))
             last_activity = datetime.fromtimestamp(user['last_activity']).strftime('%d.%m %H:%M')
-            
+
             text += (
                 f"{i+1}. {setup_status} <b>{user['first_name']}</b> "
                 f"(@{user.get('username', 'no_username')})\n"
                 f"    • Монет: {watchlist_count} • Активность: {last_activity}\n"
             )
-            
+
             # Создаем инлайн кнопку для отключения пользователя
             row = [
                 InlineKeyboardButton(
@@ -381,7 +372,7 @@ class AdminHandlers:
 
         if total_pages > 1:
             text += f"\n📄 Страница 1 из {total_pages}"
-            
+
             # Добавляем кнопки навигации если больше одной страницы
             nav_row = []
             if total_pages > 1:
@@ -389,7 +380,7 @@ class AdminHandlers:
             keyboard.append(nav_row)
 
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
+
         await update.callback_query.edit_message_text(
             text,
             parse_mode=ParseMode.HTML,

@@ -644,7 +644,7 @@ class TradingTelegramBot:
         if user_manager.is_user_approved(chat_id) and not user_manager.is_setup_completed(chat_id):
             user_data = user_manager.get_user_data(chat_id)
             setup_state = user_data.get('setup_state', '')
-            
+
             if setup_state == 'initial_coin_setup':
                 return await self._handle_initial_coin_input(update, text)
             elif setup_state.startswith('setting_filters'):
@@ -2132,5 +2132,41 @@ class TradingTelegramBot:
             await self._start_coin_setup(update, context)
             return ConversationHandler.END
 
+    
+    async def approve_user(self, chat_id: str) -> bool:
+        """Одобряет пользователя"""
+        chat_id_str = str(chat_id)
+
+        if chat_id_str not in self.pending_requests:
+            return False
+
+        # Переносим данные из заявки в одобренные пользователи
+        request_data = self.pending_requests[chat_id_str]
+
+        self.users_data[chat_id_str] = {
+            'chat_id': chat_id_str,
+            'username': request_data.get('username', 'Unknown'),
+            'first_name': request_data.get('first_name', 'Unknown'),
+            'last_name': request_data.get('last_name', ''),
+            'approved_time': time.time(),
+            'approved_datetime': datetime.now().isoformat(),
+            'setup_completed': False,
+            'watchlist': [],
+            'config': {
+                'VOLUME_THRESHOLD': 1000,
+                'SPREAD_THRESHOLD': 0.1,
+                'NATR_THRESHOLD': 0.5
+            },
+            'active_coins': {},
+            'last_activity': time.time(),
+            'setup_state': 'initial_coin_setup'  # Сразу устанавливаем состояние настройки
+        }
+
+        # Удаляем из заявок
+        del self.pending_requests[chat_id_str]
+        self.save_data()
+
+        bot_logger.info(f"Пользователь {chat_id_str} одобрен")
+        return True
 # Modified bot to handle initial configuration and filter input, and new functions for manage the states of setup.
 telegram_bot = TradingTelegramBot()
