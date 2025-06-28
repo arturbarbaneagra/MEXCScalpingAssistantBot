@@ -891,8 +891,19 @@ class TradingTelegramBot:
                     report_parts.append(f"Активность: 0.0 мин (0 сессий) (z={activity_info['z_score']:.1f})")
                     report_parts.append("Монеты: нет активности")
 
+            # Добавляем статистику активности с правильными расчетами
+            from activity_level_calculator import activity_calculator
+            
+            # Получаем все активности за 24 часа для корректной статистики
+            all_24h_activities = activity_calculator.get_last_24_hours_activity()
+            stats_24h = activity_calculator.calculate_activity_statistics_welford(all_24h_activities)
+            
             report_parts.append("")
-
+            report_parts.append("📊 <b>Статистика активности:</b>")
+            report_parts.append(f"• Среднее: {stats_24h['mean']:.1f} мин/час")
+            report_parts.append(f"• Стд. откл.: {stats_24h['std']:.1f} мин")
+            report_parts.append(f"• Выборка: {stats_24h['count']} часов")
+            
             # Разбиваем сообщение на части если слишком длинное
             report_text = "\n".join(report_parts)
             max_length = 4000
