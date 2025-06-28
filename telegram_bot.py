@@ -618,8 +618,9 @@ class TradingTelegramBot:
             parse_mode=ParseMode.HTML
         )
         
-        # Отмечаем настройку как завершенную
+        # Отмечаем настройку как завершенную и очищаем состояние
         user_manager.mark_setup_completed(chat_id)
+        user_manager.update_user_data(chat_id, {'setup_state': 'completed'})
         return ConversationHandler.END
 
     async def button_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -666,16 +667,6 @@ class TradingTelegramBot:
                     parse_mode=ParseMode.HTML
                 )
                 return ConversationHandler.END
-            else:
-                # Если состояние не определено, показываем стандартное приветствие
-                await update.message.reply_text(
-                    "💡 <b>Добро пожаловать!</b>\n\n"
-                    "Для начала работы добавьте хотя бы одну монету.\n\n"
-                    "Нажмите ➕ <b>Добавить</b> для добавления монеты.",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=self.user_keyboard
-                )
-                return ConversationHandler.END
 
         # Защита от spam нажатий (минимум 1 секунда между операциями)
         if current_time - self._last_operation_time < 1.0:
@@ -684,6 +675,21 @@ class TradingTelegramBot:
 
         self._last_operation_time = current_time
         user_keyboard = self.get_user_keyboard(chat_id)
+
+        # Дополнительная проверка для пользователей без монет (после завершения настройки)
+        if (user_manager.is_user_approved(chat_id) and 
+            user_manager.is_setup_completed(chat_id) and 
+            not user_manager.get_user_watchlist(chat_id) and
+            text not in ["➕ Добавить", "⚙ Настройки", "ℹ Статус", "🛑 Стоп"]):
+            
+            await update.message.reply_text(
+                "⚠️ <b>У вас нет монет для отслеживания!</b>\n\n"
+                "Для использования этой функции сначала добавьте хотя бы одну монету.\n\n"
+                "Нажмите ➕ <b>Добавить</b> для добавления монеты.",
+                reply_markup=user_keyboard,
+                parse_mode=ParseMode.HTML
+            )
+            return ConversationHandler.END
 
         try:
             # Проверяем, не идет ли уже переключение режима

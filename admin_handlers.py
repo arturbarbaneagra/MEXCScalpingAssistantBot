@@ -89,17 +89,20 @@ class AdminHandlers:
             return
 
         if user_manager.approve_user(chat_id):
-            # Отправляем уведомление одобренному пользователю
-            await self.bot.app.bot.send_message(
-                chat_id=chat_id,
-                text=(
-                    "🎉 <b>Поздравляем! Ваша заявка одобрена!</b>\n\n"
-                    "👋 <b>Добро пожаловать!</b>\n\n"
-                    "Чтобы начать, добавьте хотя бы одну монету для отслеживания.\n\n"
-                    "Введите символ монеты (например: BTC, ETH, ADA):"
-                ),
-                parse_mode=ParseMode.HTML
-            )
+            # Отправляем уведомление пользователю
+            try:
+                await self.bot.app.bot.send_message(
+                    chat_id=int(chat_id),
+                    text=(
+                        "🎉 <b>Поздравляем! Ваша заявка одобрена!</b>\n\n"
+                        "Теперь вы можете использовать все функции бота.\n"
+                        "Отправьте /start чтобы начать работу."
+                    ),
+                    parse_mode=ParseMode.HTML
+                )
+
+            except Exception as e:
+                bot_logger.error(f"Ошибка уведомления пользователя {chat_id}: {e}")
 
             await update.callback_query.edit_message_text(
                 text=f"✅ Пользователь {chat_id} одобрен и уведомлен",
@@ -243,14 +246,14 @@ class AdminHandlers:
 
         # Получаем статистику до очистки
         stats_before = user_manager.get_stats()
-        
+
         # Очищаем всех пользователей кроме админа
         cleared_count = user_manager.clear_all_users_except_admin()
-        
+
         # Останавливаем все пользовательские режимы
         if hasattr(self.bot, 'user_modes_manager') and self.bot.user_modes_manager:
             await self.bot.user_modes_manager.stop_all_modes()
-        
+
         await update.message.reply_text(
             f"🧹 <b>Очистка пользователей завершена</b>\n\n"
             f"📊 <b>Результат:</b>\n"
