@@ -1142,6 +1142,23 @@ class TradingTelegramBot:
             import json
             import os
 
+            chat_id = update.effective_chat.id
+
+            # Получаем список монет пользователя для фильтрации
+            if user_manager.is_admin(chat_id):
+                user_coins = watchlist_manager.get_all()  # Админ видит все монеты
+            else:
+                user_coins = user_manager.get_user_watchlist(chat_id)  # Пользователь видит только свои
+
+            if not user_coins:
+                await update.message.reply_text(
+                    "📈 <b>Активность за последние 24 часа</b>\n\n"
+                    "❌ У вас нет монет для отслеживания активности.",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=self.get_user_keyboard(chat_id)
+                )
+                return
+
             # Определяем даты для проверки (сегодня и вчера)
             today = datetime.now().strftime('%Y-%m-%d')
             yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
@@ -1166,27 +1183,31 @@ class TradingTelegramBot:
                         with open(filepath, 'r', encoding='utf-8') as f:
                             daily_data = json.load(f)
 
-                        # Фильтруем сессии по времени (последние 24 часа)
+                        # Фильтруем сессии по времени (последние 24 часа) И по монетам пользователя
                         for session in daily_data.get('sessions', []):
                             start_time = session.get('start_time', 0)
-                            if start_time >= cutoff_time:
+                            symbol = session.get('symbol', '')
+                            
+                            # Проверяем время И принадлежность монеты к списку пользователя
+                            if start_time >= cutoff_time and symbol in user_coins:
                                 all_sessions.append(session)
                                 total_sessions += 1
                                 total_duration += session.get('total_duration', 0)
                                 summary = session.get('summary', {})
                                 total_volume += summary.get('total_volume', 0)
                                 total_trades += summary.get('total_trades', 0)
-                                unique_coins.add(session.get('symbol', ''))
+                                unique_coins.add(symbol)
 
                     except Exception as e:
                         bot_logger.debug(f"Ошибка чтения {filename}: {e}")
 
             if not all_sessions:
+                role_text = "административных" if user_manager.is_admin(chat_id) else "ваших"
                 await update.message.reply_text(
                     "📈 <b>Активность за последние 24 часа</b>\n\n"
-                    "❌ Нет данных об активности за последние 24 часа.",
+                    f"❌ Нет данных об активности {role_text} монет за последние 24 часа.",
                     parse_mode=ParseMode.HTML,
-                    reply_markup=self.main_keyboard
+                    reply_markup=self.get_user_keyboard(chat_id)
                 )
                 return
 
@@ -1194,8 +1215,9 @@ class TradingTelegramBot:
             all_sessions.sort(key=lambda x: x.get('start_time', 0), reverse=True)
 
             # Формируем отчет
+            role_text = "всех монет" if user_manager.is_admin(chat_id) else f"ваших {len(user_coins)} монет"
             report_parts = [
-                "📈 <b>Активность за последние 24 часа</b>\n"
+                f"📈 <b>Активность {role_text} за последние 24 часа</b>\n"
             ]
 
             # Топ-5 монет по длительности активности
@@ -1319,7 +1341,7 @@ class TradingTelegramBot:
                 await update.message.reply_text(
                     report_text,
                     parse_mode=ParseMode.HTML,
-                    reply_markup=self.main_keyboard
+                    reply_markup=self.get_user_keyboard(chat_id)
                 )
             else:
                 # Разбиваем на части
@@ -1342,7 +1364,7 @@ class TradingTelegramBot:
 
                 # Отправляем части
                 for i, part in enumerate(parts):
-                    reply_markup = self.main_keyboard if i == len(parts) - 1 else None
+                    reply_markup = self.get_user_keyboard(chat_id) if i == len(parts) - 1 else None
                     await update.message.reply_text(
                         part,
                         parse_mode=ParseMode.HTML,
@@ -1355,7 +1377,7 @@ class TradingTelegramBot:
             bot_logger.error(f"Ошибка получения активности за 24ч: {e}")
             await update.message.reply_text(
                 "❌ Ошибка получения данных об активности.",
-                reply_markup=self.main_keyboard
+                reply_markup=self.get_user_keyboard(update.effective_chat.id)
             )
 
 
