@@ -135,8 +135,7 @@ def health_check():
                 <div class="metric-box">
                     <strong>👥 Пользователи:</strong><br>
                     Всего пользователей: {active_users}<br>
-                    Активных сессий: {session_stats.get('active_sessions', 0)}<br>
-                    Скальпинг бот: {'✅ Активен' if status['bot_running'] else '❌ Неактивен'}
+                    Активных сессий: {session_stats.get('active_sessions', 0)}
                 </div>
 
                 <div class="status-grid">
