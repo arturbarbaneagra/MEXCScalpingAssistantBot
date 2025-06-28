@@ -104,6 +104,7 @@ class ActivityLevelCalculator:
     def update_activity_stats(self, new_value: float, hour_key: str = None):
         """
         Обновляет статистику активности новым значением (алгоритм Welford)
+        Учитывает все часы начиная с первого записанного, включая пустые часы как 0
         
         Args:
             new_value: Новое значение уровня активности в минутах
@@ -115,9 +116,42 @@ class ActivityLevelCalculator:
                 bot_logger.debug(f"📊 Час {hour_key} уже обработан, пропускаем")
                 return
             
+            # Если это первый час, просто добавляем его
+            if not self.processed_hours:
+                self.processed_hours.add(hour_key)
+                self._save_processed_hours()
+                
+                self.count += 1
+                delta = new_value - self.mean
+                self.mean += delta / self.count
+                delta2 = new_value - self.mean
+                self.M2 += delta * delta2
+                
+                self._save_stats()
+                bot_logger.info(f"📊 Первый час добавлен: час={hour_key}, значение={new_value:.1f}мин, среднее={self.mean:.1f}мин, count={self.count}")
+                return
+            
+            # Находим пропущенные часы между последним записанным и текущим
+            missing_hours = self._find_missing_hours(hour_key)
+            
+            # Добавляем пропущенные часы со значением 0
+            for missing_hour in missing_hours:
+                if missing_hour not in self.processed_hours:
+                    bot_logger.debug(f"📊 Добавляем пропущенный час {missing_hour} со значением 0")
+                    self.processed_hours.add(missing_hour)
+                    
+                    # Обновляем статистику Welford для пропущенного часа (значение = 0)
+                    self.count += 1
+                    delta = 0.0 - self.mean
+                    self.mean += delta / self.count
+                    delta2 = 0.0 - self.mean
+                    self.M2 += delta * delta2
+            
+            # Добавляем текущий час
             self.processed_hours.add(hour_key)
             self._save_processed_hours()
         
+        # Обновляем статистику для текущего значения
         self.count += 1
         delta = new_value - self.mean
         self.mean += delta / self.count
@@ -128,6 +162,45 @@ class ActivityLevelCalculator:
         self._save_stats()
         
         bot_logger.info(f"📊 Обновлена статистика активности: час={hour_key}, значение={new_value:.1f}мин, среднее={self.mean:.1f}мин, count={self.count}")
+    
+    def _find_missing_hours(self, current_hour_key: str) -> List[str]:
+        """
+        Находит пропущенные часы между последним записанным и текущим часом
+        
+        Args:
+            current_hour_key: Текущий ключ часа в формате "YYYY-MM-DD_HH"
+            
+        Returns:
+            Список ключей пропущенных часов
+        """
+        try:
+            from datetime import datetime, timedelta
+            
+            if not self.processed_hours:
+                return []
+            
+            # Парсим текущий час
+            current_dt = datetime.strptime(current_hour_key, "%Y-%m-%d_%H")
+            
+            # Находим последний записанный час
+            sorted_hours = sorted(self.processed_hours)
+            last_hour_key = sorted_hours[-1]
+            last_dt = datetime.strptime(last_hour_key, "%Y-%m-%d_%H")
+            
+            missing_hours = []
+            
+            # Генерируем все часы между последним и текущим
+            current_check = last_dt + timedelta(hours=1)
+            while current_check < current_dt:
+                hour_key = current_check.strftime("%Y-%m-%d_%H")
+                missing_hours.append(hour_key)
+                current_check += timedelta(hours=1)
+            
+            return missing_hours
+            
+        except Exception as e:
+            bot_logger.warning(f"Ошибка поиска пропущенных часов: {e}")
+            return []
     
     def get_variance(self) -> float:
         """Возвращает дисперсию"""
