@@ -825,79 +825,73 @@ class TradingTelegramBot:
                         sessions_by_hour[hour_key] = []
                     sessions_by_hour[hour_key].append(session)
 
-                # Определяем диапазон часов для отображения (последние 12 часов)
-                now_moscow = datetime.now() + timedelta(hours=3)
-                hours_to_show = []
+            # Определяем диапазон часов для отображения (последние 24 часа)
+            now_moscow = datetime.now() + timedelta(hours=3)
+            hours_to_show = []
 
-                for i in range(12):  # Показываем последние 12 часов
-                    hour_dt = now_moscow - timedelta(hours=i)
-                    hour_str = hour_dt.strftime('%H:00')
-                    hour_key_stats = hour_dt.strftime("%Y-%m-%d_%H")
+            for i in range(24):  # Показываем последние 24 часа
+                hour_dt = now_moscow - timedelta(hours=i)
+                hour_str = hour_dt.strftime('%H:00')
+                hour_key_stats = hour_dt.strftime("%Y-%m-%d_%H")
 
-                    # Получаем сессии для этого часа или пустой список
-                    hour_sessions = sessions_by_hour.get(hour_str, [])
+                # Получаем сессии для этого часа или пустой список
+                hour_sessions = sessions_by_hour.get(hour_str, [])
 
-                    # Рассчитываем активность за час
-                    total_activity = activity_calculator.calculate_hourly_activity(hour_sessions, None)
+                # Рассчитываем активность за час
+                total_activity = activity_calculator.calculate_hourly_activity(hour_sessions, None)
 
-                    # Обновляем статистику активности
-                    activity_calculator.update_activity_stats(total_activity, hour_key_stats)
+                # Обновляем статистику активности
+                activity_calculator.update_activity_stats(total_activity, hour_key_stats)
 
-                    # Получаем информацию об уровне активности
-                    activity_info = activity_calculator.get_activity_level_info(total_activity)
+                # Получаем информацию об уровне активности
+                activity_info = activity_calculator.get_activity_level_info(total_activity)
 
-                    hours_to_show.append({
-                        'hour': hour_str,
-                        'sessions': hour_sessions,
-                        'activity': total_activity,
-                        'activity_info': activity_info
-                    })
+                hours_to_show.append({
+                    'hour': hour_str,
+                    'hour_dt': hour_dt,
+                    'sessions': hour_sessions,
+                    'activity': total_activity,
+                    'activity_info': activity_info
+                })
 
-                # Показываем часы (фильтруем те, что имеют активность или последние 5 часов)
-                hours_with_activity = [h for h in hours_to_show if h['activity'] > 0]
-                hours_without_activity = [h for h in hours_to_show if h['activity'] == 0]
+            # Сортируем по времени (новые сначала) и показываем ВСЕ 24 часа
+            hours_to_show.sort(key=lambda x: x['hour_dt'], reverse=True)
 
-                # Показываем все часы с активностью + последние 3 часа без активности
-                hours_to_display = hours_with_activity + hours_without_activity[:3]
+            for hour_data in hours_to_show:  # Показываем все 24 часа
+                hour = hour_data['hour']
+                hour_sessions = hour_data['sessions']
+                total_activity = hour_data['activity']
+                activity_info = hour_data['activity_info']
 
-                # Сортируем по времени (новые сначала)
-                hours_to_display.sort(key=lambda x: x['hour'], reverse=True)
+                report_parts.append(f"\n{hour} {activity_info['color']} {activity_info['emoji']} {activity_info['level']}")
 
-                for hour_data in hours_to_display[:8]:  # Максимум 8 часов
-                    hour = hour_data['hour']
-                    hour_sessions = hour_data['sessions']
-                    total_activity = hour_data['activity']
-                    activity_info = hour_data['activity_info']
+                if hour_sessions:
+                    report_parts.append(f"Активность: {total_activity:.1f} мин ({len(hour_sessions)} сессий, ср. {total_activity/len(hour_sessions):.1f}м) (z={activity_info['z_score']:.1f})")
 
-                    report_parts.append(f"\n{hour} {activity_info['color']} {activity_info['emoji']} {activity_info['level']}")
+                    # Группируем монеты по длительности
+                    coin_durations_hour = {}
+                    for session in hour_sessions:
+                        symbol = session.get('symbol', '')
+                        duration = session.get('total_duration', 0) / 60  # В минутах
+                        if symbol in coin_durations_hour:
+                            coin_durations_hour[symbol] += duration
+                        else:
+                            coin_durations_hour[symbol] = duration
 
-                    if hour_sessions:
-                        report_parts.append(f"Активность: {total_activity:.1f} мин ({len(hour_sessions)} сессий, ср. {total_activity/len(hour_sessions):.1f}м) (z={activity_info['z_score']:.1f})")
+                    # Сортируем монеты по активности
+                    top_coins_hour = sorted(coin_durations_hour.items(), key=lambda x: x[1], reverse=True)
 
-                        # Группируем монеты по длительности
-                        coin_durations_hour = {}
-                        for session in hour_sessions:
-                            symbol = session.get('symbol', '')
-                            duration = session.get('total_duration', 0) / 60  # В минутах
-                            if symbol in coin_durations_hour:
-                                coin_durations_hour[symbol] += duration
-                            else:
-                                coin_durations_hour[symbol] = duration
+                    if top_coins_hour:
+                        coins_text = []
+                        for symbol, duration in top_coins_hour[:10]:  # Топ-10 монет
+                            coins_text.append(f"• {symbol} ({duration:.1f}м)")
+                        report_parts.append("Монеты:")
+                        report_parts.extend(coins_text)
+                else:
+                    report_parts.append(f"Активность: 0.0 мин (0 сессий) (z={activity_info['z_score']:.1f})")
+                    report_parts.append("Монеты: нет активности")
 
-                        # Сортируем монеты по активности
-                        top_coins_hour = sorted(coin_durations_hour.items(), key=lambda x: x[1], reverse=True)
-
-                        if top_coins_hour:
-                            coins_text = []
-                            for symbol, duration in top_coins_hour[:10]:  # Топ-10 монет
-                                coins_text.append(f"• {symbol} ({duration:.1f}м)")
-                            report_parts.append("Монеты:")
-                            report_parts.extend(coins_text)
-                    else:
-                        report_parts.append(f"Активность: 0.0 мин (0 сессий) (z={activity_info['z_score']:.1f})")
-                        report_parts.append("Монеты: нет активности")
-
-                report_parts.append("")
+            report_parts.append("")
 
             # Разбиваем сообщение на части если слишком длинное
             report_text = "\n".join(report_parts)
