@@ -1,4 +1,3 @@
-
 import time
 import psutil
 import asyncio
@@ -13,14 +12,11 @@ from alert_manager import alert_manager
 from circuit_breaker import api_circuit_breakers
 
 class HealthChecker:
-    """Комплексная проверка состояния системы"""
-    
     def __init__(self):
         self.last_check_time = 0
-        self.check_interval = 30  # секунд
-        
+
     def get_system_info(self) -> Dict[str, Any]:
-        """Получает информацию о системе"""
+        """Получает системную информацию"""
         try:
             return {
                 'cpu_percent': psutil.cpu_percent(interval=1),
@@ -49,15 +45,11 @@ class HealthChecker:
                 'bot_mode': telegram_bot.bot_mode,
                 'active_coins_count': len(telegram_bot.active_coins),
                 'watchlist_size': watchlist_manager.size(),
-                'monitoring_message_id': telegram_bot.monitoring_message_id
             }
         except Exception as e:
             bot_logger.error(f"Ошибка получения статуса бота: {e}")
             return {
                 'bot_running': False,
-                'bot_mode': None,
-                'active_coins_count': 0,
-                'watchlist_size': 0,
                 'error': str(e)
             }
 
@@ -66,112 +58,78 @@ class HealthChecker:
         health_status = {
             'api_accessible': False,
             'response_time': 0,
-            'circuit_breakers': {},
-            'last_successful_request': 0
+            'circuit_breakers': {}
         }
-        
+
         try:
+            # Проверяем доступность API
             start_time = time.time()
-            # Простой запрос для проверки доступности
-            result = await api_client._make_request("/ping")
+            test_data = await api_client.get_ticker_data("BTC")
             health_status['response_time'] = time.time() - start_time
-            health_status['api_accessible'] = result is not None
-            
-            # Статус Circuit Breaker'ов
+            health_status['api_accessible'] = test_data is not None
+
+            # Проверяем Circuit Breakers
             for name, cb in api_circuit_breakers.items():
-                health_status['circuit_breakers'][name] = cb.get_stats()
-                
+                health_status['circuit_breakers'][name] = {
+                    'state': cb.state.value,
+                    'failures': cb.failure_count,
+                    'last_failure': cb.last_failure_time
+                }
+
         except Exception as e:
             bot_logger.debug(f"Проверка API здоровья: {e}")
             health_status['error'] = str(e)
-        
+
         return health_status
 
-    async def run_diagnostics(self) -> Dict[str, Any]:
-        """Запускает полную диагностику"""
-        diagnostics = {
+    async def full_health_check(self) -> Dict[str, Any]:
+        """Полная проверка здоровья системы"""
+        health_data = {
             'timestamp': time.time(),
             'version': '2.1',
             'status': 'healthy'
         }
-        
+
         # Системная информация
         system_info = self.get_system_info()
-        diagnostics['system'] = system_info
-        
+        health_data['system'] = system_info
+
         # Статус бота
         bot_status = self.get_bot_status()
-        diagnostics['bot'] = bot_status
-        
+        health_data['bot'] = bot_status
+
         # API здоровье
         api_health = await self.check_api_health()
-        diagnostics['api'] = api_health
-        
+        health_data['api'] = api_health
+
         # Метрики
-        diagnostics['metrics'] = metrics_manager.get_summary()
-        
+        health_data['metrics'] = metrics_manager.get_summary()
+
         # Кеш
-        diagnostics['cache'] = cache_manager.get_stats()
-        
+        health_data['cache'] = cache_manager.get_stats()
+
         # Алерты
         alerts = alert_manager.get_alert_summary()
-        diagnostics['alerts'] = alerts
-        
+        health_data['alerts'] = alerts
+
         # Конфигурация
-        diagnostics['config'] = {
+        health_data['config'] = {
             'volume_threshold': config_manager.get('VOLUME_THRESHOLD'),
             'spread_threshold': config_manager.get('SPREAD_THRESHOLD'),
             'natr_threshold': config_manager.get('NATR_THRESHOLD'),
             'batch_size': config_manager.get('CHECK_BATCH_SIZE')
         }
-        
+
         # Определяем общий статус
-        if alerts['active_count'] > 0:
-            critical_alerts = [a for a in alerts['active_alerts'] if a.get('severity') == 'critical']
-            if critical_alerts:
-                diagnostics['status'] = 'critical'
-            else:
-                diagnostics['status'] = 'warning'
-        
-        # Проверяем системные ресурсы
-        if system_info.get('memory_percent', 0) > 90 or system_info.get('cpu_percent', 0) > 90:
-            diagnostics['status'] = 'critical'
-        elif system_info.get('memory_percent', 0) > 80 or system_info.get('cpu_percent', 0) > 80:
-            if diagnostics['status'] == 'healthy':
-                diagnostics['status'] = 'warning'
-        
-        return diagnostics
+        if (system_info.get('memory_percent', 0) > 90 or 
+            not api_health.get('api_accessible', False) or
+            len(alerts.get('critical', [])) > 0):
+            health_data['status'] = 'unhealthy'
+        elif (system_info.get('memory_percent', 0) > 70 or 
+              api_health.get('response_time', 0) > 2.0):
+            health_data['status'] = 'degraded'
 
-    async def full_health_check(self) -> Dict[str, Any]:
-        """Полная проверка здоровья системы"""
-        current_time = time.time()
-        
-        # Проверяем интервал
-        if current_time - self.last_check_time < self.check_interval:
-            return {'status': 'cached', 'message': 'Используются кешированные данные'}
-        
-        try:
-            diagnostics = await self.run_diagnostics()
-            
-            # Обновляем алерты на основе диагностики
-            system_alerts = alert_manager.check_system_alerts(diagnostics['system'])
-            api_alerts = alert_manager.check_api_alerts(diagnostics['metrics'].get('api_stats', {}))
-            
-            all_alerts = system_alerts + api_alerts
-            if all_alerts:
-                alert_manager.process_alerts(all_alerts)
-            
-            self.last_check_time = current_time
-            return diagnostics
-            
-        except Exception as e:
-            bot_logger.error(f"Ошибка полной проверки здоровья: {e}")
-            return {
-                'status': 'error',
-                'error': str(e),
-                'timestamp': current_time,
-                'version': '2.1'
-            }
+        return health_data
 
-# Глобальный экземпляр проверки здоровья
+# Глобальный экземпляр
 health_checker = HealthChecker()

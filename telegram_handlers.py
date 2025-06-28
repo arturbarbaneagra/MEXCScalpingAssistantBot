@@ -214,3 +214,27 @@ class ExtendedTelegramHandlers:
 def create_extended_handlers(bot_instance):
     """Создает экземпляр расширенных обработчиков"""
     return ExtendedTelegramHandlers(bot_instance)
+"""
+Дополнительные обработчики для Telegram бота
+"""
+
+from telegram import Update
+from telegram.ext import ContextTypes
+from logger import bot_logger
+
+class TelegramHandlers:
+    def __init__(self, bot):
+        self.bot = bot
+
+    async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик ошибок"""
+        bot_logger.error(f"Telegram error: {context.error}")
+
+    async def unknown_command_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик неизвестных команд"""
+        await update.message.reply_text(
+            "❓ Неизвестная команда. Используйте /start для начала работы."
+        )
+
+# Глобальный экземпляр
+telegram_handlers = TelegramHandlers(None)

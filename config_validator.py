@@ -68,3 +68,47 @@ class ConfigValidator:
 
 # Глобальный экземпляр
 config_validator = ConfigValidator()
+"""
+Валидатор конфигурации
+"""
+
+from typing import Dict, Any, List
+from logger import bot_logger
+
+class ConfigValidator:
+    def __init__(self):
+        self.required_fields = [
+            'VOLUME_THRESHOLD',
+            'SPREAD_THRESHOLD',
+            'NATR_THRESHOLD'
+        ]
+        
+        self.field_validators = {
+            'VOLUME_THRESHOLD': lambda x: isinstance(x, (int, float)) and x > 0,
+            'SPREAD_THRESHOLD': lambda x: isinstance(x, (int, float)) and 0 <= x <= 100,
+            'NATR_THRESHOLD': lambda x: isinstance(x, (int, float)) and 0 <= x <= 100,
+        }
+
+    def validate_config(self, config: Dict[str, Any]) -> List[str]:
+        """Валидирует конфигурацию"""
+        errors = []
+        
+        # Проверяем обязательные поля
+        for field in self.required_fields:
+            if field not in config:
+                errors.append(f"Отсутствует обязательное поле: {field}")
+                continue
+                
+            # Проверяем валидность значения
+            validator = self.field_validators.get(field)
+            if validator and not validator(config[field]):
+                errors.append(f"Неверное значение для {field}: {config[field]}")
+        
+        return errors
+
+    def is_valid_config(self, config: Dict[str, Any]) -> bool:
+        """Проверяет валидность конфигурации"""
+        return len(self.validate_config(config)) == 0
+
+# Глобальный экземпляр
+config_validator = ConfigValidator()
