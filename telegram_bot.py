@@ -2089,4 +2089,4 @@ class TradingTelegramBot:
         return ConversationHandler.END
 
 # Глобальный экземпляр бота
-telegram_bot = TradingTelegramBot()```python
+telegram_bot = TradingTelegramBot()
