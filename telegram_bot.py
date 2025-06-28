@@ -13,6 +13,9 @@ from advanced_alerts import advanced_alert_manager, AlertType, AlertSeverity
 from notification_mode import NotificationMode
 from monitoring_mode import MonitoringMode
 from input_validator import input_validator
+from user_manager import user_manager
+from user_session_recorder import UserSessionRecorder
+from admin_handlers import create_admin_handlers
 import os
 
 class TradingTelegramBot:
@@ -40,6 +43,10 @@ class TradingTelegramBot:
         self.notification_mode = NotificationMode(self)
         self.monitoring_mode = MonitoringMode(self)
 
+        # Многопользовательские модули
+        self.admin_handlers = create_admin_handlers(self)
+        self.user_session_recorders: Dict[str, UserSessionRecorder] = {}
+
         # Состояния ConversationHandler
         self.ADDING_COIN, self.REMOVING_COIN = range(2)
         self.SETTING_VOLUME, self.SETTING_SPREAD, self.SETTING_NATR = range(2, 5)
@@ -53,15 +60,65 @@ class TradingTelegramBot:
             return self.notification_mode.active_coins
         return {}
 
+    def get_user_keyboard(self, chat_id: str) -> ReplyKeyboardMarkup:
+        """Возвращает соответствующую клавиатуру для пользователя"""
+        if user_manager.is_admin(chat_id):
+            return self.admin_keyboard
+        else:
+            return self.user_keyboard
+
+    def get_user_session_recorder(self, chat_id: str) -> UserSessionRecorder:
+        """Получает или создает сессионный рекордер для пользователя"""
+        chat_id_str = str(chat_id)
+        if chat_id_str not in self.user_session_recorders:
+            self.user_session_recorders[chat_id_str] = UserSessionRecorder(chat_id_str)
+        return self.user_session_recorders[chat_id_str]
+
+    def get_user_watchlist(self, chat_id: str) -> List[str]:
+        """Получает список монет пользователя"""
+        if user_manager.is_admin(chat_id):
+            # Для админа используем глобальный список
+            return watchlist_manager.get_all()
+        else:
+            # Для пользователя используем его личный список
+            return user_manager.get_user_watchlist(chat_id)
+
+    def get_user_config(self, chat_id: str) -> Dict:
+        """Получает конфигурацию пользователя"""
+        if user_manager.is_admin(chat_id):
+            # Для админа используем глобальную конфигурацию
+            return {
+                'VOLUME_THRESHOLD': config_manager.get('VOLUME_THRESHOLD'),
+                'SPREAD_THRESHOLD': config_manager.get('SPREAD_THRESHOLD'),
+                'NATR_THRESHOLD': config_manager.get('NATR_THRESHOLD')
+            }
+        else:
+            # Для пользователя используем его личную конфигурацию
+            return user_manager.get_user_config(chat_id)
+
     def _setup_keyboards(self):
         """Настраивает клавиатуры"""
-        self.main_keyboard = ReplyKeyboardMarkup([
+        # Клавиатура администратора
+        self.admin_keyboard = ReplyKeyboardMarkup([
+            ["🔔 Уведомления", "📊 Мониторинг"],
+            ["➕ Добавить", "➖ Удалить"],
+            ["📋 Список", "⚙ Настройки"],
+            ["📈 Активность 24ч", "ℹ Статус"],
+            ["👥 Список заявок", "📋 Логи"],
+            ["👤 Управление пользователями", "🛑 Стоп"]
+        ], resize_keyboard=True, one_time_keyboard=False)
+
+        # Клавиатура обычного пользователя
+        self.user_keyboard = ReplyKeyboardMarkup([
             ["🔔 Уведомления", "📊 Мониторинг"],
             ["➕ Добавить", "➖ Удалить"],
             ["📋 Список", "⚙ Настройки"],
             ["📈 Активность 24ч", "ℹ Статус"],
             ["🛑 Стоп"]
         ], resize_keyboard=True, one_time_keyboard=False)
+
+        # Основная клавиатура (используется по умолчанию)
+        self.main_keyboard = self.admin_keyboard
 
         self.settings_keyboard = ReplyKeyboardMarkup([
             ["📊 Объём", "⇄ Спред"],
@@ -410,24 +467,87 @@ class TradingTelegramBot:
     # Telegram Handlers
     async def start_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик команды /start"""
+        chat_id = update.effective_chat.id
+        user = update.effective_user
+
+        # Проверяем, является ли пользователь администратором
+        if user_manager.is_admin(chat_id):
+            await self._handle_admin_start(update, context)
+            return
+
+        # Проверяем, одобрен ли пользователь
+        if user_manager.is_user_approved(chat_id):
+            await self._handle_approved_user_start(update, context)
+            return
+
+        # Проверяем, есть ли уже заявка от этого пользователя
+        if user_manager.is_user_pending(chat_id):
+            await update.message.reply_text(
+                "⏳ <b>Ваша заявка уже отправлена</b>\n\n"
+                "Пожалуйста, ожидайте решения администратора.\n"
+                "Вы получите уведомление, как только заявка будет рассмотрена.",
+                parse_mode=ParseMode.HTML
+            )
+            return
+
+        # Новый пользователь - создаем заявку
+        user_info = {
+            'username': user.username or 'no_username',
+            'first_name': user.first_name or 'Unknown',
+            'last_name': user.last_name or ''
+        }
+
+        if user_manager.add_pending_request(chat_id, user_info):
+            await update.message.reply_text(
+                "👋 <b>Добро пожаловать в MEXCScalping Assistant!</b>\n\n"
+                "📝 Ваша заявка на подключение отправлена администратору.\n\n"
+                "⏳ <b>Ожидайте одобрения</b>\n"
+                "Вы получите уведомление, как только администратор рассмотрит вашу заявку.\n\n"
+                "💡 Обычно это занимает несколько минут.",
+                parse_mode=ParseMode.HTML
+            )
+
+            # Уведомляем администратора о новой заявке
+            try:
+                await self.app.bot.send_message(
+                    chat_id=user_manager.admin_chat_id,
+                    text=(
+                        f"🔔 <b>Новая заявка на подключение!</b>\n\n"
+                        f"👤 <b>{user_info['first_name']}</b>\n"
+                        f"• Username: @{user_info['username']}\n"
+                        f"• ID: <code>{chat_id}</code>\n\n"
+                        f"Нажмите '👥 Список заявок' для обработки"
+                    ),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as e:
+                bot_logger.error(f"Ошибка уведомления админа о новой заявке: {e}")
+
+        else:
+            await update.message.reply_text(
+                "❌ Ошибка при отправке заявки. Попробуйте позже.",
+                parse_mode=ParseMode.HTML
+            )
+
+    async def _handle_admin_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработка старта для администратора"""
         last_mode = bot_state_manager.get_last_mode()
 
         welcome_text = (
-            "🤖 <b>Добро пожаловать в MEXCScalping Assistant!</b>\n\n"
+            "🤖 <b>Добро пожаловать, Администратор!</b>\n\n"
             "📊 <b>Режимы работы:</b>\n"
             "• 🔔 <b>Уведомления</b> - оповещения об активных монетах\n"
             "• 📊 <b>Мониторинг</b> - постоянное отслеживание списка\n\n"
-            "⚙ <b>Управление:</b>\n"
-            "• ➕ Добавить монету в список\n"
-            "• ➖ Удалить монету из списка\n"
-            "• 📋 Показать список монет\n"
-            "• ⚙ Настройки фильтров\n\n"
+            "👥 <b>Администрирование:</b>\n"
+            "• 👥 Список заявок - управление новыми пользователями\n"
+            "• 📋 Логи - просмотр системных логов\n"
+            "• 👤 Управление пользователями\n\n"
         )
 
-        # Автовосстановление последнего режима
+        # Автовосстановление последнего режима для админа
         if last_mode and not self.bot_running:
             welcome_text += f"🔄 <b>Восстанавливаю режим {last_mode}...</b>\n\n"
-            await update.message.reply_text(welcome_text + "Выберите действие:", reply_markup=self.main_keyboard, parse_mode=ParseMode.HTML)
+            await update.message.reply_text(welcome_text + "Выберите действие:", reply_markup=self.admin_keyboard, parse_mode=ParseMode.HTML)
 
             self.bot_mode = last_mode
             self.bot_running = True
@@ -450,12 +570,74 @@ class TradingTelegramBot:
             return
 
         welcome_text += "Выберите действие:"
-        await update.message.reply_text(welcome_text, reply_markup=self.main_keyboard, parse_mode=ParseMode.HTML)
+        await update.message.reply_text(welcome_text, reply_markup=self.admin_keyboard, parse_mode=ParseMode.HTML)
+
+    async def _handle_approved_user_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработка старта для одобренного пользователя"""
+        chat_id = update.effective_chat.id
+
+        # Проверяем, завершил ли пользователь настройку
+        if not user_manager.is_setup_completed(chat_id):
+            user_watchlist = user_manager.get_user_watchlist(chat_id)
+            
+            if not user_watchlist:
+                # Нужно добавить монеты
+                await update.message.reply_text(
+                    "🔧 <b>Завершите настройку бота</b>\n\n"
+                    "1️⃣ Сначала добавьте хотя бы одну монету в свой список\n\n"
+                    "Нажмите ➕ <b>Добавить</b> для начала",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=self.user_keyboard
+                )
+                return
+            else:
+                # Нужно настроить фильтры
+                user_config = user_manager.get_user_config(chat_id)
+                await update.message.reply_text(
+                    "🔧 <b>Завершите настройку фильтров</b>\n\n"
+                    "2️⃣ Настройте фильтры для поиска активных монет\n\n"
+                    f"📊 Текущие настройки:\n"
+                    f"• Объём: ${user_config.get('VOLUME_THRESHOLD', 1000):,}\n"
+                    f"• Спред: {user_config.get('SPREAD_THRESHOLD', 0.1)}%\n"
+                    f"• NATR: {user_config.get('NATR_THRESHOLD', 0.5)}%\n\n"
+                    "Нажмите ⚙ <b>Настройки</b> для изменения",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=self.user_keyboard
+                )
+                
+                # Отмечаем настройку как завершенную
+                user_manager.mark_setup_completed(chat_id)
+                return
+
+        # Пользователь полностью настроен
+        welcome_text = (
+            "🤖 <b>Добро пожаловать в MEXCScalping Assistant!</b>\n\n"
+            "📊 <b>Ваши режимы работы:</b>\n"
+            "• 🔔 <b>Уведомления</b> - персональные оповещения\n"
+            "• 📊 <b>Мониторинг</b> - отслеживание ваших монет\n\n"
+            "⚙ <b>Управление:</b>\n"
+            "• ➕ Добавить монету в ваш список\n"
+            "• ➖ Удалить монету из списка\n"
+            "• 📋 Показать ваши монеты\n"
+            "• ⚙ Ваши настройки фильтров\n\n"
+            "Выберите действие:"
+        )
+
+        await update.message.reply_text(welcome_text, reply_markup=self.user_keyboard, parse_mode=ParseMode.HTML)
 
     async def button_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Основной обработчик кнопок с защитой от spam"""
         text = update.message.text
+        chat_id = update.effective_chat.id
         current_time = time.time()
+
+        # Проверяем права доступа
+        if not user_manager.is_admin(chat_id) and not user_manager.is_user_approved(chat_id):
+            await update.message.reply_text(
+                "❌ У вас нет доступа к боту.\nОтправьте /start для подачи заявки.",
+                parse_mode=ParseMode.HTML
+            )
+            return ConversationHandler.END
 
         # Защита от spam нажатий (минимум 1 секунда между операциями)
         if current_time - self._last_operation_time < 1.0:
@@ -463,16 +645,30 @@ class TradingTelegramBot:
             return ConversationHandler.END
 
         self._last_operation_time = current_time
+        user_keyboard = self.get_user_keyboard(chat_id)
 
         try:
             # Проверяем, не идет ли уже переключение режима
             if self._switching_mode:
                 await update.message.reply_text(
                     "⏳ Идет переключение режима, подождите...",
-                    reply_markup=self.main_keyboard
+                    reply_markup=user_keyboard
                 )
                 return ConversationHandler.END
 
+            # Обработка админских кнопок
+            if user_manager.is_admin(chat_id):
+                if text == "👥 Список заявок":
+                    await self.admin_handlers.handle_pending_requests(update, context)
+                    return ConversationHandler.END
+                elif text == "📋 Логи":
+                    await self.admin_handlers.handle_logs_request(update, context)
+                    return ConversationHandler.END
+                elif text == "👤 Управление пользователями":
+                    await self.admin_handlers.handle_user_management(update, context)
+                    return ConversationHandler.END
+
+            # Общие кнопки для всех пользователей
             if text == "🔔 Уведомления":
                 await self._handle_notification_mode(update)
             elif text == "📊 Мониторинг":
@@ -504,14 +700,14 @@ class TradingTelegramBot:
             else:
                 await update.message.reply_text(
                     "❓ Неизвестная команда. Используйте кнопки меню.",
-                    reply_markup=self.main_keyboard
+                    reply_markup=user_keyboard
                 )
         except Exception as e:
             bot_logger.error(f"Ошибка в button_handler: {e}", exc_info=True)
             try:
                 await update.message.reply_text(
                     "❌ Произошла ошибка. Попробуйте еще раз через несколько секунд.",
-                    reply_markup=self.main_keyboard
+                    reply_markup=user_keyboard
                 )
             except Exception as reply_error:
                 bot_logger.error(f"Не удалось отправить сообщение об ошибке: {reply_error}")
@@ -1496,8 +1692,29 @@ class TradingTelegramBot:
 
         self.app.add_handler(CommandHandler("start", self.start_handler))
         self.app.add_handler(conv_handler)
+        
+        # Добавляем обработчик callback запросов для инлайн кнопок
+        self.app.add_handler(CallbackQueryHandler(self.callback_query_handler))
 
         return self.app
+
+    async def callback_query_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик инлайн кнопок"""
+        query = update.callback_query
+        await query.answer()
+
+        if not user_manager.is_admin(query.from_user.id):
+            await query.edit_message_text("❌ У вас нет прав администратора")
+            return
+
+        data = query.data
+        
+        if data.startswith("approve_"):
+            chat_id = data.replace("approve_", "")
+            await self.admin_handlers.handle_approve_user(update, context, chat_id)
+        elif data.startswith("reject_"):
+            chat_id = data.replace("reject_", "")
+            await self.admin_handlers.handle_reject_user(update, context, chat_id)
 
 # Глобальный экземпляр бота
 telegram_bot = TradingTelegramBot()
