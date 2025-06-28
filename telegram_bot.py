@@ -14,7 +14,6 @@ from input_validator import input_validator
 from user_manager import user_manager
 from user_session_recorder import UserSessionRecorder
 from admin_handlers import create_admin_handlers
-from user_modes_manager import UserModesManager
 import os
 
 class TradingTelegramBot:
@@ -1385,6 +1384,423 @@ class TradingTelegramBot:
         self.app.add_handler(CallbackQueryHandler(self.callback_query_handler))
 
         return self.app
+
+    async def add_coin_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик добавления монеты"""
+        chat_id = update.effective_chat.id
+        user_keyboard = self.get_user_keyboard(chat_id)
+        text = update.message.text
+
+        if text == "🔙 Назад":
+            await self._handle_back(update)
+            return ConversationHandler.END
+
+        # Валидация символа
+        if not input_validator.validate_symbol(text):
+            await update.message.reply_text(
+                "❌ Неверный формат символа. Используйте буквы и цифры (например: BTC или ETH)",
+                reply_markup=self.back_keyboard,
+                parse_mode=ParseMode.HTML
+            )
+            return self.ADDING_COIN
+
+        symbol = text.upper().replace('_USDT', '').replace('USDT', '')
+
+        try:
+            # Проверяем существование монеты через API
+            ticker_data = await api_client.get_ticker_data(symbol)
+            if not ticker_data:
+                await update.message.reply_text(
+                    f"❌ Монета {symbol} не найдена на бирже MEXC",
+                    reply_markup=self.back_keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+                return self.ADDING_COIN
+
+            # Добавляем в зависимости от роли пользователя
+            if user_manager.is_admin(chat_id):
+                # Для админа добавляем в глобальный список
+                if watchlist_manager.add_coin(symbol):
+                    await update.message.reply_text(
+                        f"✅ Монета {symbol} добавлена в глобальный список",
+                        reply_markup=user_keyboard,
+                        parse_mode=ParseMode.HTML
+                    )
+                else:
+                    await update.message.reply_text(
+                        f"ℹ️ Монета {symbol} уже в глобальном списке",
+                        reply_markup=user_keyboard,
+                        parse_mode=ParseMode.HTML
+                    )
+            else:
+                # Для пользователя добавляем в личный список
+                if user_manager.add_coin_to_user_watchlist(chat_id, symbol):
+                    await update.message.reply_text(
+                        f"✅ Монета {symbol} добавлена в ваш список",
+                        reply_markup=user_keyboard,
+                        parse_mode=ParseMode.HTML
+                    )
+                else:
+                    await update.message.reply_text(
+                        f"ℹ️ Монета {symbol} уже в вашем списке",
+                        reply_markup=user_keyboard,
+                        parse_mode=ParseMode.HTML
+                    )
+
+        except Exception as e:
+            bot_logger.error(f"Ошибка при добавлении монеты {symbol}: {e}")
+            await update.message.reply_text(
+                "❌ Ошибка при добавлении монеты. Попробуйте позже.",
+                reply_markup=user_keyboard,
+                parse_mode=ParseMode.HTML
+            )
+
+        return ConversationHandler.END
+
+    async def remove_coin_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик удаления монеты"""
+        chat_id = update.effective_chat.id
+        user_keyboard = self.get_user_keyboard(chat_id)
+        text = update.message.text
+
+        if text == "🔙 Назад":
+            await self._handle_back(update)
+            return ConversationHandler.END
+
+        symbol = text.upper().replace('_USDT', '').replace('USDT', '')
+
+        # Удаляем в зависимости от роли пользователя
+        if user_manager.is_admin(chat_id):
+            # Для админа удаляем из глобального списка
+            if watchlist_manager.remove_coin(symbol):
+                await update.message.reply_text(
+                    f"✅ Монета {symbol} удалена из глобального списка",
+                    reply_markup=user_keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+            else:
+                await update.message.reply_text(
+                    f"❌ Монета {symbol} не найдена в глобальном списке",
+                    reply_markup=user_keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+        else:
+            # Для пользователя удаляем из личного списка
+            if user_manager.remove_coin_from_user_watchlist(chat_id, symbol):
+                await update.message.reply_text(
+                    f"✅ Монета {symbol} удалена из вашего списка",
+                    reply_markup=user_keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+            else:
+                await update.message.reply_text(
+                    f"❌ Монета {symbol} не найдена в вашем списке",
+                    reply_markup=user_keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+
+        return ConversationHandler.END
+
+    async def volume_setting_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик настройки объёма"""
+        chat_id = update.effective_chat.id
+        user_keyboard = self.get_user_keyboard(chat_id)
+        text = update.message.text
+
+        if text == "🔙 Назад":
+            await self._handle_back(update)
+            return ConversationHandler.END
+
+        try:
+            value = float(text.replace(',', '').replace('$', ''))
+            if value <= 0:
+                raise ValueError("Значение должно быть положительным")
+
+            # Устанавливаем в зависимости от роли
+            if user_manager.is_admin(chat_id):
+                config_manager.set('VOLUME_THRESHOLD', value)
+                await update.message.reply_text(
+                    f"✅ Глобальный минимальный объём установлен: ${value:,.0f}",
+                    reply_markup=user_keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+            else:
+                user_manager.update_user_config(chat_id, {'VOLUME_THRESHOLD': value})
+                await update.message.reply_text(
+                    f"✅ Ваш минимальный объём установлен: ${value:,.0f}",
+                    reply_markup=user_keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+
+        except ValueError:
+            await update.message.reply_text(
+                "❌ Неверный формат. Введите число (например: 1500)",
+                reply_markup=self.back_keyboard,
+                parse_mode=ParseMode.HTML
+            )
+            return self.SETTING_VOLUME
+
+        return ConversationHandler.END
+
+    async def spread_setting_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик настройки спреда"""
+        chat_id = update.effective_chat.id
+        user_keyboard = self.get_user_keyboard(chat_id)
+        text = update.message.text
+
+        if text == "🔙 Назад":
+            await self._handle_back(update)
+            return ConversationHandler.END
+
+        try:
+            value = float(text.replace('%', ''))
+            if value < 0:
+                raise ValueError("Значение должно быть неотрицательным")
+
+            # Устанавливаем в зависимости от роли
+            if user_manager.is_admin(chat_id):
+                config_manager.set('SPREAD_THRESHOLD', value)
+                await update.message.reply_text(
+                    f"✅ Глобальный минимальный спред установлен: {value}%",
+                    reply_markup=user_keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+            else:
+                user_manager.update_user_config(chat_id, {'SPREAD_THRESHOLD': value})
+                await update.message.reply_text(
+                    f"✅ Ваш минимальный спред установлен: {value}%",
+                    reply_markup=user_keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+
+        except ValueError:
+            await update.message.reply_text(
+                "❌ Неверный формат. Введите число (например: 0.2)",
+                reply_markup=self.back_keyboard,
+                parse_mode=ParseMode.HTML
+            )
+            return self.SETTING_SPREAD
+
+        return ConversationHandler.END
+
+    async def natr_setting_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик настройки NATR"""
+        chat_id = update.effective_chat.id
+        user_keyboard = self.get_user_keyboard(chat_id)
+        text = update.message.text
+
+        if text == "🔙 Назад":
+            await self._handle_back(update)
+            return ConversationHandler.END
+
+        try:
+            value = float(text.replace('%', ''))
+            if value < 0:
+                raise ValueError("Значение должно быть неотрицательным")
+
+            # Устанавливаем в зависимости от роли
+            if user_manager.is_admin(chat_id):
+                config_manager.set('NATR_THRESHOLD', value)
+                await update.message.reply_text(
+                    f"✅ Глобальный минимальный NATR установлен: {value}%",
+                    reply_markup=user_keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+            else:
+                user_manager.update_user_config(chat_id, {'NATR_THRESHOLD': value})
+                await update.message.reply_text(
+                    f"✅ Ваш минимальный NATR установлен: {value}%",
+                    reply_markup=user_keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+
+        except ValueError:
+            await update.message.reply_text(
+                "❌ Неверный формат. Введите число (например: 0.8)",
+                reply_markup=self.back_keyboard,
+                parse_mode=ParseMode.HTML
+            )
+            return self.SETTING_NATR
+
+        return ConversationHandler.END
+
+    async def _handle_show_list(self, update: Update):
+        """Показывает список монет"""
+        chat_id = update.effective_chat.id
+        user_keyboard = self.get_user_keyboard(chat_id)
+
+        # Получаем список в зависимости от роли
+        if user_manager.is_admin(chat_id):
+            coins = list(watchlist_manager.get_all())
+            list_title = "Глобальный список отслеживания"
+        else:
+            coins = user_manager.get_user_watchlist(chat_id)
+            list_title = "Ваш список отслеживания"
+
+        if not coins:
+            await update.message.reply_text(
+                f"📋 {list_title} пуст",
+                reply_markup=user_keyboard,
+                parse_mode=ParseMode.HTML
+            )
+            return
+
+        coins.sort()
+        coins_text = "\n".join([f"• {coin}" for coin in coins])
+
+        message = f"📋 <b>{list_title}</b> ({len(coins)} монет):\n\n{coins_text}"
+
+        if len(message) > 4000:
+            message = message[:4000] + "\n... <i>(список обрезан)</i>"
+
+        await update.message.reply_text(
+            message,
+            reply_markup=user_keyboard,
+            parse_mode=ParseMode.HTML
+        )
+
+    async def _handle_settings(self, update: Update):
+        """Показывает настройки"""
+        chat_id = update.effective_chat.id
+
+        # Получаем настройки в зависимости от роли
+        if user_manager.is_admin(chat_id):
+            config = {
+                'VOLUME_THRESHOLD': config_manager.get('VOLUME_THRESHOLD'),
+                'SPREAD_THRESHOLD': config_manager.get('SPREAD_THRESHOLD'),
+                'NATR_THRESHOLD': config_manager.get('NATR_THRESHOLD')
+            }
+            settings_title = "Глобальные настройки фильтров"
+        else:
+            config = user_manager.get_user_config(chat_id)
+            settings_title = "Ваши настройки фильтров"
+
+        message = (
+            f"⚙ <b>{settings_title}</b>\n\n"
+            f"📊 Минимальный объём: <code>${config.get('VOLUME_THRESHOLD', 1000):,.0f}</code>\n"
+            f"⇄ Минимальный спред: <code>{config.get('SPREAD_THRESHOLD', 0.1)}%</code>\n"
+            f"📈 Минимальный NATR: <code>{config.get('NATR_THRESHOLD', 0.5)}%</code>\n\n"
+            f"Выберите параметр для изменения:"
+        )
+
+        await update.message.reply_text(
+            message,
+            reply_markup=self.settings_keyboard,
+            parse_mode=ParseMode.HTML
+        )
+
+    async def _handle_reset_settings(self, update: Update):
+        """Сбрасывает настройки"""
+        chat_id = update.effective_chat.id
+        user_keyboard = self.get_user_keyboard(chat_id)
+
+        if user_manager.is_admin(chat_id):
+            # Сброс глобальных настроек
+            config_manager.set('VOLUME_THRESHOLD', 1000)
+            config_manager.set('SPREAD_THRESHOLD', 0.1)
+            config_manager.set('NATR_THRESHOLD', 0.5)
+            await update.message.reply_text(
+                "🔄 Глобальные настройки сброшены к значениям по умолчанию",
+                reply_markup=user_keyboard,
+                parse_mode=ParseMode.HTML
+            )
+        else:
+            # Сброс пользовательских настроек
+            default_config = {
+                'VOLUME_THRESHOLD': 1000,
+                'SPREAD_THRESHOLD': 0.1,
+                'NATR_THRESHOLD': 0.5
+            }
+            user_manager.update_user_config(chat_id, default_config)
+            await update.message.reply_text(
+                "🔄 Ваши настройки сброшены к значениям по умолчанию",
+                reply_markup=user_keyboard,
+                parse_mode=ParseMode.HTML
+            )
+
+    async def _handle_activity_24h(self, update: Update):
+        """Показывает активность за 24 часа"""
+        chat_id = update.effective_chat.id
+        user_keyboard = self.get_user_keyboard(chat_id)
+
+        try:
+            # Получаем статистику активности
+            from activity_level_calculator import activity_calculator
+            stats = activity_calculator.get_24h_summary()
+
+            if not stats:
+                await update.message.reply_text(
+                    "📈 <b>Активность за 24 часа</b>\n\nДанных пока нет.",
+                    reply_markup=user_keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+                return
+
+            message = (
+                f"📈 <b>Активность за 24 часа</b>\n\n"
+                f"🔥 Всего активностей: <code>{stats.get('total_activities', 0)}</code>\n"
+                f"⏱ Средняя длительность: <code>{stats.get('avg_duration', 0):.1f} мин</code>\n"
+                f"📊 Общий объём: <code>${stats.get('total_volume', 0):,.0f}</code>\n"
+                f"🏆 Топ монета: <code>{stats.get('top_coin', 'N/A')}</code>\n"
+                f"⚡ Пиковая активность: <code>{stats.get('peak_hour', 'N/A')}</code>"
+            )
+
+            await update.message.reply_text(
+                message,
+                reply_markup=user_keyboard,
+                parse_mode=ParseMode.HTML
+            )
+
+        except Exception as e:
+            bot_logger.error(f"Ошибка получения статистики активности: {e}")
+            await update.message.reply_text(
+                "❌ Ошибка получения статистики",
+                reply_markup=user_keyboard,
+                parse_mode=ParseMode.HTML
+            )
+
+    async def _handle_status(self, update: Update):
+        """Показывает статус бота"""
+        chat_id = update.effective_chat.id
+        user_keyboard = self.get_user_keyboard(chat_id)
+
+        # Базовая информация
+        status_text = "🟢 Работает" if self.bot_running else "🔴 Остановлен"
+        active_count = len(self._active_coins)
+
+        # Получаем список монет в зависимости от роли
+        if user_manager.is_admin(chat_id):
+            watchlist_count = watchlist_manager.size()
+            list_info = f"Глобальный список: {watchlist_count} монет"
+        else:
+            user_watchlist = user_manager.get_user_watchlist(chat_id)
+            list_info = f"Ваш список: {len(user_watchlist)} монет"
+
+        message = (
+            f"ℹ <b>Статус бота</b>\n\n"
+            f"🤖 Состояние: <code>{status_text}</code>\n"
+            f"🔥 Активных монет: <code>{active_count}</code>\n"
+            f"📋 {list_info}\n"
+            f"🚀 Режим: <code>Объединенный</code>\n"
+            f"⏰ Последнее обновление: <code>{time.strftime('%H:%M:%S')}</code>"
+        )
+
+        await update.message.reply_text(
+            message,
+            reply_markup=user_keyboard,
+            parse_mode=ParseMode.HTML
+        )
+
+    async def _handle_back(self, update: Update):
+        """Обработчик кнопки Назад"""
+        chat_id = update.effective_chat.id
+        user_keyboard = self.get_user_keyboard(chat_id)
+
+        await update.message.reply_text(
+            "🔙 Возврат в главное меню",
+            reply_markup=user_keyboard,
+            parse_mode=ParseMode.HTML
+        )
 
     async def callback_query_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик инлайн кнопок"""
