@@ -109,7 +109,7 @@ class UserBotMode:
                 if results:
                     report = self._format_report(results, failed_coins)
                     if self.monitoring_message_id:
-                        await self.bot._edit_personal_message(self.chat_id, self.monitoring_message_id, report)
+                        self.monitoring_message_id = await self.bot._edit_personal_message(self.chat_id, self.monitoring_message_id, report)
 
                 await asyncio.sleep(10)  # Интервал обновления
 
@@ -271,9 +271,11 @@ class UserBotMode:
                     report = self._format_report(results, failed_coins)
                     if self.monitoring_message_id:
                         await self.bot._edit_personal_message(self.chat_id, self.monitoring_message_id, report)
+                        await self.bot._send_personal_message(self.chat_id, report) # sending the message down the chat
+
 
                 # Отправляем уведомление об успешном обновлении
-                update_text = "✅ <b>Мониторинг обновлен</b>\nПрименены текущие настройки фильтров"
+                update_text = "✅ <b>Мониторинг обновлен</b>"
                 await self.bot._send_personal_message(self.chat_id, update_text)
             else:
                 update_text = "⚠️ <b>Нет монет для мониторинга</b>\nДобавьте монеты в свой список"
@@ -383,14 +385,14 @@ class UserModesManager:
     async def update_user_mode(self, chat_id: str) -> bool:
         """Обновляет режим пользователя с новыми настройками"""
         chat_id_str = str(chat_id)
-        
+
         if chat_id_str not in self.user_modes:
             return False
-            
+
         user_mode = self.user_modes[chat_id_str]
         if not user_mode.running:
             return False
-            
+
         return await user_mode.update_monitoring()
 
 
