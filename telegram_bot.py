@@ -121,6 +121,7 @@ class TradingTelegramBot:
             ["➕ Добавить", "➖ Удалить"],
             ["📋 Список", "⚙ Настройки"],
             ["📈 Активность 24ч", "ℹ Статус"],
+            ["🔄 Обновить мониторинг"],
             ["👥 Список заявок", "📋 Логи"],
             ["👤 Управление пользователями", "🧹 Очистить пользователей"]
         ], resize_keyboard=True, one_time_keyboard=False)
@@ -130,7 +131,8 @@ class TradingTelegramBot:
             ["🚀 Запуск бота", "🛑 Остановка"],
             ["➕ Добавить", "➖ Удалить"],
             ["📋 Список", "⚙ Настройки"],
-            ["📈 Активность 24ч", "ℹ Статус"]
+            ["📈 Активность 24ч", "ℹ Статус"],
+            ["🔄 Обновить мониторинг"]
         ], resize_keyboard=True, one_time_keyboard=False)
 
         # Основная клавиатура (используется по умолчанию для админа)
@@ -702,6 +704,8 @@ class TradingTelegramBot:
                 await self._handle_activity_24h(update)
             elif text == "ℹ Статус":
                 await self._handle_status(update)
+            elif text == "🔄 Обновить мониторинг":
+                await self._handle_refresh_monitoring(update)
             elif text == "🔙 Назад":
                 await self._handle_back(update)
             else:
@@ -1524,6 +1528,9 @@ class TradingTelegramBot:
                 parse_mode=ParseMode.HTML
             )
 
+            # Принудительно обновляем сообщение мониторинга если бот запущен
+            await self._force_monitoring_update()
+
         except ValueError:
             await update.message.reply_text(
                 "❌ Неверный формат. Введите число (например: 1500)",
@@ -1557,6 +1564,9 @@ class TradingTelegramBot:
                 parse_mode=ParseMode.HTML
             )
 
+            # Принудительно обновляем сообщение мониторинга если бот запущен
+            await self._force_monitoring_update()
+
         except ValueError:
             await update.message.reply_text(
                 "❌ Неверный формат. Введите число (например: 0.2)",
@@ -1589,6 +1599,9 @@ class TradingTelegramBot:
                 reply_markup=user_keyboard,
                 parse_mode=ParseMode.HTML
             )
+
+            # Принудительно обновляем сообщение мониторинга если бот запущен
+            await self._force_monitoring_update()
 
         except ValueError:
             await update.message.reply_text(
@@ -1662,18 +1675,47 @@ class TradingTelegramBot:
         chat_id = update.effective_chat.id
         user_keyboard = self.get_user_keyboard(chat_id)
 
-        # Все пользователи (включая админа) сбрасывают персональные настройки
+        # Получаем текущие настройки
+        current_config = user_manager.get_user_config(chat_id)
+        
+        # Дефолтные значения
         default_config = {
             'VOLUME_THRESHOLD': 1000,
             'SPREAD_THRESHOLD': 0.1,
             'NATR_THRESHOLD': 0.5
         }
-        user_manager.update_user_config(chat_id, default_config)
-        await update.message.reply_text(
-            "🔄 Ваши настройки сброшены к значениям по умолчанию",
-            reply_markup=user_keyboard,
-            parse_mode=ParseMode.HTML
-        )
+
+        # Проверяем, отличаются ли текущие настройки от дефолтных
+        settings_changed = False
+        for key, default_value in default_config.items():
+            if current_config.get(key) != default_value:
+                settings_changed = True
+                break
+
+        if not settings_changed:
+            await update.message.reply_text(
+                "ℹ️ <b>Настройки уже установлены по умолчанию</b>\n\n"
+                f"📊 Минимальный объём: <code>${default_config['VOLUME_THRESHOLD']:,.0f}</code>\n"
+                f"⇄ Минимальный спред: <code>{default_config['SPREAD_THRESHOLD']}%</code>\n"
+                f"📈 Минимальный NATR: <code>{default_config['NATR_THRESHOLD']}%</code>",
+                reply_markup=user_keyboard,
+                parse_mode=ParseMode.HTML
+            )
+        else:
+            # Сбрасываем настройки
+            user_manager.update_user_config(chat_id, default_config)
+            
+            await update.message.reply_text(
+                "🔄 <b>Настройки сброшены к значениям по умолчанию</b>\n\n"
+                f"📊 Минимальный объём: <code>${default_config['VOLUME_THRESHOLD']:,.0f}</code>\n"
+                f"⇄ Минимальный спред: <code>{default_config['SPREAD_THRESHOLD']}%</code>\n"
+                f"📈 Минимальный NATR: <code>{default_config['NATR_THRESHOLD']}%</code>",
+                reply_markup=user_keyboard,
+                parse_mode=ParseMode.HTML
+            )
+
+            # Принудительно обновляем сообщение мониторинга если бот запущен
+            await self._force_monitoring_update()
 
     async def _handle_activity_24h(self, update: Update):
         """Показывает активность за 24 часа"""
@@ -1747,6 +1789,34 @@ class TradingTelegramBot:
             parse_mode=ParseMode.HTML
         )
 
+    async def _handle_refresh_monitoring(self, update: Update):
+        """Обработчик обновления мониторинга"""
+        chat_id = update.effective_chat.id
+        user_keyboard = self.get_user_keyboard(chat_id)
+
+        if not self.bot_running:
+            await update.message.reply_text(
+                "ℹ️ Мониторинг не запущен.\nДля начала мониторинга нажмите 🚀 Запуск бота",
+                reply_markup=user_keyboard,
+                parse_mode=ParseMode.HTML
+            )
+            return
+
+        # Удаляем старое сообщение мониторинга если есть
+        if self.monitoring_message_id:
+            await self.delete_message(self.monitoring_message_id)
+            self.monitoring_message_id = None
+
+        # Отправляем новое сообщение мониторинга вниз
+        new_message_text = "🔄 <b>Обновление мониторинга...</b>\nСообщение будет обновлено через несколько секунд."
+        self.monitoring_message_id = await self.send_message(new_message_text)
+
+        await update.message.reply_text(
+            "✅ <b>Мониторинг обновлен</b>\nСообщение перемещено в низ чата",
+            reply_markup=user_keyboard,
+            parse_mode=ParseMode.HTML
+        )
+
     async def _handle_back(self, update: Update):
         """Обработчик кнопки Назад"""
         chat_id = update.effective_chat.id
@@ -1757,6 +1827,21 @@ class TradingTelegramBot:
             reply_markup=user_keyboard,
             parse_mode=ParseMode.HTML
         )
+
+    async def _force_monitoring_update(self):
+        """Принудительное обновление сообщения мониторинга при изменении настроек"""
+        if not self.bot_running or not self.monitoring_message_id:
+            return
+
+        try:
+            # Получаем свежие данные и принудительно обновляем сообщение
+            results, failed_coins = await self._fetch_bot_data()
+            if results:
+                report = self._format_monitoring_report(results, failed_coins)
+                await self.edit_message(self.monitoring_message_id, report)
+            bot_logger.info("📊 Сообщение мониторинга принудительно обновлено после изменения настроек")
+        except Exception as e:
+            bot_logger.error(f"Ошибка принудительного обновления мониторинга: {e}")
 
     async def callback_query_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик инлайн кнопок"""
