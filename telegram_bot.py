@@ -588,14 +588,8 @@ class TradingTelegramBot:
             user_watchlist = user_manager.get_user_watchlist(chat_id)
 
             if not user_watchlist:
-                # Нужно добавить монеты
-                await update.message.reply_text(
-                    "🔧 <b>Завершите настройку бота</b>\n\n"
-                    "1️⃣ Сначала добавьте хотя бы одну монету в свой список\n\n"
-                    "Нажмите ➕ <b>Добавить</b> для начала",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=self.user_keyboard
-                )
+                # Запускаем первоначальную настройку монет БЕЗ кнопок
+                await self._start_coin_setup(update, context)
                 return
             else:
                 # Нужно настроить фильтры
@@ -645,6 +639,20 @@ class TradingTelegramBot:
                 parse_mode=ParseMode.HTML
             )
             return ConversationHandler.END
+
+        # Проверяем, находится ли пользователь в процессе первоначальной настройки
+        if user_manager.is_user_approved(chat_id) and not user_manager.is_setup_completed(chat_id):
+            user_data = user_manager.get_user_data(chat_id)
+            setup_state = user_data.get('setup_state', '')
+            
+            if setup_state == 'initial_coin_setup':
+                return await self._handle_initial_coin_input(update, text)
+            elif setup_state.startswith('setting_filters'):
+                return await self._handle_initial_filter_input(update, text)
+            else:
+                # Если состояние не определено, возвращаем пользователя к началу
+                await self._start_coin_setup(update, context)
+                return ConversationHandler.END
 
         # Защита от spam нажатий (минимум 1 секунда между операциями)
         if current_time - self._last_operation_time < 1.0:
@@ -2101,7 +2109,7 @@ class TradingTelegramBot:
             "👋 <b>Добро пожаловать!</b>\n\n"
             "Чтобы начать, добавьте хотя бы одну монету для отслеживания.\n\n"
             "Введите символ монеты (например: BTC, ETH, ADA):",
-            parse_mode=ParseMode.HTML,
+            parse_mode=ParseMode.HTML
         )
         # Сохраняем состояние, что сейчас идет добавление монет
         user_manager.update_user_data(chat_id, {'setup_state': 'initial_coin_setup'})
