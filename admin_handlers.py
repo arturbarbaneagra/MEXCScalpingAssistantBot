@@ -25,7 +25,8 @@ class AdminHandlers:
             ["📋 Список", "⚙ Настройки"],
             ["📈 Активность 24ч", "ℹ Статус"],
             ["👥 Список заявок", "📋 Логи"],
-            ["👤 Управление пользователями", "🛑 Стоп"]
+            ["👤 Управление пользователями", "🧹 Очистить пользователей"],
+            ["🛑 Стоп"]
         ], resize_keyboard=True, one_time_keyboard=False)
 
     async def handle_pending_requests(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -233,6 +234,33 @@ class AdminHandlers:
                 f"❌ Ошибка получения логов: {str(e)[:100]}",
                 reply_markup=self.get_admin_keyboard()
             )
+
+    async def handle_clear_all_users(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик очистки всех пользователей кроме админа"""
+        if not user_manager.is_admin(update.effective_chat.id):
+            await update.message.reply_text("❌ У вас нет прав администратора")
+            return
+
+        # Получаем статистику до очистки
+        stats_before = user_manager.get_stats()
+        
+        # Очищаем всех пользователей кроме админа
+        cleared_count = user_manager.clear_all_users_except_admin()
+        
+        # Останавливаем все пользовательские режимы
+        if hasattr(self.bot, 'user_modes_manager') and self.bot.user_modes_manager:
+            await self.bot.user_modes_manager.stop_all_modes()
+        
+        await update.message.reply_text(
+            f"🧹 <b>Очистка пользователей завершена</b>\n\n"
+            f"📊 <b>Результат:</b>\n"
+            f"• Удалено пользователей: {cleared_count}\n"
+            f"• Удалено заявок: {stats_before['pending_requests']}\n"
+            f"• Удалено отклоненных: {stats_before.get('rejected_users', 0)}\n\n"
+            f"✅ Остались только данные администратора",
+            parse_mode=ParseMode.HTML,
+            reply_markup=self.get_admin_keyboard()
+        )
 
     async def handle_user_management(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик управления пользователями"""

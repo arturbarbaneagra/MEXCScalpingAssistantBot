@@ -43,7 +43,7 @@ class TradingTelegramBot:
         # Модули режимов (для админа - обратная совместимость)
         self.notification_mode = NotificationMode(self)
         self.monitoring_mode = MonitoringMode(self)
-        
+
         # Менеджер персональных режимов пользователей
         self.user_modes_manager = UserModesManager(self)
 
@@ -117,7 +117,7 @@ class TradingTelegramBot:
             ["📋 Список", "⚙ Настройки"],
             ["📈 Активность 24ч", "ℹ Статус"],
             ["👥 Список заявок", "📋 Логи"],
-            ["👤 Управление пользователями", "🛑 Стоп"]
+            ["👤 Управление пользователями", "🛑 Стоп", "🧹 Очистить пользователей"]
         ], resize_keyboard=True, one_time_keyboard=False)
 
         # Клавиатура обычного пользователя
@@ -707,17 +707,17 @@ class TradingTelegramBot:
                 )
                 return ConversationHandler.END
 
-            # Обработка админских кнопок
-            if user_manager.is_admin(chat_id):
-                if text == "👥 Список заявок":
-                    await self.admin_handlers.handle_pending_requests(update, context)
-                    return ConversationHandler.END
-                elif text == "📋 Логи":
-                    await self.admin_handlers.handle_logs_request(update, context)
-                    return ConversationHandler.END
-                elif text == "👤 Управление пользователями":
-                    await self.admin_handlers.handle_user_management(update, context)
-                    return ConversationHandler.END
+            message_text = update.message.text
+
+            # Админские функции
+            if message_text == "👥 Список заявок":
+                await self.admin_handlers.handle_pending_requests(update, context)
+            elif message_text == "📋 Логи":
+                await self.admin_handlers.handle_logs_request(update, context)
+            elif message_text == "👤 Управление пользователями":
+                await self.admin_handlers.handle_user_management(update, context)
+            elif message_text == "🧹 Очистить пользователей":
+                await self.admin_handlers.handle_clear_all_users(update, context)
 
             # Общие кнопки для всех пользователей
             if text == "🔔 Уведомления":
@@ -753,7 +753,7 @@ class TradingTelegramBot:
                     "❓ Неизвестная команда. Используйте кнопки меню.",
                     reply_markup=user_keyboard
                 )
-        except Exception as e:
+        except Exception ase:
             bot_logger.error(f"Ошибка в button_handler: {e}", exc_info=True)
             try:
                 await update.message.reply_text(
@@ -769,7 +769,7 @@ class TradingTelegramBot:
         """Обработка режима уведомлений"""
         chat_id = update.effective_chat.id
         user_keyboard = self.get_user_keyboard(chat_id)
-        
+
         # Проверяем текущий режим пользователя
         current_mode = self.user_modes_manager.get_user_mode(chat_id)
         if current_mode == 'notification':
@@ -783,10 +783,10 @@ class TradingTelegramBot:
         if user_manager.is_admin(chat_id):
             # Останавливаем старые глобальные режимы для совместимости
             await self._stop_current_mode()
-        
+
         # Запускаем персональный режим уведомлений
         success = await self.user_modes_manager.start_user_mode(chat_id, 'notification')
-        
+
         if success:
             await update.message.reply_text(
                 "✅ <b>Персональный режим уведомлений активирован</b>\n"
@@ -805,7 +805,7 @@ class TradingTelegramBot:
         """Обработка режима мониторинга"""
         chat_id = update.effective_chat.id
         user_keyboard = self.get_user_keyboard(chat_id)
-        
+
         # Проверяем текущий режим пользователя
         current_mode = self.user_modes_manager.get_user_mode(chat_id)
         if current_mode == 'monitoring':
@@ -819,10 +819,10 @@ class TradingTelegramBot:
         if user_manager.is_admin(chat_id):
             # Останавливаем старые глобальные режимы для совместимости
             await self._stop_current_mode()
-        
+
         # Запускаем персональный режим мониторинга
         success = await self.user_modes_manager.start_user_mode(chat_id, 'monitoring')
-        
+
         if success:
             await update.message.reply_text(
                 "✅ <b>Персональный режим мониторинга активирован</b>\n"
@@ -841,14 +841,14 @@ class TradingTelegramBot:
         """Обработка остановки бота"""
         chat_id = update.effective_chat.id
         user_keyboard = self.get_user_keyboard(chat_id)
-        
+
         # Останавливаем персональный режим пользователя
         stopped = await self.user_modes_manager.stop_user_mode(chat_id)
-        
+
         # Для админа также останавливаем глобальные режимы если есть
         if user_manager.is_admin(chat_id):
             await self._stop_current_mode()
-            
+
         if stopped or (user_manager.is_admin(chat_id) and self.bot_running):
             await update.message.reply_text(
                 "🛑 <b>Ваши режимы остановлены</b>",
@@ -1042,18 +1042,18 @@ class TradingTelegramBot:
         """Показ статуса бота"""
         chat_id = update.effective_chat.id
         user_keyboard = self.get_user_keyboard(chat_id)
-        
+
         status_parts = ["ℹ <b>Ваш статус:</b>\n"]
 
         # Проверяем персональный режим пользователя
         current_mode = self.user_modes_manager.get_user_mode(chat_id)
         user_stats = self.user_modes_manager.get_user_stats(chat_id)
-        
+
         if current_mode:
             status_parts.append(f"🟢 Ваш режим: <b>{current_mode}</b>")
-            
+
             mode_stats = user_stats.get('modes', {}).get(current_mode, {})
-            
+
             if current_mode == 'notification':
                 active_count = mode_stats.get('active_coins_count', 0)
                 status_parts.append(f"📊 Активных монет: <b>{active_count}</b>")
@@ -2212,16 +2212,16 @@ class TradingTelegramBot:
         """Обработчик кнопки 'Добавить еще монету'"""
         query = update.callback_query
         await query.answer()
-        
+
         chat_id = query.from_user.id
-        
+
         await query.edit_message_text(
             "➕ <b>Добавление монеты</b>\n\n"
             "Введите символ следующей монеты:\n\n"
             "Примеры: BTC, ETH, ADA, SOL",
             parse_mode=ParseMode.HTML
         )
-        
+
         # Устанавливаем состояние для добавления следующей монеты
         user_manager.update_user_data(chat_id, {'setup_state': 'initial_coin_setup'})
 
@@ -2229,15 +2229,15 @@ class TradingTelegramBot:
         """Обработчик кнопки 'Перейти к настройкам'"""
         query = update.callback_query
         await query.answer()
-        
+
         chat_id = query.from_user.id
-        
+
         await query.edit_message_text(
             "⚙️ <b>Переход к настройке фильтров</b>\n\n"
             "Отлично! Теперь настроим фильтры для поиска активных монет.",
             parse_mode=ParseMode.HTML
         )
-        
+
         # Запускаем настройку фильтров
         await self._start_filter_setup_initial_callback(query, chat_id)
 
@@ -2261,12 +2261,12 @@ class TradingTelegramBot:
         # Проверяем текущее состояние пользователя
         user_data = user_manager.get_user_data(chat_id)
         current_setup_state = user_data.get('setup_state', '') if user_data else ''
-        
+
         # Если пользователь уже в процессе настройки, не отправляем дублирующее сообщение
         if current_setup_state == 'initial_coin_setup':
             bot_logger.debug(f"Пользователь {chat_id} уже в процессе добавления монет, пропускаем дублирование")
             return ConversationHandler.END
-        
+
         # Отправляем приветственное сообщение только если пользователь не в процессе настройки
         await update.message.reply_text(
             "👋 <b>Добро пожаловать!</b>\n\n"
@@ -2274,10 +2274,10 @@ class TradingTelegramBot:
             "Введите символ монеты (например: BTC, ETH, ADA):",
             parse_mode=ParseMode.HTML
         )
-        
+
         # Сохраняем состояние, что сейчас идет добавление монет
         user_manager.update_user_data(chat_id, {'setup_state': 'initial_coin_setup'})
-        
+
         return ConversationHandler.END
 
     async def initial_setup_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2298,7 +2298,7 @@ class TradingTelegramBot:
             await self._start_coin_setup(update, context)
             return ConversationHandler.END
 
-    
+
     async def approve_user(self, chat_id: str) -> bool:
         """Одобряет пользователя"""
         chat_id_str = str(chat_id)

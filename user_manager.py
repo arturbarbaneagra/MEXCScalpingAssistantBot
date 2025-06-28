@@ -297,6 +297,32 @@ class UserManager:
                     users_with_mode.append(user_data)
         return users_with_mode
 
+    def clear_all_users_except_admin(self) -> int:
+        """Очищает всех пользователей кроме администратора"""
+        cleared_count = 0
+        
+        # Подсчитываем количество пользователей для удаления
+        users_to_remove = [chat_id for chat_id in self.users_data.keys() 
+                          if not self.is_admin(chat_id)]
+        cleared_count = len(users_to_remove)
+        
+        # Удаляем всех пользователей кроме админа
+        for chat_id in users_to_remove:
+            del self.users_data[chat_id]
+        
+        # Очищаем заявки
+        self.pending_requests.clear()
+        
+        # Очищаем отклоненных пользователей
+        if hasattr(self, 'rejected_users'):
+            self.rejected_users.clear()
+        
+        # Сохраняем изменения
+        self.save_data()
+        
+        bot_logger.info(f"Очищено {cleared_count} пользователей, оставлен только администратор")
+        return cleared_count
+
     def get_stats(self) -> Dict:
         """Возвращает статистику пользователей"""
         users_with_notification = len(self.get_users_with_mode('notification'))
