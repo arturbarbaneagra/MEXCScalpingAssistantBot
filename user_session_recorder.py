@@ -40,10 +40,13 @@ class UserSessionRecorder:
     def update_coin_activity(self, symbol: str, coin_data: Dict):
         """Обновляет активность монеты"""
         if not self.recording:
+            bot_logger.warning(f"📝 Запись не активна для пользователя {self.chat_id}, монета {symbol}")
             return
 
         current_time = time.time()
         is_active = coin_data.get('active', False)
+
+        bot_logger.debug(f"📝 Пользователь {self.chat_id}: обновление {symbol}, active={is_active}, volume={coin_data.get('volume', 0)}")
 
         if is_active:
             if symbol not in self.active_sessions:
@@ -67,6 +70,8 @@ class UserSessionRecorder:
                     }
                 }
                 bot_logger.info(f"📝 Начата запись сессии {symbol} для пользователя {self.chat_id} (объем: ${coin_data.get('volume', 0):,.0f})")
+            else:
+                bot_logger.debug(f"📝 Пользователь {self.chat_id}: продолжение сессии {symbol} (точек данных: {len(self.active_sessions[symbol]['data_points'])})")
 
             # Обновляем сессию
             session = self.active_sessions[symbol]
@@ -130,6 +135,7 @@ class UserSessionRecorder:
     def _finalize_session(self, symbol: str, force: bool = False):
         """Завершает и сохраняет сессию"""
         if symbol not in self.active_sessions:
+            bot_logger.debug(f"📝 Пользователь {self.chat_id}: сессия {symbol} не найдена для завершения")
             return
 
         session = self.active_sessions[symbol]
@@ -142,11 +148,13 @@ class UserSessionRecorder:
         session['start_datetime'] = datetime.fromtimestamp(session['start_time']).isoformat()
         session['end_datetime'] = datetime.fromtimestamp(current_time).isoformat()
 
+        bot_logger.info(f"📝 Пользователь {self.chat_id}: завершение сессии {symbol} (длительность: {duration:.1f}с, точек данных: {len(session['data_points'])}, threshold: {self.session_start_threshold}с)")
+
         if duration >= self.session_start_threshold or force:
             self._save_session_to_file(session)
             bot_logger.info(f"📝 Сессия {symbol} сохранена для пользователя {self.chat_id} (длительность: {duration:.1f}с)")
         else:
-            bot_logger.debug(f"📝 Сессия {symbol} для пользователя {self.chat_id} пропущена (слишком короткая: {duration:.1f}с)")
+            bot_logger.warning(f"📝 Сессия {symbol} для пользователя {self.chat_id} пропущена (слишком короткая: {duration:.1f}с < {self.session_start_threshold}с)")
 
         del self.active_sessions[symbol]
 
@@ -156,13 +164,18 @@ class UserSessionRecorder:
             date_str = datetime.fromtimestamp(session['start_time']).strftime('%Y-%m-%d')
             filepath = os.path.join(self.data_directory, f"sessions_{date_str}.json")
 
+            bot_logger.info(f"📝 Пользователь {self.chat_id}: сохранение сессии {session['symbol']} в файл {filepath}")
+
             if os.path.exists(filepath):
                 try:
                     with open(filepath, 'r', encoding='utf-8') as f:
                         daily_data = json.load(f)
-                except Exception:
+                    bot_logger.debug(f"📝 Загружен существующий файл с {len(daily_data.get('sessions', []))} сессиями")
+                except Exception as e:
+                    bot_logger.warning(f"📝 Ошибка чтения существующего файла: {e}, создаем новый")
                     daily_data = {'date': date_str, 'sessions': [], 'metadata': {}}
             else:
+                bot_logger.info(f"📝 Создаем новый файл для даты {date_str}")
                 daily_data = {'date': date_str, 'sessions': [], 'metadata': {}}
 
             daily_data['sessions'].append(session)
@@ -183,8 +196,10 @@ class UserSessionRecorder:
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(daily_data, f, indent=2, ensure_ascii=False)
 
+            bot_logger.info(f"📝 Пользователь {self.chat_id}: сессия {session['symbol']} успешно сохранена! Всего сессий в файле: {total_sessions}")
+
         except Exception as e:
-            bot_logger.error(f"Ошибка сохранения сессии {session['symbol']} для пользователя {self.chat_id}: {e}")
+            bot_logger.error(f"Ошибка сохранения сессии {session['symbol']} для пользователя {self.chat_id}: {e}", exc_info=True)
 
     def get_daily_summary(self, date_str: str) -> Optional[Dict]:
         """Возвращает сводку за определенный день"""

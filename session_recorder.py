@@ -70,6 +70,7 @@ class SessionRecorder:
     def update_coin_activity(self, symbol: str, coin_data: Dict):
         """Обновляет активность монеты для всех пользователей"""
         if not self.recording:
+            bot_logger.warning(f"📝 Запись не активна для {symbol}")
             return
 
         try:
@@ -79,6 +80,7 @@ class SessionRecorder:
             all_users = user_manager.get_all_users()
             bot_logger.debug(f"📝 Обновление активности {symbol} для {len(all_users)} пользователей")
             
+            updated_users = 0
             for user_data in all_users:
                 chat_id = user_data['chat_id']
                 
@@ -87,20 +89,38 @@ class SessionRecorder:
                     # Для админа проверяем глобальный список
                     from watchlist_manager import watchlist_manager
                     user_watchlist = watchlist_manager.get_all()
+                    list_type = "глобальный (админ)"
                 else:
                     # Для обычных пользователей проверяем их личный список
                     user_watchlist = user_manager.get_user_watchlist(chat_id)
+                    list_type = "персональный"
                 
-                bot_logger.debug(f"📝 Пользователь {chat_id}: список из {len(user_watchlist)} монет, {symbol} {'есть' if symbol in user_watchlist else 'нет'}")
+                bot_logger.debug(f"📝 Пользователь {chat_id}: {list_type} список из {len(user_watchlist)} монет, {symbol} {'есть' if symbol in user_watchlist else 'нет'}")
                 
                 if symbol in user_watchlist:
                     # Получаем рекордер пользователя и обновляем активность
                     user_recorder = self.get_user_session_recorder(chat_id)
+                    
+                    # Проверяем состояние рекордера
+                    if not user_recorder.recording:
+                        bot_logger.warning(f"📝 Рекордер пользователя {chat_id} не активен! Запускаем...")
+                        user_recorder.start_recording()
+                    
+                    # Обновляем активность
                     user_recorder.update_coin_activity(symbol, coin_data)
-                    bot_logger.debug(f"📝 Активность {symbol} обновлена для пользователя {chat_id}")
+                    updated_users += 1
+                    
+                    bot_logger.info(f"📝 Активность {symbol} обновлена для пользователя {chat_id} (активных сессий: {len(user_recorder.active_sessions)})")
+                else:
+                    bot_logger.debug(f"📝 Пользователь {chat_id}: монета {symbol} не в {list_type} списке")
+            
+            if updated_users == 0:
+                bot_logger.warning(f"📝 Монета {symbol} не отслеживается ни одним пользователем!")
+            else:
+                bot_logger.info(f"📝 Активность {symbol} обновлена для {updated_users} пользователей")
                     
         except Exception as e:
-            bot_logger.error(f"Ошибка обновления активности монеты {symbol}: {e}")
+            bot_logger.error(f"Ошибка обновления активности монеты {symbol}: {e}", exc_info=True)
 
     def check_inactive_sessions(self, active_coins: Dict):
         """Проверяет неактивные сессии и завершает их для всех пользователей"""
@@ -188,23 +208,59 @@ class SessionRecorder:
                 user_recorder = self.user_session_recorders[chat_id_str]
                 bot_logger.info(f"📝 Рекордер создан, запись: {'ВКЛ' if user_recorder.recording else 'ВЫКЛ'}, активных сессий: {len(user_recorder.active_sessions)}")
                 
+                # Если рекордер не активен, запускаем его
+                if not user_recorder.recording:
+                    bot_logger.warning(f"📝 Рекордер пользователя {chat_id_str} не активен! Запускаем...")
+                    user_recorder.start_recording()
+                
                 if user_recorder.active_sessions:
                     for symbol, session in user_recorder.active_sessions.items():
                         duration = time.time() - session['start_time']
                         bot_logger.info(f"  📊 {symbol}: {duration:.1f}с, {len(session['data_points'])} точек данных")
             else:
                 bot_logger.warning(f"❌ Рекордер для пользователя {chat_id_str} не создан")
+                # Создаем рекордер
+                bot_logger.info(f"📝 Создаем рекордер для пользователя {chat_id_str}")
+                user_recorder = self.get_user_session_recorder(chat_id_str)
+                bot_logger.info(f"📝 Рекордер создан и {'активен' if user_recorder.recording else 'неактивен'}")
                 
             # Проверяем существование папки
             data_dir = f"user_sessions_{chat_id_str}"
             if os.path.exists(data_dir):
                 files = os.listdir(data_dir)
                 bot_logger.info(f"📁 Папка существует, файлов: {len(files)} - {files}")
+                
+                # Проверяем последний файл
+                if files:
+                    latest_file = max(files)
+                    filepath = os.path.join(data_dir, latest_file)
+                    try:
+                        with open(filepath, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                        sessions_count = len(data.get('sessions', []))
+                        bot_logger.info(f"📄 Последний файл {latest_file}: {sessions_count} сессий")
+                    except Exception as e:
+                        bot_logger.error(f"❌ Ошибка чтения файла {latest_file}: {e}")
             else:
                 bot_logger.warning(f"❌ Папка {data_dir} не существует")
                 
         except Exception as e:
             bot_logger.error(f"Ошибка диагностики для пользователя {chat_id}: {e}")
+
+    def force_diagnose_all_users(self):
+        """Принудительная диагностика всех пользователей"""
+        try:
+            from user_manager import user_manager
+            all_users = user_manager.get_all_users()
+            
+            bot_logger.info(f"🔍 Принудительная диагностика для {len(all_users)} пользователей")
+            
+            for user_data in all_users:
+                chat_id = user_data['chat_id']
+                self.diagnose_user_recording(chat_id)
+                
+        except Exception as e:
+            bot_logger.error(f"Ошибка принудительной диагностики: {e}")
 
     def update_activity_stats(self, sessions: list):
         """Обновляет статистику активности"""

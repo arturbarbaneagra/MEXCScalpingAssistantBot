@@ -145,6 +145,15 @@ class AutonomousActivityMonitor:
                 'trades': coin_data.get('trades', 0),
                 'price': coin_data.get('price', 0),
                 'change': coin_data.get('change', 0),
+                'natr': coin_data.get('natr', 0),
+                'spread': coin_data.get('spread', 0)
+            }
+            
+            # Отладочная информация
+            bot_logger.debug(f"🔍 Автономный монитор передает {symbol} в Session Recorder: volume={session_data['volume']}, active={session_data['active']}")
+            
+            from session_recorder import session_recorder
+            session_recorder.update_coin_activity(symbol, session_data, 0),
                 'spread': coin_data.get('spread', 0),
                 'natr': coin_data.get('natr', 0)
             }
