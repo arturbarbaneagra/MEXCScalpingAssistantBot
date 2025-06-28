@@ -173,10 +173,6 @@ class CacheManager:
             
             for key in expired_keys:
                 del cache[key]
-                cleaned_count += 1ey)
-
-            for key in expired_keys:
-                del cache[key]
                 cleaned_count += 1
 
         if cleaned_count > 0:
