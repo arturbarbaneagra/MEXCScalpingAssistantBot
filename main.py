@@ -128,22 +128,8 @@ def health_check():
                 <h1>🤖 MEXCScalping Assistant Status v2.1</h1>
                 <h2>🚀 Умный скальпинг бот</h2>
 
-                <div class="status-grid">
-                    <div class="metric-box {'success' if status['bot_running'] else 'critical'}">
-                        <strong>Bot Status:</strong> {'🟢 Running' if status['bot_running'] else '🔴 Stopped'}<br>
-                        <strong>Uptime:</strong> {uptime_hours:.1f} hours
-                    </div>
-
-                    <div class="metric-box">
-                        <strong>Watchlist:</strong> {status['watchlist_size']} coins<br>
-                        <strong>Active Coins:</strong> {status['active_coins_count']}
-                    </div>
-                </div>
-
                 <div class="metric-box">
-                    <strong>🚨 Alerts:</strong> {alert_status}<br>
-                    {f"Recent alerts: {', '.join([a.get('message', '')[:50] + '...' if len(a.get('message', '')) > 50 else a.get('message', '') for a in alerts[:2]])}" if alerts else "No active alerts"}<br>
-                    <strong>Advanced:</strong> {len(advanced_alerts)} active, {alert_stats.get('total_triggers', 0)} total triggers
+                    <strong>Uptime:</strong> {uptime_hours:.1f} hours
                 </div>
 
                 <div class="metric-box">
@@ -164,9 +150,6 @@ def health_check():
                     <div class="metric-box">
                         <strong>System:</strong><br>
                         Version: 2.1 (Scalping Bot)<br>
-                        Session Recorder: {'🟢 Active' if session_stats['recording'] else '🔴 Stopped'}<br>
-                        Autonomous Monitor: {'🟢 Active' if monitor_stats['running'] else '🔴 Stopped'}<br>
-                        Tracking: {monitor_stats['active_activities']} activities<br>
                         Last update: {time.strftime('%H:%M:%S')}
                     </div>
                 </div>
