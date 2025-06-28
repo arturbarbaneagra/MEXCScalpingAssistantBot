@@ -1,7 +1,24 @@
-
 {
-  "users": {},
+  "users": {
+    "8195543530": {
+      "chat_id": "8195543530",
+      "username": "arturlorf",
+      "first_name": "Artur",
+      "last_name": "",
+      "approved_time": 1751104389.766431,
+      "approved_datetime": "2025-06-28T09:53:09.766433",
+      "setup_completed": false,
+      "watchlist": [],
+      "config": {
+        "VOLUME_THRESHOLD": 1000,
+        "SPREAD_THRESHOLD": 0.1,
+        "NATR_THRESHOLD": 0.5
+      },
+      "active_coins": {},
+      "last_activity": 1751104389.7664425
+    }
+  },
   "pending_requests": {},
   "rejected_users": {},
-  "last_updated": "2025-06-28T09:52:00.000000"
+  "last_updated": "2025-06-28T09:53:09.766446"
 }
