@@ -710,14 +710,13 @@ class TradingTelegramBot:
         """Обрабатывает запрос активности за 24 часа"""
         try:
             chat_id = update.effective_chat.id
-            bot_logger.info(f"📈 Обработка кнопки 'Активность 24ч' для пользователя {chat_id} ({'админ' if user_manager.is_admin(chat_id) else 'пользователь'})")
+            bot_logger.info(f"📈 Обработка кнопки 'Активность 24ч' для пользователя {chat_id}")
 
-            # Получаем персональный отчет активности пользователя
+            # Получаем отчет активности пользователя
             from user_activity_calculator import user_activity_manager
 
             report = user_activity_manager.get_user_activity_report(chat_id)
 
-            # Определяем клавиатуру в зависимости от роли
             user_keyboard = self.get_user_keyboard(chat_id)
 
             await update.message.reply_text(

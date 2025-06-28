@@ -530,12 +530,43 @@ class UserActivityCalculator:
             if not activities:
                 return "❌ Нет данных об активности за последние 24 часа"
             
-            # Рассчитываем статистику
+            # Рассчитываем статистику по текущим 24 часам
             stats = self.calculate_activity_statistics_welford(activities)
             total_activity = sum(activities)
             
-            # Получаем информацию об уровне активности
-            activity_info = self.get_activity_level_info(total_activity)
+            # Если нет активности, показываем простое сообщение
+            if total_activity == 0:
+                return (
+                    "💤 <b>Ваша активность за последние 24 часа</b>\n\n"
+                    "📊 Общая активность: <b>0 минут</b>\n"
+                    "💡 Запустите бота и добавьте монеты для отслеживания активности!"
+                )
+            
+            # Получаем информацию об уровне активности (используем упрощенную схему)
+            if total_activity >= 100:
+                level = "Экстремально высокая"
+                emoji = "🔥🔥🔥"
+                color = "🟥"
+            elif total_activity >= 60:
+                level = "Очень высокая"
+                emoji = "🔥🔥"
+                color = "🟧"
+            elif total_activity >= 30:
+                level = "Высокая"
+                emoji = "🔥"
+                color = "🟨"
+            elif total_activity >= 15:
+                level = "Выше средней"
+                emoji = "📈"
+                color = "🟩"
+            elif total_activity >= 5:
+                level = "Средняя"
+                emoji = "📊"
+                color = "🟦"
+            else:
+                level = "Низкая"
+                emoji = "❄️"
+                color = "⬜"
             
             # Находим часы с максимальной активностью
             max_activity = max(activities)
@@ -548,7 +579,7 @@ class UserActivityCalculator:
             report_lines = []
             
             # Заголовок с общей информацией
-            report_lines.append(f"{activity_info['color']} <b>Ваш уровень активности: {activity_info['level']}</b> {activity_info['emoji']}")
+            report_lines.append(f"{color} <b>Ваш уровень активности: {level}</b> {emoji}")
             report_lines.append("")
             
             # Основная статистика
@@ -557,10 +588,6 @@ class UserActivityCalculator:
             report_lines.append(f"• Активных часов: <b>{active_hours}/24</b>")
             report_lines.append(f"• Максимум за час: <b>{max_activity:.1f} мин</b> ({max_hour_index} часов назад)")
             report_lines.append(f"• Среднее за час: <b>{stats['mean']:.1f} мин</b>")
-            
-            if stats['std'] > 0:
-                report_lines.append(f"• Z-score: <b>{activity_info['z_score']:.2f}</b>")
-            
             report_lines.append("")
             
             # Топ-5 самых активных часов
@@ -600,14 +627,6 @@ class UserActivityCalculator:
             
             report_lines.append(f"<code>{visual_line}</code>")
             report_lines.append("<i>🔥≥10мин 🔴≥5мин 🟡≥2мин 🟢≥1мин ⚪&lt;1мин</i>")
-            
-            # Информация о статистической модели
-            if self.count >= 5:
-                report_lines.append("")
-                report_lines.append(f"<i>📊 Ваша личная статистика основана на {self.count} наблюдениях</i>")
-            else:
-                report_lines.append("")
-                report_lines.append(f"<i>⚠️ Мало данных для вашей личной статистики ({self.count} наблюдений)</i>")
             
             return "\n".join(report_lines)
             
