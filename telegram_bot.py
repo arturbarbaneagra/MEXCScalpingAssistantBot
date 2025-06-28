@@ -1242,7 +1242,7 @@ class TradingTelegramBot:
         # Получаем список монет в зависимости от роли
         if user_manager.is_admin(chat_id):
             coins = watchlist_manager.get_all()
-            list_title = "админский список"
+            list_title = "ваш список"
         else:
             coins = user_manager.get_user_watchlist(chat_id)
             list_title = "ваш список"
@@ -1254,9 +1254,8 @@ class TradingTelegramBot:
             )
             return ConversationHandler.END
 
-        coins_list = ", ".join(sorted(coins)[:10])
-        if len(coins) > 10:
-            coins_list += "..."
+        # Показываем все монеты без обрезания
+        coins_list = ", ".join(sorted(coins))
 
         await update.message.reply_text(
             f"➖ <b>Удаление монеты</b>\n\n"
