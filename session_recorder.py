@@ -179,7 +179,9 @@ class SessionRecorder:
                 watchlist = user_manager.get_user_watchlist(chat_id_str)
                 list_type = "персональный"
             
-            bot_logger.info(f"📋 {list_type} список: {len(watchlist)} монет - {', '.join(watchlist[:5])}{'...' if len(watchlist) > 5 else ''}")
+            # Конвертируем в список для отображения
+            watchlist_items = list(watchlist)
+            bot_logger.info(f"📋 {list_type} список: {len(watchlist_items)} монет - {', '.join(watchlist_items[:5])}{'...' if len(watchlist_items) > 5 else ''}")
             
             # Проверяем, создан ли рекордер
             if chat_id_str in self.user_session_recorders:
