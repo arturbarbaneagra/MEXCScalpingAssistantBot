@@ -380,6 +380,19 @@ class UserModesManager:
         for chat_id in list(self.user_modes.keys()):
             await self.stop_user_mode(chat_id)
 
+    async def update_user_mode(self, chat_id: str) -> bool:
+        """Обновляет режим пользователя с новыми настройками"""
+        chat_id_str = str(chat_id)
+        
+        if chat_id_str not in self.user_modes:
+            return False
+            
+        user_mode = self.user_modes[chat_id_str]
+        if not user_mode.running:
+            return False
+            
+        return await user_mode.update_monitoring()
+
 
 # Глобальный экземпляр менеджера (будет инициализирован в telegram_bot.py)
 user_modes_manager = None

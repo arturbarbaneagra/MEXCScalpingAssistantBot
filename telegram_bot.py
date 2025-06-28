@@ -1599,7 +1599,7 @@ class TradingTelegramBot:
         )
 
         # Принудительно запускаем обновление мониторинга для пользователя
-        self.user_modes_manager.update_user_mode(chat_id)
+        await self.user_modes_manager.update_user_mode(chat_id)
 
 
 
