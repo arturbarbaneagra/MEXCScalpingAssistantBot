@@ -286,12 +286,17 @@ class AdminHandlers:
         # Получаем статистику до очистки
         stats_before = user_manager.get_stats()
 
+        # Останавливаем все пользовательские режимы КРОМЕ админа
+        if hasattr(self.bot, 'user_modes_manager') and self.bot.user_modes_manager:
+            admin_id = str(update.effective_chat.id)
+            
+            # Останавливаем режимы всех пользователей кроме админа
+            for user_id in list(self.bot.user_modes_manager.user_modes.keys()):
+                if user_id != admin_id:
+                    await self.bot.user_modes_manager.stop_user_mode(user_id)
+
         # Очищаем всех пользователей кроме админа
         cleared_count = user_manager.clear_all_users_except_admin()
-
-        # Останавливаем все пользовательские режимы
-        if hasattr(self.bot, 'user_modes_manager') and self.bot.user_modes_manager:
-            await self.bot.user_modes_manager.stop_all_modes()
 
         await update.message.reply_text(
             f"🧹 <b>Очистка пользователей завершена</b>\n\n"
@@ -299,7 +304,8 @@ class AdminHandlers:
             f"• Удалено пользователей: {cleared_count}\n"
             f"• Удалено заявок: {stats_before['pending_requests']}\n"
             f"• Удалено отклоненных: {stats_before.get('rejected_users', 0)}\n\n"
-            f"✅ Остались только данные администратора",
+            f"✅ Остались только данные администратора\n"
+            f"⚙️ Режимы администратора сохранены",
             parse_mode=ParseMode.HTML,
             reply_markup=self.get_admin_keyboard()
         )
@@ -385,6 +391,11 @@ class AdminHandlers:
         if not user_manager.is_admin(update.effective_chat.id):
             await update.callback_query.answer("❌ У вас нет прав администратора")
             return
+
+        # Останавливаем персональные режимы пользователя перед отключением
+        if hasattr(self.bot, 'user_modes_manager') and self.bot.user_modes_manager:
+            await self.bot.user_modes_manager.stop_user_mode(chat_id)
+            bot_logger.info(f"Остановлены режимы пользователя {chat_id} перед отключением")
 
         if user_manager.revoke_user_access(chat_id):
             # Уведомляем пользователя об отключении

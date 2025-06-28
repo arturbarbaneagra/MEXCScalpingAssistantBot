@@ -60,17 +60,29 @@ class TradingTelegramBot:
     @property
     def active_coins(self):
         """Свойство для обратной совместимости с основным health check"""
-        # Для админа показываем его персональные активные монеты или глобальные
-        admin_mode = self.user_modes_manager.get_user_mode(self.chat_id)
-        if admin_mode == 'notification':
-            admin_stats = self.user_modes_manager.get_user_stats(self.chat_id)
-            mode_stats = admin_stats.get('modes', {}).get('notification', {})
-            active_coins = mode_stats.get('active_coins', [])
-            # Преобразуем в формат {symbol: {}} для совместимости
-            return {coin: {'active': True} for coin in active_coins}
-        elif self.bot_mode == 'notification':
-            return self.notification_mode.active_coins
-        return {}
+        # Собираем активные монеты со всех пользователей для общей статистики
+        all_active_coins = {}
+        
+        # Получаем статистику всех пользователей
+        all_users_stats = self.user_modes_manager.get_all_stats()
+        
+        for user_id, user_stats in all_users_stats.get('users', {}).items():
+            user_modes = user_stats.get('modes', {})
+            
+            # Проверяем режим уведомлений
+            if 'notification' in user_modes:
+                notification_stats = user_modes['notification']
+                active_coins_list = notification_stats.get('active_coins', [])
+                
+                # Добавляем активные монеты этого пользователя
+                for coin in active_coins_list:
+                    if coin not in all_active_coins:
+                        all_active_coins[coin] = {'users': []}
+                    all_active_coins[coin]['users'].append(user_id)
+        
+        # Преобразуем в формат {symbol: {}} для совместимости
+        return {coin: {'active': True, 'users_count': len(data['users'])} 
+                for coin, data in all_active_coins.items()}
 
     def get_user_keyboard(self, chat_id: str) -> ReplyKeyboardMarkup:
         """Возвращает соответствующую клавиатуру для пользователя"""
@@ -814,16 +826,13 @@ class TradingTelegramBot:
             )
             return
 
-        # ВАЖНО: Сначала останавливаем ВСЕ режимы (глобальные и персональные)
-        if user_manager.is_admin(chat_id):
-            await self._stop_current_mode()  # Останавливаем глобальные режимы
-        await self.user_modes_manager.stop_user_mode(chat_id)  # Останавливаем персональные режимы
+        # Останавливаем только персональные режимы пользователя
+        await self.user_modes_manager.stop_user_mode(chat_id)
 
         # Запускаем персональный режим уведомлений
         success = await self.user_modes_manager.start_user_mode(chat_id, 'notification')
 
         if success:
-            # Отправляем ТОЛЬКО одно сообщение
             await update.message.reply_text(
                 "✅ <b>Режим уведомлений активирован</b>\n"
                 "🔔 Вы будете получать уведомления об активных монетах из вашего списка.",
@@ -863,16 +872,13 @@ class TradingTelegramBot:
             )
             return
 
-        # ВАЖНО: Сначала останавливаем ВСЕ режимы (глобальные и персональные)
-        if user_manager.is_admin(chat_id):
-            await self._stop_current_mode()  # Останавливаем глобальные режимы
-        await self.user_modes_manager.stop_user_mode(chat_id)  # Останавливаем персональные режимы
+        # Останавливаем только персональные режимы пользователя
+        await self.user_modes_manager.stop_user_mode(chat_id)
 
         # Запускаем персональный режим мониторинга
         success = await self.user_modes_manager.start_user_mode(chat_id, 'monitoring')
 
         if success:
-            # Отправляем ТОЛЬКО одно сообщение
             await update.message.reply_text(
                 "✅ <b>Режим мониторинга активирован</b>\n"
                 "📊 Сводка по вашим монетам будет обновляться автоматически.",
@@ -887,23 +893,20 @@ class TradingTelegramBot:
             )
 
     async def _handle_stop(self, update: Update):
-        """Обработка остановки бота"""
+        """Обработка остановки бота - каждый пользователь управляет только своими режимами"""
         chat_id = update.effective_chat.id
         user_keyboard = self.get_user_keyboard(chat_id)
 
-        # Останавливаем персональный режим пользователя
+        # Останавливаем только персональные режимы пользователя
         stopped = await self.user_modes_manager.stop_user_mode(chat_id)
 
-        # Для админа также останавливаем глобальные режимы если есть
-        if user_manager.is_admin(chat_id):
-            await self._stop_current_mode()
-
-        if stopped or (user_manager.is_admin(chat_id) and self.bot_running):
+        if stopped:
             await update.message.reply_text(
                 "🛑 <b>Ваши режимы остановлены</b>",
                 reply_markup=user_keyboard,
                 parse_mode=ParseMode.HTML
             )
+            bot_logger.info(f"Пользователь {chat_id} остановил свои режимы")
         else:
             await update.message.reply_text(
                 "ℹ️ У вас нет активных режимов.",
