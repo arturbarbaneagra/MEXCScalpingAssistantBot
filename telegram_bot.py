@@ -129,7 +129,7 @@ class TradingTelegramBot:
             ["🛑 Стоп"]
         ], resize_keyboard=True, one_time_keyboard=False)
 
-        # Основная клавиатура (используется по умолчанию)
+        # Основная клавиатура (используется по умолчанию для админа)
         self.main_keyboard = self.admin_keyboard
 
         self.settings_keyboard = ReplyKeyboardMarkup([
@@ -702,16 +702,40 @@ class TradingTelegramBot:
 
             message_text = update.message.text
 
-            # Админские функции
+            # Админские функции - только для администратора
             if message_text == "👥 Список заявок":
-                await self.admin_handlers.handle_pending_requests(update, context)
+                if user_manager.is_admin(chat_id):
+                    await self.admin_handlers.handle_pending_requests(update, context)
+                else:
+                    await update.message.reply_text(
+                        "❌ У вас нет прав для выполнения этого действия",
+                        reply_markup=user_keyboard
+                    )
             elif message_text == "📋 Логи":
-                await self.admin_handlers.handle_logs_request(update, context)
+                if user_manager.is_admin(chat_id):
+                    await self.admin_handlers.handle_logs_request(update, context)
+                else:
+                    await update.message.reply_text(
+                        "❌ У вас нет прав для выполнения этого действия",
+                        reply_markup=user_keyboard
+                    )
             elif message_text == "👤 Управление пользователями":
-                await self.admin_handlers.handle_user_management(update, context)
+                if user_manager.is_admin(chat_id):
+                    await self.admin_handlers.handle_user_management(update, context)
+                else:
+                    await update.message.reply_text(
+                        "❌ У вас нет прав для выполнения этого действия",
+                        reply_markup=user_keyboard
+                    )
             elif message_text == "🧹 Очистить пользователей":
-                await self.admin_handlers.handle_clear_all_users(update, context)
-                return ConversationHandler.END  # Добавляем return чтобы не попасть в обработку общих кнопок
+                if user_manager.is_admin(chat_id):
+                    await self.admin_handlers.handle_clear_all_users(update, context)
+                    return ConversationHandler.END
+                else:
+                    await update.message.reply_text(
+                        "❌ У вас нет прав для выполнения этого действия",
+                        reply_markup=user_keyboard
+                    )
 
             # Общие кнопки для всех пользователей
             elif text == "🔔 Уведомления":
@@ -1384,9 +1408,12 @@ class TradingTelegramBot:
 
     async def _handle_back(self, update: Update):
         """Возврат в главное меню"""
+        chat_id = update.effective_chat.id
+        user_keyboard = self.get_user_keyboard(chat_id)
+        
         await update.message.reply_text(
             "🏠 Главное меню:",
-            reply_markup=self.main_keyboard
+            reply_markup=user_keyboard
         )
 
     # Handlers для ConversationHandler
@@ -2021,27 +2048,35 @@ class TradingTelegramBot:
         query = update.callback_query
         await query.answer()
 
-        if not user_manager.is_admin(query.from_user.id):
+        chat_id = query.from_user.id
+        data = query.data
+
+        # Проверяем админские действия
+        admin_actions = ["approve_", "reject_", "revoke_", "show_all_users", "users_page_"]
+        is_admin_action = any(data.startswith(action) for action in admin_actions)
+        
+        if is_admin_action and not user_manager.is_admin(chat_id):
             await query.edit_message_text("❌ У вас нет прав администратора")
             return
 
-        data = query.data
-
+        # Обрабатываем админские действия
         if data.startswith("approve_"):
-            chat_id = data.replace("approve_", "")
-            await self.admin_handlers.handle_approve_user(update, context, chat_id)
+            target_chat_id = data.replace("approve_", "")
+            await self.admin_handlers.handle_approve_user(update, context, target_chat_id)
         elif data.startswith("reject_"):
-            chat_id = data.replace("reject_", "")
-            await self.admin_handlers.handle_reject_user(update, context, chat_id)
+            target_chat_id = data.replace("reject_", "")
+            await self.admin_handlers.handle_reject_user(update, context, target_chat_id)
         elif data.startswith("revoke_"):
-            chat_id = data.replace("revoke_", "")
-            await self.admin_handlers.handle_revoke_user(update, context, chat_id)
+            target_chat_id = data.replace("revoke_", "")
+            await self.admin_handlers.handle_revoke_user(update, context, target_chat_id)
         elif data == "show_all_users":
             await self.admin_handlers.handle_show_all_users(update, context)
         elif data.startswith("users_page_"):
             # Обработка пагинации пользователей (можно расширить позже)
             page = int(data.replace("users_page_", ""))
             await self.admin_handlers.handle_show_all_users(update, context)
+        
+        # Обрабатываем пользовательские действия (доступны всем)
         elif data == "add_more_coin":
             await self._handle_add_more_coin(update, context)
         elif data == "setup_filters":
@@ -2358,7 +2393,7 @@ class TradingTelegramBot:
                 "💡 <b>Пожалуйста, используйте кнопки меню</b>\n\n"
                 "Выберите действие из доступных опций:",
                 parse_mode=ParseMode.HTML,
-                reply_markup=self.user_keyboard
+                reply_markup=self.get_user_keyboard(update.effective_chat.id)
             )
             return ConversationHandler.END
 
