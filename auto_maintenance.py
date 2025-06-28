@@ -84,7 +84,7 @@ class AutoMaintenance:
     async def _optimize_performance(self):
         """Оптимизация производительности"""
         try:
-            performance_optimizer.optimize()
+            await performance_optimizer.optimize()
             bot_logger.debug("✅ Оптимизация производительности завершена")
         except Exception as e:
             bot_logger.error(f"Ошибка оптимизации: {e}")

@@ -1366,13 +1366,12 @@ class TradingTelegramBot:
                     'lowest_price': float(coin_data.get('lastPrice', 0))
                 }
 
-                alert_text = (
-                    f"🔥 <b>{symbol} Активна!</b>\n\n"
-                    f"💰 Цена: <code>${self.active_coins[symbol]['last_price']:.6f}</code>\n"
-                    f"📊 Объём: <code>${volume:,.2f}</code>\n"
-                    f"⇄ Спред: <code>{spread:.2f}%</code>\n"
-                    f"📈 NATR: <code>{natr:.2f}%</code>"
-                )
+                # Компактное сообщение для скальпинга
+                message_text = f"""
+🚀 <b>{symbol}</b> ${price:.6f}
+📊 ${volume:.0f} | {change:+.2f}% | {spread:.2f}% | {natr:.2f}% | {trades}tx
+🕒 {time.strftime('%H:%M:%S')}
+                    """.strip()
                 await self.send_message(alert_text)
                 bot_logger.info(f"Обнаружена активная монета: {symbol}")
             else:

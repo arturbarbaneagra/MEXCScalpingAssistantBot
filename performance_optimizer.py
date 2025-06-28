@@ -12,7 +12,7 @@ class PerformanceOptimizer:
     
     def __init__(self):
         self.last_optimization = 0
-        self.optimization_interval = 300  # 5 минут
+        self.optimization_interval = 120  # 2 минуты для скальпинга
         self.performance_history = []
         self.auto_optimization_enabled = True
         self.optimization_stats = {
@@ -136,22 +136,22 @@ class PerformanceOptimizer:
                 
                 bot_logger.info(f"🔧 Автооптимизация (медленный API): {', '.join(actions_taken)}")
             
-            # Если API быстрый - можем увеличить нагрузку
-            elif avg_time < 0.3:
+            # Если API быстрый - агрессивно увеличиваем нагрузку для скальпинга
+            elif avg_time < 0.2:
                 current_batch_size = config_manager.get('CHECK_BATCH_SIZE')
-                if current_batch_size < 20:
-                    new_batch_size = min(20, current_batch_size + 1)
+                if current_batch_size < 30:
+                    new_batch_size = min(30, current_batch_size + 2)
                     config_manager.set('CHECK_BATCH_SIZE', new_batch_size)
                     actions_taken.append(f"Увеличен batch_size до {new_batch_size}")
                     
                 current_interval = config_manager.get('CHECK_BATCH_INTERVAL')
-                if current_interval > 0.3:
-                    new_interval = max(0.3, current_interval - 0.05)
+                if current_interval > 0.15:
+                    new_interval = max(0.15, current_interval - 0.05)
                     config_manager.set('CHECK_BATCH_INTERVAL', new_interval)
                     actions_taken.append(f"Уменьшен interval до {new_interval}")
                 
                 if actions_taken:
-                    bot_logger.info(f"⚡ Автооптимизация (быстрый API): {', '.join(actions_taken)}")
+                    bot_logger.info(f"⚡ Автооптимизация (скальпинг режим): {', '.join(actions_taken)}")
             
             # Оптимизация кеша
             cache_optimizations = await self._optimize_cache()

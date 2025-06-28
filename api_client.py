@@ -32,21 +32,21 @@ class APIClient:
                     except Exception:
                         pass
 
-                # Правильная конфигурация таймаутов
+                # Агрессивные timeout'ы для скальпинга
                 timeout = aiohttp.ClientTimeout(
-                    total=config_manager.get('API_TIMEOUT', 12),
-                    connect=5,
-                    sock_read=10
+                    total=config_manager.get('API_TIMEOUT', 8),
+                    connect=2,
+                    sock_read=6
                 )
 
-                # Настройки коннектора для оптимизации
+                # Оптимизированный коннектор для скальпинга
                 connector = aiohttp.TCPConnector(
-                    limit=10,  # Уменьшаем лимиты
-                    limit_per_host=5,
-                    ttl_dns_cache=300,
+                    limit=30,  # Увеличиваем для скальпинга
+                    limit_per_host=15,
+                    ttl_dns_cache=600,
                     use_dns_cache=True,
-                    enable_cleanup_closed=True
-                    # Убираем force_close=True для совместимости с keepalive_timeout
+                    enable_cleanup_closed=True,
+                    keepalive_timeout=60
                 )
 
                 self.session = aiohttp.ClientSession(
@@ -598,11 +598,11 @@ class APIClient:
             return None
 
     async def _rate_limit(self):
-        """Реализует улучшенный rate limiting для MEXC API"""
+        """Реализует агрессивный rate limiting для скальпинга"""
         current_time = time.time()
 
-        # MEXC API лимит: 20 запросов в секунду
-        min_interval = 0.05  # 50ms между запросами
+        # MEXC API лимит: 20 запросов в секунду - используем 95% лимита
+        min_interval = config_manager.get('RATE_LIMIT_SLEEP', 0.025)  # 25ms между запросами
 
         # Проверяем интервал с последним запросом
         interval = current_time - self.last_request_time
@@ -614,9 +614,9 @@ class APIClient:
         self.last_request_time = time.time()
         self.request_count += 1
 
-        # Дополнительная защита от burst запросов
-        if self.request_count % 15 == 0:  # Каждые 15 запросов пауза
-            await asyncio.sleep(0.1)
+        # Микропауза каждые 20 запросов для стабильности
+        if self.request_count % 20 == 0:
+            await asyncio.sleep(0.05)
 
     async def get_current_price_fast(self, symbol: str) -> Optional[float]:
         """Быстрое получение текущей цены монеты с кешированием"""

@@ -170,7 +170,7 @@ class CacheManager:
             for key, entry in cache.items():
                 if current_time - entry['timestamp'] > self.default_ttl:
                     expired_keys.append(key)
-            
+
             for key in expired_keys:
                 del cache[key]
                 cleaned_count += 1
