@@ -684,6 +684,35 @@ class TradingTelegramBot:
                 await self._handle_status(update)
             elif text == "🔄 Обновить мониторинг":
                 await self._handle_refresh_monitoring(update)
+            async def _handle_activity_24h(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обрабатывает запрос активности за 24 часа"""
+        try:
+            chat_id = update.effective_chat.id
+            bot_logger.info(f"📈 Обработка кнопки 'Активность 24ч' для пользователя {chat_id} ({'админ' if user_manager.is_admin(chat_id) else 'пользователь'})")
+
+            # Получаем персональный отчет от калькулятора активности пользователя
+            from user_activity_calculator import user_activity_manager
+
+            report = user_activity_manager.get_user_activity_report(str(chat_id))
+
+            # Определяем клавиатуру в зависимости от роли
+            if user_manager.is_admin(chat_id):
+                keyboard = self.get_admin_keyboard()
+            else:
+                keyboard = self.get_user_keyboard()
+
+            await update.message.reply_text(
+                report,
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+
+        except Exception as e:
+            bot_logger.error(f"Ошибка получения активности 24ч: {e}")
+            await update.message.reply_text(
+                "❌ Ошибка получения статистики активности",
+                reply_markup=self.get_admin_keyboard() if user_manager.is_admin(update.effective_chat.id) else self.get_user_keyboard()
+            )
             elif text == "📈 Активность 24ч":
                 bot_logger.info(f"📈 Обработка кнопки 'Активность 24ч' для пользователя {chat_id} {'(админ)' if user_manager.is_admin(chat_id) else '(пользователь)'}")
                 await self._handle_activity_24h(update)
@@ -1545,54 +1574,14 @@ class TradingTelegramBot:
         self.monitoring_message_id = await self.send_message(new_message_text)
 
         await update.message.reply_text(
-            "✅ <b>Мониторинг обновлен</b>\nСообщение перемещено в низ чата",
+            "✅ <b>Мониторинг обновлен</b>\nСообщение перемещено вThe code is updated to use personal activity calculators for each user.
+```python
+ низ чата",
             reply_markup=user_keyboard,
             parse_mode=ParseMode.HTML
         )
 
-    async def _handle_activity_24h(self, update: Update):
-        """Обработчик кнопки Активность 24ч"""
-        chat_id = update.effective_chat.id
-        user_keyboard = self.get_user_keyboard(chat_id)
-
-        try:
-            # Импортируем калькулятор активности
-            from activity_level_calculator import ActivityLevelCalculator
-            
-            calculator = ActivityLevelCalculator()
-            
-            # Генерируем отчет активности за 24 часа
-            activity_report = calculator.generate_24h_activity_report()
-            
-            # Форматируем сообщение
-            message = (
-                "📈 <b>Активность за последние 24 часа</b>\n\n"
-                f"{activity_report}\n\n"
-                "💡 <i>Данные основаны на записанных сессиях торговой активности</i>"
-            )
-            
-            await update.message.reply_text(
-                message,
-                reply_markup=user_keyboard,
-                parse_mode=ParseMode.HTML
-            )
-            
-        except ImportError:
-            await update.message.reply_text(
-                "📈 <b>Активность за 24 часа</b>\n\n"
-                "⚠️ Модуль анализа активности недоступен.\n"
-                "Функция находится в разработке.",
-                reply_markup=user_keyboard,
-                parse_mode=ParseMode.HTML
-            )
-        except Exception as e:
-            bot_logger.error(f"Ошибка получения активности 24ч: {e}")
-            await update.message.reply_text(
-                "❌ Ошибка при получении данных активности.\n"
-                "Попробуйте позже.",
-                reply_markup=user_keyboard,
-                parse_mode=ParseMode.HTML
-            )
+    
 
     async def _handle_back(self, update: Update):
         """Обработчик кнопки Назад"""

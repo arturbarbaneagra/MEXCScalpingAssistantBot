@@ -7,7 +7,7 @@ import os
 import json
 import time
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Optional, Any
 from logger import bot_logger
 from config import config_manager
@@ -238,6 +238,52 @@ class SessionRecorder:
             'session_symbols': list(self.active_sessions.keys()),
             'data_directory': self.data_directory
         }
+
+    def update_activity_stats(self, sessions: list):
+        """Обновляет статистику активности"""
+        # Обновляем статистику активности для всех пользователей
+        try:
+            from user_activity_calculator import user_activity_manager
+            from user_manager import user_manager
+
+            # Получаем сессии для текущего часа
+            current_hour = datetime.now().replace(minute=0, second=0, microsecond=0)
+            hour_sessions = [s for s in sessions if
+                           current_hour <= datetime.fromtimestamp(s.get('start_time', 0)) < current_hour + timedelta(hours=1)]
+
+            if hour_sessions:
+                # Обновляем статистику для каждого пользователя
+                all_users = user_manager.get_all_users()
+                for user_data in all_users:
+                    chat_id = user_data['chat_id']
+
+                    # Получаем сессии пользователя за этот час
+                    user_hour_sessions = []
+                    user_data_dir = f"user_sessions_{chat_id}"
+                    if os.path.exists(user_data_dir):
+                        date_str = current_hour.strftime('%Y-%m-%d')
+                        user_filepath = os.path.join(user_data_dir, f"sessions_{date_str}.json")
+
+                        if os.path.exists(user_filepath):
+                            try:
+                                with open(user_filepath, 'r', encoding='utf-8') as f:
+                                    user_daily_data = json.load(f)
+
+                                cutoff_start = current_hour.timestamp()
+                                cutoff_end = cutoff_start + 3600
+
+                                user_hour_sessions = [s for s in user_daily_data.get('sessions', [])
+                                                    if cutoff_start <= s.get('start_time', 0) < cutoff_end]
+                            except Exception as e:
+                                bot_logger.debug(f"Ошибка чтения файла пользователя {chat_id}: {e}")
+
+                    if user_hour_sessions:
+                        calculator = user_activity_manager.get_user_calculator(chat_id)
+                        hourly_activity = calculator.calculate_hourly_activity(user_hour_sessions, current_hour)
+                        calculator.update_activity_stats(hourly_activity)
+
+        except Exception as e:
+            bot_logger.warning(f"Ошибка обновления статистики активности: {e}")
 
 
 # Глобальный экземпляр
