@@ -32,8 +32,14 @@ class TradingBotLogger:
                 try:
                     os.rename(self.log_file, backup_name)
                     print(f"Старый лог переименован в: {backup_name}")
-                except:
-                    pass
+                except Exception as rename_error:
+                    print(f"Ошибка переименования лога: {rename_error}")
+                    # Попробуем удалить файл если не можем переименовать
+                    try:
+                        os.remove(self.log_file)
+                        print("Старый лог удален")
+                    except Exception as remove_error:
+                        print(f"Не удалось удалить лог: {remove_error}")
             
             file_handler = RotatingFileHandler(
                 self.log_file,
@@ -72,20 +78,32 @@ class TradingBotLogger:
 
     def info(self, message: str):
         """Логирует информационное сообщение"""
-        self.logger.info(message)
+        try:
+            self.logger.info(message)
+        except Exception as e:
+            print(f"[LOG ERROR] info: {message}")
 
     def warning(self, message: str):
         """Логирует предупреждение"""
-        self.logger.warning(message)
+        try:
+            self.logger.warning(message)
+        except Exception as e:
+            print(f"[LOG ERROR] warning: {message}")
 
     def error(self, message: str, exc_info: bool = False):
         """Логирует ошибку"""
-        self.logger.error(message, exc_info=exc_info)
+        try:
+            self.logger.error(message, exc_info=exc_info)
+        except Exception as e:
+            print(f"[LOG ERROR] error: {message}")
 
     def debug(self, message: str):
         """Логирует отладочное сообщение"""
-        if self.logger.isEnabledFor(logging.DEBUG):
-            self.logger.debug(message)
+        try:
+            if self.logger.isEnabledFor(logging.DEBUG):
+                self.logger.debug(message)
+        except Exception as e:
+            print(f"[LOG ERROR] debug: {message}")
 
     def critical(self, message: str, exc_info: bool = False):
         """Логирует критическую ошибку"""

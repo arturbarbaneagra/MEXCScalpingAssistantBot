@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Dict, Optional, Any
 from logger import bot_logger
 from config import config_manager
+import logging
 
 
 class SessionRecorder:
@@ -24,12 +25,30 @@ class SessionRecorder:
         # Создаем директорию если не существует
         if not os.path.exists(self.data_directory):
             os.makedirs(self.data_directory)
-            bot_logger.info(f"📁 Создана директория сессий: {self.data_directory}")
+            self._safe_log("info", f"📁 Создана директория сессий: {self.data_directory}")
+
+    def _safe_log(self, level: str, message: str):
+        """Безопасное логирование с резервным выводом"""
+        try:
+            if level == "info":
+                bot_logger.info(message)
+            elif level == "debug":
+                bot_logger.debug(message)
+            elif level == "warning":
+                bot_logger.warning(message)
+            elif level == "error":
+                bot_logger.error(message)
+        except Exception:
+            # Резервное логирование напрямую в консоль
+            try:
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] SessionRecorder {level.upper()}: {message}")
+            except Exception:
+                pass  # Если даже print не работает, игнорируем
 
     def start_recording(self):
         """Запуск записи сессий"""
         self.recording = True
-        bot_logger.info("📝 Session Recorder запущен")
+        self._safe_log("info", "📝 Session Recorder запущен")
 
     def stop_recording(self):
         """Остановка записи сессий"""
@@ -39,7 +58,7 @@ class SessionRecorder:
         for symbol in list(self.active_sessions.keys()):
             self._finalize_session(symbol, force=True)
 
-        bot_logger.info("📝 Session Recorder остановлен")
+        self._safe_log("info", "📝 Session Recorder остановлен")
 
     def update_coin_activity(self, symbol: str, coin_data: Dict):
         """Обновляет активность монеты"""
@@ -70,7 +89,7 @@ class SessionRecorder:
                         'price_samples': []
                     }
                 }
-                bot_logger.debug(f"📝 Начата запись сессии для {symbol}")
+                self._safe_log("debug", f"📝 Начата запись сессии для {symbol}")
 
             # Обновляем сессию
             session = self.active_sessions[symbol]
@@ -112,7 +131,7 @@ class SessionRecorder:
             # Обновляем общее время в минутах
             session['total_minutes'] = len(session['data_points'])
 
-            bot_logger.debug(f"📊 Обновлена сессия {symbol}: {session['total_minutes']} точек данных")
+            self._safe_log("debug", f"📊 Обновлена сессия {symbol}: {session['total_minutes']} точек данных")
 
     def check_inactive_sessions(self, active_coins: Dict):
         """Проверяет неактивные сессии и завершает их"""
@@ -162,13 +181,13 @@ class SessionRecorder:
 
             duration_min = int(duration // 60)
             duration_sec = int(duration % 60)
-            bot_logger.info(
+            self._safe_log("info",
                 f"💾 Сессия {symbol} сохранена: {duration_min}м {duration_sec}с, "
                 f"{session['total_minutes']} точек данных, "
                 f"макс.объем ${session['summary']['max_volume']:,.0f}"
             )
         else:
-            bot_logger.debug(f"⏭ Сессия {symbol} слишком короткая ({duration:.1f}с), не сохраняем")
+            self._safe_log("debug", f"⏭ Сессия {symbol} слишком короткая ({duration:.1f}с), не сохраняем")
 
         # Удаляем из активных сессий
         del self.active_sessions[symbol]
@@ -186,7 +205,7 @@ class SessionRecorder:
                     with open(filepath, 'r', encoding='utf-8') as f:
                         daily_data = json.load(f)
                 except Exception as e:
-                    bot_logger.warning(f"Ошибка чтения {filepath}: {e}, создаем новый")
+                    self._safe_log("warning", f"Ошибка чтения {filepath}: {e}, создаем новый")
                     daily_data = {'date': date_str, 'sessions': [], 'metadata': {}}
             else:
                 daily_data = {'date': date_str, 'sessions': [], 'metadata': {}}
@@ -211,10 +230,10 @@ class SessionRecorder:
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(daily_data, f, indent=2, ensure_ascii=False)
 
-            bot_logger.debug(f"💾 Сессия сохранена в {filepath}")
+            self._safe_log("debug", f"💾 Сессия сохранена в {filepath}")
 
         except Exception as e:
-            bot_logger.error(f"Ошибка сохранения сессии {session['symbol']}: {e}")
+            self._safe_log("error", f"Ошибка сохранения сессии {session['symbol']}: {e}")
 
     def get_daily_summary(self, date_str: str) -> Optional[Dict]:
         """Возвращает сводку за определенный день"""
@@ -227,7 +246,7 @@ class SessionRecorder:
             with open(filepath, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except Exception as e:
-            bot_logger.error(f"Ошибка чтения файла {filepath}: {e}")
+            self._safe_log("error", f"Ошибка чтения файла {filepath}: {e}")
             return None
 
     def get_stats(self) -> Dict[str, Any]:
