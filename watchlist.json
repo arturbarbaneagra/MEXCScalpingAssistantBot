@@ -9,7 +9,10 @@
     "FRED",
     "FSN",
     "FUD",
+    "HANDY",
     "INV",
+    "KREST",
+    "MEEFIE",
     "MFER",
     "MG8",
     "MONG",
@@ -17,6 +20,7 @@
     "NIGELLA",
     "NPCS",
     "PAI",
+    "PKTC",
     "PNG",
     "POOH",
     "RFD",
@@ -25,6 +29,8 @@
     "SKX",
     "SPS",
     "SQT",
+    "STRD",
+    "TAA",
     "TAMA",
     "TMAI",
     "UFD",
@@ -34,5 +40,5 @@
     "WLTH",
     "ZERC"
   ],
-  "updated": "2025-06-28T19:07:00.000000"
+  "updated": "2025-06-29T10:47:00.000000"
 }
