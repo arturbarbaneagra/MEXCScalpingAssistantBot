@@ -6,7 +6,13 @@ from logging.handlers import RotatingFileHandler
 
 class TradingBotLogger:
     def __init__(self, log_file: str = "trading_bot.log", max_size: int = 50*1024*1024, backup_count: int = 20):
-        self.log_file = log_file
+        # Создаем папку logs если не существует
+        self.logs_dir = "logs"
+        if not os.path.exists(self.logs_dir):
+            os.makedirs(self.logs_dir)
+        
+        # Устанавливаем путь к логу в папке logs
+        self.log_file = os.path.join(self.logs_dir, log_file)
         self.logger = logging.getLogger('MEXCScalpingAssistant')
         self.logger.setLevel(logging.DEBUG)
 
@@ -26,9 +32,8 @@ class TradingBotLogger:
             # Принудительная ротация если файл уже существует и большой
             if os.path.exists(self.log_file) and os.path.getsize(self.log_file) > max_size * 0.8:
                 # Переименовываем текущий файл
-                import time
                 timestamp = time.strftime("%Y%m%d_%H%M%S")
-                backup_name = f"{self.log_file}.{timestamp}.backup"
+                backup_name = os.path.join(self.logs_dir, f"trading_bot_{timestamp}.log.backup")
                 try:
                     os.rename(self.log_file, backup_name)
                     print(f"Старый лог переименован в: {backup_name}")
@@ -60,8 +65,7 @@ class TradingBotLogger:
             print(f"Ошибка создания файлового логгера: {e}")
             # Создаем простой файловый handler без ротации как fallback
             try:
-                import time
-                fallback_log = f"bot_log_{int(time.time())}.log"
+                fallback_log = os.path.join(self.logs_dir, f"bot_log_{int(time.time())}.log")
                 simple_handler = logging.FileHandler(fallback_log, encoding='utf-8')
                 simple_handler.setLevel(logging.INFO)
                 simple_handler.setFormatter(formatter)

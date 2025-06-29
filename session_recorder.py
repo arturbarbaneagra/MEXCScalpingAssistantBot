@@ -38,10 +38,17 @@ class SessionRecorder:
                 bot_logger.warning(message)
             elif level == "error":
                 bot_logger.error(message)
-        except Exception:
+        except Exception as log_error:
             # Резервное логирование напрямую в консоль
             try:
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] SessionRecorder {level.upper()}: {message}")
+                timestamp = datetime.now().strftime('%H:%M:%S')
+                print(f"[{timestamp}] SessionRecorder {level.upper()}: {message}")
+                # Также попробуем записать в лог файл напрямую в папке logs
+                try:
+                    with open("logs/session_recorder_emergency.log", "a", encoding="utf-8") as f:
+                        f.write(f"[{timestamp}] {level.upper()}: {message}\n")
+                except Exception:
+                    pass
             except Exception:
                 pass  # Если даже print не работает, игнорируем
 
