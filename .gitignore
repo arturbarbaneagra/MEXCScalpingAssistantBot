@@ -162,6 +162,10 @@ cython_debug/
 # Logs
 *.log
 logs/
+trading_bot.log*
+
+# Session data
+session_data/
 
 # Environment variables
 .env
