@@ -1,10 +1,11 @@
 import logging
 import os
+import time
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 
 class TradingBotLogger:
-    def __init__(self, log_file: str = "trading_bot.log", max_size: int = 10*1024*1024, backup_count: int = 5):
+    def __init__(self, log_file: str = "trading_bot.log", max_size: int = 50*1024*1024, backup_count: int = 20):
         self.log_file = log_file
         self.logger = logging.getLogger('MEXCScalpingAssistant')
         self.logger.setLevel(logging.DEBUG)
@@ -22,6 +23,18 @@ class TradingBotLogger:
 
         # Файловый обработчик с ротацией
         try:
+            # Принудительная ротация если файл уже существует и большой
+            if os.path.exists(self.log_file) and os.path.getsize(self.log_file) > max_size * 0.8:
+                # Переименовываем текущий файл
+                import time
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                backup_name = f"{self.log_file}.{timestamp}.backup"
+                try:
+                    os.rename(self.log_file, backup_name)
+                    print(f"Старый лог переименован в: {backup_name}")
+                except:
+                    pass
+            
             file_handler = RotatingFileHandler(
                 self.log_file,
                 maxBytes=max_size,
@@ -31,8 +44,25 @@ class TradingBotLogger:
             file_handler.setLevel(logging.INFO)
             file_handler.setFormatter(formatter)
             self.logger.addHandler(file_handler)
+            
+            # Принудительная ротация если нужно
+            if hasattr(file_handler, 'shouldRollover'):
+                if file_handler.shouldRollover(logging.LogRecord("", 0, "", 0, "", (), None)):
+                    file_handler.doRollover()
+                    
         except Exception as e:
             print(f"Ошибка создания файлового логгера: {e}")
+            # Создаем простой файловый handler без ротации как fallback
+            try:
+                import time
+                fallback_log = f"bot_log_{int(time.time())}.log"
+                simple_handler = logging.FileHandler(fallback_log, encoding='utf-8')
+                simple_handler.setLevel(logging.INFO)
+                simple_handler.setFormatter(formatter)
+                self.logger.addHandler(simple_handler)
+                print(f"Создан резервный лог: {fallback_log}")
+            except Exception as e2:
+                print(f"Критическая ошибка логирования: {e2}")
 
         # Консольный обработчик
         console_handler = logging.StreamHandler()
