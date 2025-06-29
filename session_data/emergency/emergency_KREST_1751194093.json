@@ -1,0 +1,36 @@
+{
+  "symbol": "KREST",
+  "start_time": 1751194092.9443424,
+  "last_update": 1751194092.9443424,
+  "data_points": [
+    {
+      "timestamp": 1751194092.9443424,
+      "volume": 1031.25442,
+      "trades": 75,
+      "change": 1.3530135301353103,
+      "natr": 2.8290282902828943,
+      "spread": 0.366748166259175,
+      "price": 0.00824
+    }
+  ],
+  "total_minutes": 1,
+  "summary": {
+    "max_volume": 1031.25442,
+    "total_volume": 1031.25442,
+    "total_trades": 75,
+    "max_change": 1.3530135301353103,
+    "min_change": 0,
+    "max_natr": 2.8290282902828943,
+    "max_spread": 0.366748166259175,
+    "avg_price": 0.00824,
+    "price_samples": [
+      0.00824
+    ]
+  },
+  "backup_count": 0,
+  "last_backup": 1751194092.9443424,
+  "end_time": 1751194093.671094,
+  "total_duration": 0.7267515659332275,
+  "start_datetime": "2025-06-29T10:48:12.944342",
+  "end_datetime": "2025-06-29T10:48:13.671094"
+}
