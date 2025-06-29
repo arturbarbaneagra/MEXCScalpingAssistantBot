@@ -1,7 +1,7 @@
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from logging.handlers import RotatingFileHandler
 
 class TradingBotLogger:
@@ -22,9 +22,22 @@ class TradingBotLogger:
 
     def _setup_handlers(self, max_size: int, backup_count: int):
         """Настраивает обработчики логов"""
-        formatter = logging.Formatter(
+        
+        # Московское время (UTC+3)
+        moscow_tz = timezone(timedelta(hours=3))
+        
+        class MoscowFormatter(logging.Formatter):
+            def formatTime(self, record, datefmt=None):
+                ct = datetime.fromtimestamp(record.created, tz=moscow_tz)
+                if datefmt:
+                    s = ct.strftime(datefmt)
+                else:
+                    s = ct.strftime('%Y-%m-%d %H:%M:%S MSK')
+                return s
+        
+        formatter = MoscowFormatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
+            datefmt='%Y-%m-%d %H:%M:%S MSK'
         )
 
         # Файловый обработчик с ротацией
